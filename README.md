@@ -17,7 +17,8 @@ See [PRD.md](./PRD.md) for the complete product requirements.
 
 ## Status
 
-Bootstrapped. The backend is a TypeScript/Express application with a health endpoint, deployable to Vercel.
+The backend is a TypeScript/Express application with a health endpoint and an
+authenticated Twilio WhatsApp Sandbox webhook, deployable to Vercel.
 
 ## Requirements
 
@@ -30,6 +31,10 @@ Bootstrapped. The backend is a TypeScript/Express application with a health endp
 npm install
 cp .env.example .env
 ```
+
+Fill in the Twilio variables in `.env` before starting the app — see
+[docs/twilio-sandbox-setup.md](./docs/twilio-sandbox-setup.md) for how to obtain them
+and configure the Sandbox webhook.
 
 ## Development
 
@@ -76,6 +81,22 @@ Returns `200` with:
 }
 ```
 
+### `POST /webhooks/twilio/whatsapp`
+
+Receives inbound Twilio WhatsApp Sandbox messages. Requests are rejected with
+`403` unless they carry a valid `X-Twilio-Signature` header for the exact
+`PUBLIC_BASE_URL` + path Twilio was configured to call. Accepted requests are
+normalized into a provider-neutral inbound-message object (see
+`src/types/inbound-message.ts`) and return an empty TwiML response:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Response></Response>
+```
+
+No bot reply is sent yet — see [docs/twilio-sandbox-setup.md](./docs/twilio-sandbox-setup.md)
+for how to configure and verify this webhook against a real Sandbox.
+
 ## Deployment (Vercel)
 
 The Express app is exported as the default export of `src/index.ts` and deployed as a
@@ -86,6 +107,8 @@ single Vercel serverless function via `vercel.json`.
 3. Deploy to production: `vercel --prod`.
 4. Verify the deployment by requesting `https://<your-production-domain>/health`.
 
-No environment variables are required for this slice, but any added later should be set
-in the Vercel project's environment variable settings (Development/Preview/Production)
-and documented in `.env.example`.
+Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`, and
+`PUBLIC_BASE_URL` in the Vercel project's **Production** environment (see
+[docs/twilio-sandbox-setup.md](./docs/twilio-sandbox-setup.md)). Redeploy after
+changing any environment variable. Any variables added later should also be set in
+Vercel and documented in `.env.example`.
