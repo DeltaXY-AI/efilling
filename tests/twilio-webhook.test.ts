@@ -89,6 +89,16 @@ describe("POST /webhooks/twilio/whatsapp", () => {
     expect(response.status).toBe(403);
   });
 
+  it("rejects a non-form-encoded request with 403 instead of crashing", async () => {
+    const response = await request(app)
+      .post(ROUTE_PATH)
+      .set("Content-Type", "application/json")
+      .set("X-Twilio-Signature", "whatever")
+      .send({ Body: "hi" });
+
+    expect(response.status).toBe(403);
+  });
+
   it("rejects a request with a missing signature", async () => {
     const params = {
       MessageSid: "SM4444444444444444444444444444444",

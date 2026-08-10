@@ -12,7 +12,10 @@ export const twilioWebhookRouter = Router();
 twilioWebhookRouter.post(ROUTE_PATH, (req: Request, res: Response) => {
   const signature = req.header("X-Twilio-Signature");
   const webhookUrl = buildTwilioWebhookUrl(env.PUBLIC_BASE_URL, req.originalUrl);
-  const body = req.body as TwilioWebhookBody;
+  // req.body is only populated for application/x-www-form-urlencoded requests;
+  // anything else (wrong content-type, no body) must still fail signature
+  // validation cleanly with 403 instead of throwing on an undefined body.
+  const body = (req.body ?? {}) as TwilioWebhookBody;
 
   if (!isValidTwilioSignature(env.TWILIO_AUTH_TOKEN, signature, webhookUrl, body)) {
     // Reject without normalizing or logging any part of the (unverified) payload.
