@@ -11,6 +11,15 @@ function sign(params: Record<string, string>): string {
   return getExpectedTwilioSignature(env.TWILIO_AUTH_TOKEN, WEBHOOK_URL, params);
 }
 
+function findLoggedEvent(logSpy: ReturnType<typeof vi.spyOn>, messageSid: string): Record<string, unknown> {
+  const loggedLine = logSpy.mock.calls
+    .map((call: unknown[]) => call[0])
+    .find((line: unknown): line is string => typeof line === "string" && line.includes(messageSid));
+
+  expect(loggedLine).toBeDefined();
+  return JSON.parse(loggedLine as string);
+}
+
 describe("POST /webhooks/twilio/whatsapp", () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
 
@@ -42,6 +51,9 @@ describe("POST /webhooks/twilio/whatsapp", () => {
     expect(response.status).toBe(200);
     expect(response.headers["content-type"]).toMatch(/application\/xml/);
     expect(response.text).toBe('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+
+    const logged = findLoggedEvent(logSpy, params.MessageSid);
+    expect(logged).toMatchObject({ status: 200, outcome: "accepted", mediaCount: 0 });
   });
 
   it("accepts a validly signed media message", async () => {
@@ -63,11 +75,7 @@ describe("POST /webhooks/twilio/whatsapp", () => {
 
     expect(response.status).toBe(200);
 
-    const loggedLine = logSpy.mock.calls
-      .map((call: unknown[]) => call[0])
-      .find((line: unknown): line is string => typeof line === "string" && line.includes(params.MessageSid));
-    expect(loggedLine).toBeDefined();
-    const logged = JSON.parse(loggedLine as string);
+    const logged = findLoggedEvent(logSpy, params.MessageSid);
     expect(logged).toMatchObject({ status: 200, outcome: "accepted", mediaCount: 1 });
   });
 
