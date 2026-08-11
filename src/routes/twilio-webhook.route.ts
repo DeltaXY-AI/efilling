@@ -9,6 +9,7 @@ import { routeInboundMessage, type InboundRouterDeps } from "../services/inbound
 import { DrizzleConversationRepository } from "../repositories/drizzle-conversation-repository";
 import { DrizzleProcessedWebhookRepository } from "../repositories/drizzle-processed-webhook-repository";
 import { DrizzleFilingRepository } from "../repositories/drizzle-filing-repository";
+import { DrizzleOutboundMessageRepository } from "../repositories/drizzle-outbound-message-repository";
 import type { ProcessedWebhookRepository } from "../repositories/processed-webhook-repository";
 import { withTransaction } from "../db/client";
 
@@ -44,6 +45,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
     filingWorkflowDeps: {
       conversationRepo,
       filingRepo: new DrizzleFilingRepository(),
+      outboundMessageRepo: new DrizzleOutboundMessageRepository(),
       filingSenderDeps: {
         messagingClient,
         fromNumber: env.TWILIO_WHATSAPP_FROM,

@@ -6,6 +6,7 @@ import { env } from "../src/config/env";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryProcessedWebhookRepository } from "../src/repositories/in-memory/processed-webhook-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
+import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import type { ProcessedWebhookRepository } from "../src/repositories/processed-webhook-repository";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
@@ -49,6 +50,7 @@ function buildDeps(
     filingWorkflowDeps: {
       conversationRepo,
       filingRepo: new InMemoryFilingRepository(conversationRepo),
+      outboundMessageRepo: new InMemoryOutboundMessageRepository(),
       filingSenderDeps: {
         messagingClient,
         fromNumber: env.TWILIO_WHATSAPP_FROM,

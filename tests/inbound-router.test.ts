@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { routeInboundMessage, type InboundRouterDeps } from "../src/services/inbound-router";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
+import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
 
@@ -43,6 +44,7 @@ describe("routeInboundMessage", () => {
       filingWorkflowDeps: {
         conversationRepo,
         filingRepo: new InMemoryFilingRepository(conversationRepo),
+        outboundMessageRepo: new InMemoryOutboundMessageRepository(),
         filingSenderDeps: {
           messagingClient,
           fromNumber: FROM_NUMBER,
@@ -107,7 +109,7 @@ describe("routeInboundMessage", () => {
     expect(after?.activeFilingId).toBeTruthy();
   });
 
-  it("keeps a FILING_START conversation alive without sending anything (out of scope for this slice)", async () => {
+  it("keeps a FILING_START conversation alive without sending anything — this is exactly why migration 0003 backfills it away", async () => {
     await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
     await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
     await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_START", new Date());
@@ -122,6 +124,22 @@ describe("routeInboundMessage", () => {
 
     const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
     expect(conversation).toMatchObject({ state: "FILING_START" });
+  });
+
+  it("migration 0003 compatibility: a pre-V5A FILING_START conversation, once backfilled to MAIN_MENU, enters the real filing flow", async () => {
+    await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+    // Simulate a conversation left over from #5, in the now-unroutable
+    // FILING_START state, then corrected by migration 0003's backfill
+    // UPDATE (see drizzle/0003_backfill_filing_start_state.sql).
+    await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_START", new Date());
+    await conversationRepo.setState(WHATSAPP_NUMBER, "MAIN_MENU", new Date());
+
+    const result = await routeInboundMessage(deps, baseInput({ buttonPayload: "menu:file-case" }));
+
+    expect(result.delivered).toBe(true);
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "FILING_NOTICE" }); // in the real V5A flow, not stuck
   });
 
   it("keeps a CASE_STATUS_START conversation alive without sending anything (out of scope for this slice)", async () => {

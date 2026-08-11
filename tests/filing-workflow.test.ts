@@ -7,6 +7,7 @@ import {
 } from "../src/services/filing-workflow";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
+import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
 
@@ -19,6 +20,7 @@ const NOTICE_CONTENT_SID = { en: "HXnoticeen000000000000000000000000", ml: "HXno
 describe("filing-workflow", () => {
   let conversationRepo: InMemoryConversationRepository;
   let filingRepo: InMemoryFilingRepository;
+  let outboundMessageRepo: InMemoryOutboundMessageRepository;
   let messagingClient: FakeMessagingClient;
   let deps: FilingWorkflowDeps;
   let conversationId: string;
@@ -26,6 +28,7 @@ describe("filing-workflow", () => {
   beforeEach(async () => {
     conversationRepo = new InMemoryConversationRepository();
     filingRepo = new InMemoryFilingRepository(conversationRepo);
+    outboundMessageRepo = new InMemoryOutboundMessageRepository();
     messagingClient = createFakeMessagingClient();
 
     const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
@@ -35,6 +38,7 @@ describe("filing-workflow", () => {
     deps = {
       conversationRepo,
       filingRepo,
+      outboundMessageRepo,
       filingSenderDeps: {
         messagingClient,
         fromNumber: FROM_NUMBER,
@@ -289,6 +293,45 @@ describe("filing-workflow", () => {
         testNoticeVersion: "v1",
       });
       expect(draft?.testNoticeAcceptedAt).toBeInstanceOf(Date);
+
+      const outbound = outboundMessageRepo.findByDedupeKey("SM2:draft-created");
+      expect(outbound).toMatchObject({ status: "sent", messageType: "FILING_DRAFT_CREATED", conversationId });
+    });
+
+    it("commits the draft and enqueues a durable outbound record even when the completion send fails, and a later retry cannot duplicate it", async () => {
+      messagingClient.sendText.mockRejectedValueOnce(new Error("Twilio 500"));
+
+      const result = await handleFilingNoticeInput(deps, actionInput({ selection: { buttonPayload: "filing:accept-test-notice" } }));
+
+      // The domain write committed regardless of the send outcome — this
+      // is the whole point: a crash or Twilio failure here must never
+      // silently lose the fact that a draft was created.
+      expect(result.delivered).toBe(false);
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "ADVOCATE_ENROLMENT_PENDING" });
+      const filingId = conversation?.activeFilingId;
+      expect(filingId).toBeTruthy();
+
+      // The outbound record is durable, queryable evidence of what was
+      // owed for this MessageSid — enqueued as "pending" inside the same
+      // transaction as the draft, then explicitly marked "failed" after
+      // the send failed. It is never left stuck at "pending" forever, and
+      // an ops/reconciliation job could find it by dedupe key even if the
+      // process crashed immediately after this call returned.
+      const outbound = outboundMessageRepo.findByDedupeKey("SM2:draft-created");
+      expect(outbound).toMatchObject({ status: "failed", errorCode: "send_failed", messageType: "FILING_DRAFT_CREATED" });
+
+      // A later retry/reconciliation attempt for the same advocate must not
+      // duplicate the draft: the conversation is no longer FILING_NOTICE,
+      // so this is treated as stale and no second filing is created.
+      const retry = await handleFilingNoticeInput(
+        deps,
+        actionInput({ messageId: "SM-retry", selection: { buttonPayload: "filing:accept-test-notice" } }),
+      );
+      expect(retry.delivered).toBe(true); // stale no-op, not a fresh success
+
+      const draftAfterRetry = await filingRepo.findActiveDraft(undefined, conversationId);
+      expect(draftAfterRetry?.id).toBe(filingId); // same filing — no duplicate was created
     });
 
     it("sends the Malayalam completion message for a Malayalam advocate", async () => {

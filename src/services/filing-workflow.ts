@@ -1,6 +1,7 @@
 import { parseDraftChoiceAction, parseFilingNoticeAction, type FilingSelectionInput } from "../domain/filing";
-import type { ConversationRepository, ConversationState } from "../repositories/conversation-repository";
+import type { ConversationRecord, ConversationRepository, ConversationState } from "../repositories/conversation-repository";
 import type { FilingRepository } from "../repositories/filing-repository";
+import type { OutboundMessageRepository, OutboundMessageType } from "../repositories/outbound-message-repository";
 import type { RepositoryTransaction } from "../repositories/transaction";
 import { sendDraftChoice, sendFilingNotice, sendFilingPlainText, type FilingSenderDeps } from "./filing-sender";
 import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from "./main-menu-sender";
@@ -8,6 +9,8 @@ import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from ".
 export interface FilingWorkflowDeps {
   conversationRepo: ConversationRepository;
   filingRepo: FilingRepository;
+  /** Durable outbound intent, enqueued inside the same transaction as each committed state change — see commitWithOutbound below. */
+  outboundMessageRepo: OutboundMessageRepository;
   filingSenderDeps: FilingSenderDeps;
   /** Reused as-is for "back to main menu" — never a second menu-sending implementation. */
   mainMenuSenderDeps: MainMenuSenderDeps;
@@ -58,6 +61,64 @@ function sendInputFor(input: { whatsappNumber: string; language: SupportedLangua
   return { to: input.whatsappNumber, language: input.language, correlationId: input.messageId };
 }
 
+type WriteOutcome =
+  | { committed: false }
+  | { committed: true; messageType: OutboundMessageType; dedupeSuffix: string };
+
+interface CommitResult {
+  committed: boolean;
+  outboundId: string | null;
+}
+
+/**
+ * Locks the conversation, runs `writeInTx` (which performs the domain
+ * write(s) and decides what outbound message, if any, they imply), and —
+ * only if it committed — enqueues a durable outbound record for that
+ * intent inside the SAME transaction, before it commits. This is what
+ * makes a committed state change reconcilable even if the process crashes
+ * or the send fails anywhere after this function returns: the row exists
+ * and is queryable as `pending` regardless of what happens next. `dedupeKey`
+ * (`${messageId}:${dedupeSuffix}`) makes enqueuing idempotent — if it
+ * somehow raced (it shouldn't, since the webhook route's MessageSid claim
+ * already guarantees this exact call only happens once), the second
+ * attempt is treated the same as `stale`: no second send.
+ */
+async function commitWithOutbound(
+  deps: FilingWorkflowDeps,
+  input: { conversationId: string; messageId: string; language: SupportedLanguage },
+  writeInTx: (tx: RepositoryTransaction, locked: ConversationRecord) => Promise<WriteOutcome>,
+): Promise<CommitResult> {
+  let result: CommitResult = { committed: false, outboundId: null };
+
+  await deps.withTransaction(async (tx) => {
+    const locked = await deps.conversationRepo.lockById(tx, input.conversationId);
+    const outcome = await writeInTx(tx, locked);
+    if (!outcome.committed) {
+      result = { committed: false, outboundId: null };
+      return;
+    }
+
+    const enqueued = await deps.outboundMessageRepo.enqueue(tx, {
+      dedupeKey: `${input.messageId}:${outcome.dedupeSuffix}`,
+      conversationId: input.conversationId,
+      messageType: outcome.messageType,
+      language: input.language,
+    });
+    result = enqueued ? { committed: true, outboundId: enqueued.id } : { committed: false, outboundId: null };
+  });
+
+  return result;
+}
+
+/** Dispatches the send and records its outcome on the enqueued outbound row — never leaves it stuck at "pending". */
+async function finalizeOutbound(deps: FilingWorkflowDeps, outboundId: string, delivered: boolean): Promise<void> {
+  if (delivered) {
+    await deps.outboundMessageRepo.markSent(outboundId);
+  } else {
+    await deps.outboundMessageRepo.markFailed(outboundId, "send_failed");
+  }
+}
+
 /**
  * Handles `menu:file-case` from MAIN_MENU (Part F). Locks the conversation,
  * checks for an active draft via the authoritative `active_filing_id`
@@ -67,34 +128,36 @@ function sendInputFor(input: { whatsappNumber: string; language: SupportedLangua
  * moved it) is a safe no-op: the first valid transition already won.
  */
 export async function handleFileOrResume(deps: FilingWorkflowDeps, input: FileOrResumeInput): Promise<FilingWorkflowResult> {
-  let outcome: "draft-choice" | "notice" | "stale" = "stale";
+  let sendKind: "draft-choice" | "notice" | null = null;
 
-  await deps.withTransaction(async (tx) => {
-    const locked = await deps.conversationRepo.lockById(tx, input.conversationId);
+  const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
     if (locked.state !== "MAIN_MENU") {
-      outcome = "stale";
-      return;
+      return { committed: false };
     }
 
     const draft = await deps.filingRepo.findActiveDraft(tx, locked.id);
     if (draft) {
       await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_DRAFT_CHOICE");
-      outcome = "draft-choice";
-    } else {
-      await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_NOTICE");
-      outcome = "notice";
+      sendKind = "draft-choice";
+      return { committed: true, messageType: "FILING_DRAFT_CHOICE", dedupeSuffix: "draft-choice" };
     }
+
+    await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_NOTICE");
+    sendKind = "notice";
+    return { committed: true, messageType: "FILING_NOTICE", dedupeSuffix: "filing-notice" };
   });
 
-  if (outcome === "stale") {
+  if (!commit.committed) {
     return { delivered: true };
   }
 
   const sendInput = sendInputFor(input);
-  if (outcome === "draft-choice") {
-    return { delivered: await sendDraftChoice(deps.filingSenderDeps, sendInput) };
-  }
-  return { delivered: await sendFilingNotice(deps.filingSenderDeps, sendInput) };
+  const delivered =
+    sendKind === "draft-choice"
+      ? await sendDraftChoice(deps.filingSenderDeps, sendInput)
+      : await sendFilingNotice(deps.filingSenderDeps, sendInput);
+  await finalizeOutbound(deps, commit.outboundId as string, delivered);
+  return { delivered };
 }
 
 /**
@@ -113,19 +176,35 @@ export async function handleDraftChoiceInput(deps: FilingWorkflowDeps, input: Fi
   }
 
   if (action === "nav:main-menu") {
-    const transitioned = await transitionIfState(deps, input.conversationId, "FILING_DRAFT_CHOICE", "MAIN_MENU");
-    if (!transitioned) {
+    const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
+      if (locked.state !== "FILING_DRAFT_CHOICE") {
+        return { committed: false };
+      }
+      await deps.conversationRepo.setStateInTx(tx, locked.id, "MAIN_MENU");
+      return { committed: true, messageType: "MAIN_MENU", dedupeSuffix: "main-menu" };
+    });
+    if (!commit.committed) {
       return { delivered: true };
     }
-    return { delivered: await sendMainMenu(deps.mainMenuSenderDeps, sendInput) };
+    const delivered = await sendMainMenu(deps.mainMenuSenderDeps, sendInput);
+    await finalizeOutbound(deps, commit.outboundId as string, delivered);
+    return { delivered };
   }
 
   if (action === "filing:start-new") {
-    const transitioned = await transitionIfState(deps, input.conversationId, "FILING_DRAFT_CHOICE", "FILING_NOTICE");
-    if (!transitioned) {
+    const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
+      if (locked.state !== "FILING_DRAFT_CHOICE") {
+        return { committed: false };
+      }
+      await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_NOTICE");
+      return { committed: true, messageType: "FILING_NOTICE", dedupeSuffix: "filing-notice" };
+    });
+    if (!commit.committed) {
       return { delivered: true };
     }
-    return { delivered: await sendFilingNotice(deps.filingSenderDeps, sendInput) };
+    const delivered = await sendFilingNotice(deps.filingSenderDeps, sendInput);
+    await finalizeOutbound(deps, commit.outboundId as string, delivered);
+    return { delivered };
   }
 
   // filing:resume-draft
@@ -133,13 +212,11 @@ export async function handleDraftChoiceInput(deps: FilingWorkflowDeps, input: Fi
 }
 
 async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): Promise<FilingWorkflowResult> {
-  let outcome: "resumed" | "unsupported-step" | "no-draft" | "stale" = "stale";
+  let kind: "resumed" | "unsupported-step" | "no-draft" | null = null;
 
-  await deps.withTransaction(async (tx) => {
-    const locked = await deps.conversationRepo.lockById(tx, input.conversationId);
+  const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
     if (locked.state !== "FILING_DRAFT_CHOICE") {
-      outcome = "stale";
-      return;
+      return { committed: false };
     }
 
     const draft = await deps.filingRepo.findActiveDraft(tx, locked.id);
@@ -147,36 +224,45 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
       // The draft disappeared after the choice was displayed — route
       // safely to FILING_NOTICE instead of a user-visible error (Part G).
       await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_NOTICE");
-      outcome = "no-draft";
-      return;
+      kind = "no-draft";
+      return { committed: true, messageType: "FILING_NOTICE", dedupeSuffix: "filing-notice-redirect" };
     }
 
     if (!SUPPORTED_FILING_STEPS.has(draft.currentStep)) {
-      // Do not guess or modify the filing (Part G) — leave everything as-is.
-      outcome = "unsupported-step";
-      return;
+      // Do not guess or modify the filing (Part G) — nothing is committed,
+      // so no outbound record is needed for this no-op.
+      kind = "unsupported-step";
+      return { committed: false };
     }
 
     await deps.conversationRepo.setStateInTx(tx, locked.id, draft.currentStep as ConversationState);
-    outcome = "resumed";
+    kind = "resumed";
+    return { committed: true, messageType: "FILING_RESUMED", dedupeSuffix: "resumed" };
   });
 
   const sendInput = sendInputFor(input);
 
-  if (outcome === "stale") {
-    return { delivered: true };
-  }
-  if (outcome === "no-draft") {
-    return { delivered: await sendFilingNotice(deps.filingSenderDeps, sendInput) };
-  }
-  if (outcome === "unsupported-step") {
+  if (kind === "unsupported-step") {
     return {
       delivered: await sendFilingPlainText(deps.filingSenderDeps, sendInput, UNSUPPORTED_STEP_TEXT[input.language], "filing_resume_unsupported_step"),
     };
   }
-  return {
-    delivered: await sendFilingPlainText(deps.filingSenderDeps, sendInput, RESUMED_TEXT[input.language], "filing_resume_confirmation_send_failed"),
-  };
+
+  if (!commit.committed) {
+    // Stale: state was no longer FILING_DRAFT_CHOICE by the time the lock
+    // was granted (a concurrent action already moved it) — no-op.
+    return { delivered: true };
+  }
+
+  if (kind === "no-draft") {
+    const delivered = await sendFilingNotice(deps.filingSenderDeps, sendInput);
+    await finalizeOutbound(deps, commit.outboundId as string, delivered);
+    return { delivered };
+  }
+
+  const delivered = await sendFilingPlainText(deps.filingSenderDeps, sendInput, RESUMED_TEXT[input.language], "filing_resume_confirmation_send_failed");
+  await finalizeOutbound(deps, commit.outboundId as string, delivered);
+  return { delivered };
 }
 
 /**
@@ -194,19 +280,25 @@ export async function handleFilingNoticeInput(deps: FilingWorkflowDeps, input: F
   }
 
   if (action === "nav:main-menu") {
-    const transitioned = await transitionIfState(deps, input.conversationId, "FILING_NOTICE", "MAIN_MENU");
-    if (!transitioned) {
+    const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
+      if (locked.state !== "FILING_NOTICE") {
+        return { committed: false };
+      }
+      await deps.conversationRepo.setStateInTx(tx, locked.id, "MAIN_MENU");
+      return { committed: true, messageType: "MAIN_MENU", dedupeSuffix: "main-menu" };
+    });
+    if (!commit.committed) {
       return { delivered: true };
     }
-    return { delivered: await sendMainMenu(deps.mainMenuSenderDeps, sendInput) };
+    const delivered = await sendMainMenu(deps.mainMenuSenderDeps, sendInput);
+    await finalizeOutbound(deps, commit.outboundId as string, delivered);
+    return { delivered };
   }
 
   // filing:accept-test-notice
-  let created = false;
-  await deps.withTransaction(async (tx) => {
-    const locked = await deps.conversationRepo.lockById(tx, input.conversationId);
+  const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
     if (locked.state !== "FILING_NOTICE") {
-      return;
+      return { committed: false };
     }
 
     const filing = await deps.filingRepo.createDraft(tx, {
@@ -217,32 +309,19 @@ export async function handleFilingNoticeInput(deps: FilingWorkflowDeps, input: F
     });
     await deps.filingRepo.recordNoticeAcceptance(tx, filing.id, new Date());
     await deps.conversationRepo.setActiveFilingAndState(tx, locked.id, filing.id, "ADVOCATE_ENROLMENT_PENDING");
-    created = true;
+    return { committed: true, messageType: "FILING_DRAFT_CREATED", dedupeSuffix: "draft-created" };
   });
 
-  if (!created) {
+  if (!commit.committed) {
     return { delivered: true };
   }
-  return {
-    delivered: await sendFilingPlainText(deps.filingSenderDeps, sendInput, COMPLETION_TEXT[input.language], "filing_draft_created_confirmation_send_failed"),
-  };
-}
 
-/** Locks the conversation and transitions it only if it's still in `fromState` — returns whether the transition happened. */
-async function transitionIfState(
-  deps: FilingWorkflowDeps,
-  conversationId: string,
-  fromState: ConversationState,
-  toState: ConversationState,
-): Promise<boolean> {
-  let transitioned = false;
-  await deps.withTransaction(async (tx) => {
-    const locked = await deps.conversationRepo.lockById(tx, conversationId);
-    if (locked.state !== fromState) {
-      return;
-    }
-    await deps.conversationRepo.setStateInTx(tx, locked.id, toState);
-    transitioned = true;
-  });
-  return transitioned;
+  const delivered = await sendFilingPlainText(
+    deps.filingSenderDeps,
+    sendInput,
+    COMPLETION_TEXT[input.language],
+    "filing_draft_created_confirmation_send_failed",
+  );
+  await finalizeOutbound(deps, commit.outboundId as string, delivered);
+  return { delivered };
 }

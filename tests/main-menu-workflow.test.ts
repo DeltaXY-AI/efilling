@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { handleInboundForMainMenu, type MainMenuWorkflowDeps } from "../src/services/main-menu-workflow";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
+import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
 
@@ -52,6 +53,7 @@ describe("handleInboundForMainMenu", () => {
       filingWorkflowDeps: {
         conversationRepo,
         filingRepo: new InMemoryFilingRepository(conversationRepo),
+        outboundMessageRepo: new InMemoryOutboundMessageRepository(),
         filingSenderDeps: {
           messagingClient,
           fromNumber: FROM_NUMBER,
