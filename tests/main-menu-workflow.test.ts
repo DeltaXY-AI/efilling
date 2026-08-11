@@ -1,0 +1,160 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { handleInboundForMainMenu, type MainMenuWorkflowDeps } from "../src/services/main-menu-workflow";
+import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
+import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
+
+const WHATSAPP_NUMBER = "whatsapp:+15005550006";
+const FROM_NUMBER = "whatsapp:+14155238886";
+const LANGUAGE_CONTENT_SID = "HXlanguage0000000000000000000000000";
+const MAIN_MENU_CONTENT_SID = { en: "HXmenuen00000000000000000000000000", ml: "HXmenuml00000000000000000000000000" };
+
+function baseInput(overrides: Partial<Parameters<typeof handleInboundForMainMenu>[1]> = {}) {
+  return {
+    whatsappNumber: WHATSAPP_NUMBER,
+    messageId: "SM0000000000000000000000000000000",
+    language: "en" as const,
+    selection: {},
+    ...overrides,
+  };
+}
+
+describe("handleInboundForMainMenu", () => {
+  let conversationRepo: InMemoryConversationRepository;
+  let messagingClient: FakeMessagingClient;
+  let deps: MainMenuWorkflowDeps;
+
+  beforeEach(async () => {
+    conversationRepo = new InMemoryConversationRepository();
+    messagingClient = createFakeMessagingClient();
+    await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+
+    deps = {
+      conversationRepo,
+      mainMenuSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
+      languageWorkflowDeps: {
+        conversationRepo,
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        contentSid: LANGUAGE_CONTENT_SID,
+        mainMenuContentSid: MAIN_MENU_CONTENT_SID,
+      },
+    };
+  });
+
+  it("redisplays the current-language menu on 'menu', without changing state", async () => {
+    const result = await handleInboundForMainMenu(deps, baseInput({ selection: { body: "menu" } }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ contentSid: MAIN_MENU_CONTENT_SID.en }),
+    );
+
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "MAIN_MENU", language: "en" });
+  });
+
+  it("redisplays the Malayalam menu on 'മെനു' for a Malayalam advocate", async () => {
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "ml", new Date());
+
+    const result = await handleInboundForMainMenu(deps, baseInput({ language: "ml", selection: { body: "മെനു" } }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ contentSid: MAIN_MENU_CONTENT_SID.ml }),
+    );
+  });
+
+  it("routes menu:file-case to FILING_START with the localized acknowledgement", async () => {
+    const result = await handleInboundForMainMenu(deps, baseInput({ selection: { buttonPayload: "menu:file-case" } }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendText).toHaveBeenCalledWith({
+      from: FROM_NUMBER,
+      to: WHATSAPP_NUMBER,
+      body: "Let's start your cheque-case filing.",
+    });
+
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "FILING_START" });
+  });
+
+  it("routes menu:case-status to CASE_STATUS_START with the localized acknowledgement", async () => {
+    const result = await handleInboundForMainMenu(deps, baseInput({ selection: { buttonPayload: "menu:case-status" } }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendText).toHaveBeenCalledWith({
+      from: FROM_NUMBER,
+      to: WHATSAPP_NUMBER,
+      body: "Let's check your case status.",
+    });
+
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "CASE_STATUS_START" });
+  });
+
+  it("routes menu:change-language back to AWAITING_LANGUAGE and reuses #3's picker — not a second implementation", async () => {
+    const result = await handleInboundForMainMenu(deps, baseInput({ selection: { buttonPayload: "menu:change-language" } }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith({
+      from: FROM_NUMBER,
+      to: WHATSAPP_NUMBER,
+      contentSid: LANGUAGE_CONTENT_SID,
+    });
+
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "AWAITING_LANGUAGE", language: null });
+  });
+
+  it('routes "language"/"ഭാഷ" (the #3 trigger) to the same change-language action', async () => {
+    const result = await handleInboundForMainMenu(deps, baseInput({ selection: { body: "language" } }));
+
+    expect(result.delivered).toBe(true);
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "AWAITING_LANGUAGE", language: null });
+  });
+
+  it("keeps MAIN_MENU and redisplays after menu:help, sending the localized help text first", async () => {
+    const result = await handleInboundForMainMenu(deps, baseInput({ selection: { buttonPayload: "menu:help" } }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendText).toHaveBeenCalledWith({
+      from: FROM_NUMBER,
+      to: WHATSAPP_NUMBER,
+      body: expect.stringContaining("Complainant Advocate"),
+    });
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ contentSid: MAIN_MENU_CONTENT_SID.en }),
+    );
+
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "MAIN_MENU" });
+  });
+
+  it("does not change state for unrecognized input, and redisplays the menu with a clarification", async () => {
+    const result = await handleInboundForMainMenu(deps, baseInput({ selection: { body: "asdf" } }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ body: expect.not.stringContaining("menu:") }),
+    );
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ contentSid: MAIN_MENU_CONTENT_SID.en }),
+    );
+
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "MAIN_MENU", language: "en" });
+  });
+
+  it("falls back to the numbered plain-text menu when the list-picker Content Template fails", async () => {
+    messagingClient.sendContentTemplate.mockRejectedValueOnce(new Error("Twilio 500"));
+
+    const result = await handleInboundForMainMenu(deps, baseInput({ selection: { body: "menu" } }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ body: expect.stringContaining("1. File or resume a case") }),
+    );
+  });
+});

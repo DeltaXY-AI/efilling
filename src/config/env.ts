@@ -7,6 +7,8 @@ const envSchema = z.object({
   TWILIO_AUTH_TOKEN: z.string().min(1, "TWILIO_AUTH_TOKEN is required"),
   TWILIO_WHATSAPP_FROM: z.string().min(1, "TWILIO_WHATSAPP_FROM is required"),
   TWILIO_LANGUAGE_CONTENT_SID: z.string().min(1, "TWILIO_LANGUAGE_CONTENT_SID is required"),
+  TWILIO_MAIN_MENU_CONTENT_SID_EN: z.string().min(1, "TWILIO_MAIN_MENU_CONTENT_SID_EN is required"),
+  TWILIO_MAIN_MENU_CONTENT_SID_ML: z.string().min(1, "TWILIO_MAIN_MENU_CONTENT_SID_ML is required"),
   PUBLIC_BASE_URL: z.string().url("PUBLIC_BASE_URL must be an absolute URL"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
 });

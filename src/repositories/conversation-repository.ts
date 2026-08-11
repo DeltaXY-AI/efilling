@@ -1,5 +1,5 @@
 export type ConversationLanguage = "en" | "ml";
-export type ConversationState = "NEW" | "AWAITING_LANGUAGE" | "MAIN_MENU";
+export type ConversationState = "NEW" | "AWAITING_LANGUAGE" | "MAIN_MENU" | "FILING_START" | "CASE_STATUS_START";
 
 export interface ConversationRecord {
   id: string;
@@ -31,6 +31,9 @@ export interface ConversationRepository {
 
   /** Clears any selected language and moves the conversation back to AWAITING_LANGUAGE. */
   resetToAwaitingLanguage(whatsappNumber: string, lastInboundAt: Date): Promise<ConversationRecord>;
+
+  /** Transitions to an arbitrary state without changing the selected language (e.g. MAIN_MENU -> FILING_START). */
+  setState(whatsappNumber: string, state: ConversationState, lastInboundAt: Date): Promise<ConversationRecord>;
 
   /** Updates only the last-inbound timestamp, without changing language/state. */
   touchLastInboundAt(whatsappNumber: string, lastInboundAt: Date): Promise<void>;

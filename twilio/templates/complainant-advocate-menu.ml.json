@@ -1,0 +1,37 @@
+{
+  "friendly_name": "oncourts_complainant_advocate_menu_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/list-picker": {
+      "body": "ഇന്ന് എന്താണ് ചെയ്യേണ്ടത്?",
+      "button": "പ്രധാന മെനു",
+      "items": [
+        {
+          "item": "കേസ് ഫയൽ ചെയ്യുക",
+          "description": "പുതിയ ഫയലിംഗ് ആരംഭിക്കുക അല്ലെങ്കിൽ ഡ്രാഫ്റ്റ് തുടരുക",
+          "id": "menu:file-case",
+          "media_url": null
+        },
+        {
+          "item": "കേസ് സ്ഥിതി",
+          "description": "ഡയറി അല്ലെങ്കിൽ കേസ് റഫറൻസ് ഉപയോഗിച്ച് പരിശോധിക്കുക",
+          "id": "menu:case-status",
+          "media_url": null
+        },
+        {
+          "item": "ഭാഷ മാറ്റുക",
+          "description": "English അല്ലെങ്കിൽ മലയാളം തിരഞ്ഞെടുക്കുക",
+          "id": "menu:change-language",
+          "media_url": null
+        },
+        {
+          "item": "സഹായം",
+          "description": "പരാതിക്കാരന്റെ അഭിഭാഷക സേവനത്തിനുള്ള സഹായം",
+          "id": "menu:help",
+          "media_url": null
+        }
+      ],
+      "multiple_selection": null
+    }
+  }
+}

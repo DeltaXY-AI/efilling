@@ -7,7 +7,13 @@ import { pgEnum, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
  */
 
 export const conversationLanguageEnum = pgEnum("conversation_language", ["en", "ml"]);
-export const conversationStateEnum = pgEnum("conversation_state", ["NEW", "AWAITING_LANGUAGE", "MAIN_MENU"]);
+export const conversationStateEnum = pgEnum("conversation_state", [
+  "NEW",
+  "AWAITING_LANGUAGE",
+  "MAIN_MENU",
+  "FILING_START",
+  "CASE_STATUS_START",
+]);
 export const webhookEventStatusEnum = pgEnum("webhook_event_status", ["processing", "processed", "failed"]);
 
 export const conversations = pgTable("conversations", {

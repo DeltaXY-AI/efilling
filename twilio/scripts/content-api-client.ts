@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { diffTemplates, templatesMatch, type ContentTemplateSpec } from "./template-comparison";
 
 const CONTENT_API_BASE_URL = "https://content.twilio.com/v1/Content";
 
@@ -12,25 +13,7 @@ export interface TwilioCredentials {
   authToken: string;
 }
 
-export interface QuickReplyAction {
-  // Twilio's Content API does not accept/round-trip a per-action "type"
-  // field for twilio/quick-reply — confirmed against a real Content
-  // resource: it always comes back as just {id, title}. Comparing against
-  // one would make verification permanently fail for any real template.
-  title: string;
-  id: string;
-}
-
-export interface ContentTemplateSpec {
-  friendly_name: string;
-  language: string;
-  types: {
-    "twilio/quick-reply": {
-      body: string;
-      actions: QuickReplyAction[];
-    };
-  };
-}
+export type { ContentTemplateSpec };
 
 export interface ContentResource extends ContentTemplateSpec {
   sid: string;
@@ -178,73 +161,70 @@ export async function createContentTemplate(
   return (await parseJsonOrThrow(response, "create", credentials)) as ContentResource;
 }
 
-/**
- * Deterministically orders object keys so structurally-equal specs compare
- * equal regardless of the source field ordering. Array order is preserved —
- * quick-reply action order is significant.
- */
-function canonicalize(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(canonicalize);
+/** A same-name Content Template already exists but its content differs from the local spec. */
+export class TemplateMismatchError extends Error {
+  constructor(
+    public readonly friendlyName: string,
+    public readonly remoteSid: string,
+    public readonly differences: string[],
+  ) {
+    super(`A Twilio Content Template named "${friendlyName}" already exists but its content differs.`);
+    this.name = "TemplateMismatchError";
   }
+}
 
-  if (value !== null && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    const result: Record<string, unknown> = {};
-    for (const key of Object.keys(record).sort()) {
-      result[key] = canonicalize(record[key]);
-    }
-    return result;
+/** More than one Content Template shares the same friendly_name — Twilio does not enforce uniqueness. */
+export class DuplicateTemplatesError extends Error {
+  constructor(
+    public readonly friendlyName: string,
+    public readonly sids: string[],
+  ) {
+    super(`Multiple Twilio Content Templates named "${friendlyName}" already exist.`);
+    this.name = "DuplicateTemplatesError";
   }
+}
 
-  return value;
+/** Suggests the next version name for a template whose content has changed, e.g. "..._v1" -> "..._v2". */
+export function nextVersionSuggestion(friendlyName: string): string {
+  const match = friendlyName.match(/^(.*_v)(\d+)$/);
+  if (!match) {
+    return `${friendlyName}_v2`;
+  }
+  return `${match[1]}${Number(match[2]) + 1}`;
+}
+
+export interface EnsureTemplateResult {
+  outcome: "created" | "reused";
+  sid: string;
 }
 
 /**
- * Extracts only the fields the versioning policy compares — friendly_name,
- * language, and the quick-reply body/actions — ignoring server-generated
- * fields (sid, url, date_created, date_updated). Whitespace inside the body
- * or button text is significant and is never normalized away.
+ * The single idempotent create-or-reuse decision shared by every
+ * create-*-template(s) script: no same-name template → create; one
+ * identical same-name template → reuse; one differing same-name template →
+ * throw TemplateMismatchError; more than one → throw DuplicateTemplatesError.
+ * Never creates a second resource once any same-name template exists.
  */
-function comparableFields(spec: ContentTemplateSpec): unknown {
-  return canonicalize({
-    friendly_name: spec.friendly_name,
-    language: spec.language,
-    types: spec.types,
-  });
-}
+export async function ensureContentTemplate(
+  credentials: TwilioCredentials,
+  spec: ContentTemplateSpec,
+): Promise<EnsureTemplateResult> {
+  const matches = (await listContentTemplates(credentials)).filter(
+    (resource) => resource.friendly_name === spec.friendly_name,
+  );
 
-export function templatesMatch(local: ContentTemplateSpec, remote: ContentTemplateSpec): boolean {
-  return JSON.stringify(comparableFields(local)) === JSON.stringify(comparableFields(remote));
-}
-
-/** Produces a safe, structural mismatch summary. Never includes credentials. */
-export function diffTemplates(local: ContentTemplateSpec, remote: ContentTemplateSpec): string[] {
-  const differences: string[] = [];
-
-  if (local.friendly_name !== remote.friendly_name) {
-    differences.push(`friendly_name: local="${local.friendly_name}" remote="${remote.friendly_name}"`);
+  if (matches.length > 1) {
+    throw new DuplicateTemplatesError(spec.friendly_name, matches.map((resource) => resource.sid));
   }
 
-  if (local.language !== remote.language) {
-    differences.push(`language: local="${local.language}" remote="${remote.language}"`);
-  }
-
-  const localQuickReply = local.types["twilio/quick-reply"];
-  const remoteQuickReply = remote.types["twilio/quick-reply"];
-
-  if (!remoteQuickReply) {
-    differences.push('types["twilio/quick-reply"]: missing on remote template');
-  } else {
-    if (localQuickReply.body !== remoteQuickReply.body) {
-      differences.push('types["twilio/quick-reply"].body differs');
+  if (matches.length === 1) {
+    const [remote] = matches;
+    if (templatesMatch(spec, remote)) {
+      return { outcome: "reused", sid: remote.sid };
     }
-    if (JSON.stringify(localQuickReply.actions) !== JSON.stringify(remoteQuickReply.actions)) {
-      differences.push(
-        `types["twilio/quick-reply"].actions differ: local=${JSON.stringify(localQuickReply.actions)} remote=${JSON.stringify(remoteQuickReply.actions)}`,
-      );
-    }
+    throw new TemplateMismatchError(spec.friendly_name, remote.sid, diffTemplates(spec, remote));
   }
 
-  return differences;
+  const created = await createContentTemplate(credentials, spec);
+  return { outcome: "created", sid: created.sid };
 }

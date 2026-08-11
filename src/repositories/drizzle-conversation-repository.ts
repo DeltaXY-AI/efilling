@@ -5,6 +5,7 @@ import type {
   ConversationLanguage,
   ConversationRecord,
   ConversationRepository,
+  ConversationState,
 } from "./conversation-repository";
 
 export class DrizzleConversationRepository implements ConversationRepository {
@@ -49,6 +50,17 @@ export class DrizzleConversationRepository implements ConversationRepository {
     const [row] = await db
       .update(conversations)
       .set({ language: null, state: "AWAITING_LANGUAGE", lastInboundAt, updatedAt: new Date() })
+      .where(eq(conversations.whatsappNumber, whatsappNumber))
+      .returning();
+
+    return row;
+  }
+
+  async setState(whatsappNumber: string, state: ConversationState, lastInboundAt: Date): Promise<ConversationRecord> {
+    const db = getDb();
+    const [row] = await db
+      .update(conversations)
+      .set({ state, lastInboundAt, updatedAt: new Date() })
       .where(eq(conversations.whatsappNumber, whatsappNumber))
       .returning();
 

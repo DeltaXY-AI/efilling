@@ -2,6 +2,7 @@ import type {
   ConversationLanguage,
   ConversationRecord,
   ConversationRepository,
+  ConversationState,
 } from "../conversation-repository";
 
 let nextId = 1;
@@ -39,6 +40,10 @@ export class InMemoryConversationRepository implements ConversationRepository {
 
   async resetToAwaitingLanguage(whatsappNumber: string, lastInboundAt: Date): Promise<ConversationRecord> {
     return this.update(whatsappNumber, { language: null, state: "AWAITING_LANGUAGE", lastInboundAt });
+  }
+
+  async setState(whatsappNumber: string, state: ConversationState, lastInboundAt: Date): Promise<ConversationRecord> {
+    return this.update(whatsappNumber, { state, lastInboundAt });
   }
 
   async touchLastInboundAt(whatsappNumber: string, lastInboundAt: Date): Promise<void> {

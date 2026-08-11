@@ -5,10 +5,12 @@ import { createApp } from "../src/app";
 import { env } from "../src/config/env";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryProcessedWebhookRepository } from "../src/repositories/in-memory/processed-webhook-repository";
+import type { ProcessedWebhookRepository } from "../src/repositories/processed-webhook-repository";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
 
 const ROUTE_PATH = "/webhooks/twilio/whatsapp";
 const WEBHOOK_URL = `${env.PUBLIC_BASE_URL}${ROUTE_PATH}`;
+const MAIN_MENU_CONTENT_SID = { en: env.TWILIO_MAIN_MENU_CONTENT_SID_EN, ml: env.TWILIO_MAIN_MENU_CONTENT_SID_ML };
 
 function sign(params: Record<string, string>): string {
   return getExpectedTwilioSignature(env.TWILIO_AUTH_TOKEN, WEBHOOK_URL, params);
@@ -23,6 +25,25 @@ function findLoggedEvent(logSpy: ReturnType<typeof vi.spyOn>, messageSid: string
   return JSON.parse(loggedLine as string);
 }
 
+function buildDeps(
+  conversationRepo: InMemoryConversationRepository,
+  processedWebhookRepo: ProcessedWebhookRepository,
+  messagingClient: FakeMessagingClient,
+) {
+  return {
+    conversationRepo,
+    processedWebhookRepo,
+    languageWorkflowDeps: {
+      conversationRepo,
+      messagingClient,
+      fromNumber: env.TWILIO_WHATSAPP_FROM,
+      contentSid: env.TWILIO_LANGUAGE_CONTENT_SID,
+      mainMenuContentSid: MAIN_MENU_CONTENT_SID,
+    },
+    mainMenuSenderDeps: { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
+  };
+}
+
 describe("POST /webhooks/twilio/whatsapp", () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
   let messagingClient: FakeMessagingClient;
@@ -32,15 +53,7 @@ describe("POST /webhooks/twilio/whatsapp", () => {
     logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     messagingClient = createFakeMessagingClient();
     app = createApp({
-      twilioWebhookDeps: {
-        conversationRepo: new InMemoryConversationRepository(),
-        processedWebhookRepo: new InMemoryProcessedWebhookRepository(),
-        languageWorkflowDeps: {
-          messagingClient,
-          fromNumber: env.TWILIO_WHATSAPP_FROM,
-          contentSid: env.TWILIO_LANGUAGE_CONTENT_SID,
-        },
-      },
+      twilioWebhookDeps: buildDeps(new InMemoryConversationRepository(), new InMemoryProcessedWebhookRepository(), messagingClient),
     });
   });
 
@@ -210,7 +223,7 @@ describe("POST /webhooks/twilio/whatsapp", () => {
     expect(messagingClient.sendContentTemplate).toHaveBeenCalledTimes(1);
   });
 
-  it("persists a Quick Reply button selection and sends the localized confirmation", async () => {
+  it("persists a Quick Reply button selection, sends the localized confirmation, then the main menu", async () => {
     const from = "whatsapp:+15005550008";
     const firstParams = {
       MessageSid: "SM7777777777777777777777777777777",
@@ -220,6 +233,7 @@ describe("POST /webhooks/twilio/whatsapp", () => {
       NumMedia: "0",
     };
     await request(app).post(ROUTE_PATH).type("form").set("X-Twilio-Signature", sign(firstParams)).send(firstParams);
+    messagingClient.sendContentTemplate.mockClear();
 
     const selectionParams = {
       MessageSid: "SM8888888888888888888888888888888",
@@ -242,6 +256,43 @@ describe("POST /webhooks/twilio/whatsapp", () => {
       to: from,
       body: "✓ English selected.",
     });
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith({
+      from: env.TWILIO_WHATSAPP_FROM,
+      to: from,
+      contentSid: env.TWILIO_MAIN_MENU_CONTENT_SID_EN,
+    });
+  });
+
+  it("routes a full-conversation menu selection (List Picker) to FILING_START end to end", async () => {
+    const from = "whatsapp:+15005550011";
+    const send = (params: Record<string, string>) =>
+      request(app).post(ROUTE_PATH).type("form").set("X-Twilio-Signature", sign(params)).send(params);
+
+    await send({ MessageSid: "SMflowa000000000000000000000000001", From: from, To: "whatsapp:+14155238886", Body: "Hi", NumMedia: "0" });
+    await send({
+      MessageSid: "SMflowa000000000000000000000000002",
+      From: from,
+      To: "whatsapp:+14155238886",
+      Body: "English",
+      ButtonPayload: "language:en",
+      NumMedia: "0",
+    });
+    const response = await send({
+      MessageSid: "SMflowa000000000000000000000000003",
+      From: from,
+      To: "whatsapp:+14155238886",
+      Body: "File or resume case",
+      ListId: "menu:file-case",
+      ListTitle: "File or resume case",
+      NumMedia: "0",
+    });
+
+    expect(response.status).toBe(200);
+    expect(messagingClient.sendText).toHaveBeenCalledWith({
+      from: env.TWILIO_WHATSAPP_FROM,
+      to: from,
+      body: "Let's start your cheque-case filing.",
+    });
   });
 
   it("acks with 200 and logs safely instead of a 500 when the idempotency claim itself fails (e.g. DB unreachable)", async () => {
@@ -251,15 +302,7 @@ describe("POST /webhooks/twilio/whatsapp", () => {
       markOutcome: vi.fn(),
     };
     const brokenApp = createApp({
-      twilioWebhookDeps: {
-        conversationRepo: new InMemoryConversationRepository(),
-        processedWebhookRepo: brokenProcessedWebhookRepo,
-        languageWorkflowDeps: {
-          messagingClient,
-          fromNumber: env.TWILIO_WHATSAPP_FROM,
-          contentSid: env.TWILIO_LANGUAGE_CONTENT_SID,
-        },
-      },
+      twilioWebhookDeps: buildDeps(new InMemoryConversationRepository(), brokenProcessedWebhookRepo, messagingClient),
     });
 
     const params = {

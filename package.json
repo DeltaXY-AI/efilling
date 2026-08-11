@@ -16,7 +16,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file=.env src/db/migrate.ts",
     "twilio:template:create": "tsx --env-file=.env twilio/scripts/create-language-template.ts",
-    "twilio:template:verify": "tsx --env-file=.env twilio/scripts/verify-language-template.ts"
+    "twilio:template:verify": "tsx --env-file=.env twilio/scripts/verify-language-template.ts",
+    "twilio:menu:create": "tsx --env-file=.env twilio/scripts/create-main-menu-templates.ts",
+    "twilio:menu:verify": "tsx --env-file=.env twilio/scripts/verify-main-menu-templates.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
