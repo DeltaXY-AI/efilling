@@ -147,6 +147,21 @@ describe("handleInboundForMainMenu", () => {
     expect(conversation).toMatchObject({ state: "MAIN_MENU", language: "en" });
   });
 
+  it("treats a stale/unknown stable ID as unrecognized, even with a Body that looks like a valid number", async () => {
+    const result = await handleInboundForMainMenu(
+      deps,
+      baseInput({ selection: { buttonPayload: "menu:removed-item", body: "1" } }),
+    );
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ body: expect.not.stringContaining("menu:") }),
+    );
+
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "MAIN_MENU", language: "en" });
+  });
+
   it("falls back to the numbered plain-text menu when the list-picker Content Template fails", async () => {
     messagingClient.sendContentTemplate.mockRejectedValueOnce(new Error("Twilio 500"));
 

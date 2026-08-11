@@ -129,6 +129,22 @@ describe("Twilio main menu Content Template scripts", () => {
 
       expect(loggedOutput()).not.toContain("test-auth-token");
     });
+
+    it("reports an unexpected failure for one language without aborting the other", async () => {
+      const createdMl = resourceFrom(SPEC_ML, "HXmenuml00000000000000000000000000");
+      fetchMock
+        .mockResolvedValueOnce(new Response("server exploded", { status: 500 })) // list for EN fails unexpectedly
+        .mockResolvedValueOnce(jsonResponse({ contents: [], meta: { next_page_url: null } })) // list for ML
+        .mockResolvedValueOnce(jsonResponse(createdMl, 201)); // create ML
+
+      await createMain();
+
+      expect(process.exitCode).toBe(1);
+      const output = loggedOutput();
+      expect(output).toContain("English");
+      expect(output).toContain("HTTP 500");
+      expect(output).toContain(createdMl.sid); // Malayalam was still attempted and reported
+    });
   });
 
   describe("verify-main-menu-templates", () => {
@@ -148,13 +164,17 @@ describe("Twilio main menu Content Template scripts", () => {
       expect(loggedOutput()).toContain("matches the repository specification");
     });
 
-    it("exits non-zero when a content SID env var is missing, without making any request", async () => {
+    it("reports a missing content SID env var for one language while still verifying the other", async () => {
       delete process.env.TWILIO_MAIN_MENU_CONTENT_SID_ML;
+      fetchMock.mockResolvedValueOnce(jsonResponse(resourceFrom(SPEC_EN, process.env.TWILIO_MAIN_MENU_CONTENT_SID_EN!)));
 
       await verifyMain();
 
       expect(process.exitCode).toBe(1);
-      expect(fetchMock).not.toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledTimes(1); // English was still fetched and verified
+      const output = loggedOutput();
+      expect(output).toContain("TWILIO_MAIN_MENU_CONTENT_SID_ML is not configured");
+      expect(output).toContain("matches the repository specification"); // English's success is still reported
     });
 
     it("reports both results when English matches but Malayalam does not", async () => {
@@ -171,6 +191,20 @@ describe("Twilio main menu Content Template scripts", () => {
       const output = loggedOutput();
       expect(output).toContain("English");
       expect(output).toContain("Malayalam");
+    });
+
+    it("reports an unexpected failure fetching one language while still verifying the other", async () => {
+      fetchMock
+        .mockResolvedValueOnce(new Response("server exploded", { status: 500 })) // English fetch fails unexpectedly
+        .mockResolvedValueOnce(jsonResponse(resourceFrom(SPEC_ML, process.env.TWILIO_MAIN_MENU_CONTENT_SID_ML!))); // Malayalam still checked
+
+      await verifyMain();
+
+      expect(process.exitCode).toBe(1);
+      const output = loggedOutput();
+      expect(output).toContain("English");
+      expect(output).toContain("HTTP 500");
+      expect(output).toContain("matches the repository specification"); // Malayalam's success is still reported
     });
   });
 });

@@ -52,8 +52,9 @@ describe("parseMenuAction", () => {
     expect(parseMenuAction({ body: "" })).toBeNull();
   });
 
-  it("ignores an unrecognized stable ID rather than treating it as a false match", () => {
-    expect(parseMenuAction({ buttonPayload: "menu:unknown-action", body: "1" })).toBe("menu:file-case");
+  it("treats an unrecognized/stale stable ID as unrecognized, never falling through to a Body match", () => {
+    expect(parseMenuAction({ buttonPayload: "menu:unknown-action", body: "1" })).toBeNull();
+    expect(parseMenuAction({ listId: "menu:removed-item", body: "Help" })).toBeNull();
   });
 });
 

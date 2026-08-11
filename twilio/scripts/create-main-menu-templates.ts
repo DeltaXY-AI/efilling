@@ -69,7 +69,10 @@ export async function main(): Promise<void> {
         }
         console.error(`Create a new versioned source file/name, e.g. "${nextVersionSuggestion(error.friendlyName)}", instead of modifying a deployed template.`);
       } else {
-        throw error;
+        // An unexpected failure (network error, Twilio outage, etc.) must
+        // still not abort the other language — record it and keep going.
+        const message = redactCredentials(error instanceof Error ? error.message : String(error), credentials);
+        console.error(`✗ ${entry.label} template failed: ${message}`);
       }
     }
 

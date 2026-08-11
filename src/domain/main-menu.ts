@@ -46,11 +46,17 @@ export interface MenuSelectionInput extends SelectionInput {
  * then exact numbered/localized-title fallbacks from Body, then from the
  * button/list item's title text. Returns `null` for anything unrecognized
  * — never fuzzy-matched, since this drives a state transition.
+ *
+ * A supplied stable ID is authoritative: an unknown/stale one (Twilio
+ * retried a removed item, an old menu version, etc.) resolves to `null`
+ * even if Body happens to also contain a recognized number/title — it must
+ * never fall through to the text fallbacks, which exist only for advocates
+ * typing a reply with no button/list interaction at all.
  */
 export function parseMenuAction(input: MenuSelectionInput): MenuAction | null {
   const stableId = (input.buttonPayload || input.listId || "").trim();
-  if (STABLE_MENU_ACTIONS.has(stableId)) {
-    return stableId as MenuAction;
+  if (stableId) {
+    return STABLE_MENU_ACTIONS.has(stableId) ? (stableId as MenuAction) : null;
   }
 
   if (isLanguageChangeRequest(input)) {

@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { z } from "zod";
 import { getContentTemplate, loadTwilioCredentialsFromEnv, redactCredentials, type ContentTemplateSpec } from "./content-api-client";
 import { diffTemplates, templatesMatch } from "./template-comparison";
 
@@ -15,59 +14,64 @@ const MENU_TEMPLATES: MenuTemplateEntry[] = [
   { label: "Malayalam", fileName: "complainant-advocate-menu.ml.json", envVar: "TWILIO_MAIN_MENU_CONTENT_SID_ML" },
 ];
 
-const envSchema = z.object({
-  TWILIO_MAIN_MENU_CONTENT_SID_EN: z.string().trim().min(1, "TWILIO_MAIN_MENU_CONTENT_SID_EN is required"),
-  TWILIO_MAIN_MENU_CONTENT_SID_ML: z.string().trim().min(1, "TWILIO_MAIN_MENU_CONTENT_SID_ML is required"),
-});
-
 function loadSpec(fileName: string): ContentTemplateSpec {
   return JSON.parse(readFileSync(join(__dirname, "..", "templates", fileName), "utf8")) as ContentTemplateSpec;
 }
 
-/** Verifies both configured Content SIDs independently, reporting each result clearly. */
+/**
+ * Verifies both configured Content SIDs independently, reporting each
+ * result clearly. Each language's env var is validated and fetched inside
+ * the loop — a missing SID or an API failure for one language is recorded
+ * and the other is still checked, never aborted.
+ */
 export async function main(): Promise<void> {
   const credentials = loadTwilioCredentialsFromEnv();
-  const parsedEnv = envSchema.safeParse(process.env);
-
-  if (!parsedEnv.success) {
-    const missing = Object.keys(parsedEnv.error.flatten().fieldErrors).join(", ");
-    console.error(`✗ Missing required environment variables: ${missing}`);
-    process.exitCode = 1;
-    return;
-  }
-
   let anyFailed = false;
 
   for (const entry of MENU_TEMPLATES) {
     const spec = loadSpec(entry.fileName);
-    const sid = parsedEnv.data[entry.envVar as keyof typeof parsedEnv.data];
     console.log(`--- ${entry.label} (${spec.friendly_name}) ---`);
 
-    const remote = await getContentTemplate(credentials, sid);
-
-    if (!remote) {
+    const sid = process.env[entry.envVar]?.trim();
+    if (!sid) {
       anyFailed = true;
-      console.error(`✗ No Twilio Content Template found for SID ${sid}`);
+      console.error(`✗ ${entry.envVar} is not configured.`);
       console.log("");
       continue;
     }
 
-    if (!templatesMatch(spec, remote)) {
-      anyFailed = true;
-      console.error("✗ The remote Twilio Content Template does not match the repository specification.");
-      console.error(`Content SID: ${remote.sid}`);
-      console.error("Differences:");
-      for (const line of diffTemplates(spec, remote)) {
-        console.error(`  - ${line}`);
+    try {
+      const remote = await getContentTemplate(credentials, sid);
+
+      if (!remote) {
+        anyFailed = true;
+        console.error(`✗ No Twilio Content Template found for SID ${sid}`);
+        console.log("");
+        continue;
       }
-      console.log("");
-      continue;
-    }
 
-    console.log("✓ Twilio Content Template matches the repository specification");
-    console.log(`Friendly name: ${spec.friendly_name}`);
-    console.log(`Content SID: ${remote.sid}`);
-    console.log("");
+      if (!templatesMatch(spec, remote)) {
+        anyFailed = true;
+        console.error("✗ The remote Twilio Content Template does not match the repository specification.");
+        console.error(`Content SID: ${remote.sid}`);
+        console.error("Differences:");
+        for (const line of diffTemplates(spec, remote)) {
+          console.error(`  - ${line}`);
+        }
+        console.log("");
+        continue;
+      }
+
+      console.log("✓ Twilio Content Template matches the repository specification");
+      console.log(`Friendly name: ${spec.friendly_name}`);
+      console.log(`Content SID: ${remote.sid}`);
+      console.log("");
+    } catch (error) {
+      anyFailed = true;
+      const message = redactCredentials(error instanceof Error ? error.message : String(error), credentials);
+      console.error(`✗ ${entry.label} verification failed: ${message}`);
+      console.log("");
+    }
   }
 
   if (anyFailed) {
