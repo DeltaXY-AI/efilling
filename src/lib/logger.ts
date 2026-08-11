@@ -42,3 +42,21 @@ export function logWebhookEvent(event: WebhookLogEvent): void {
     }),
   );
 }
+
+interface WorkflowLogErrorEvent {
+  /** A safe, non-sensitive error code — never the raw Twilio error/exception. */
+  code: string;
+  /** Twilio MessageSid, for correlating with Twilio's own logs. */
+  correlationId?: string;
+}
+
+/** Logs a workflow failure using only a safe error code and correlation id. */
+export function logWorkflowError(event: WorkflowLogErrorEvent): void {
+  console.error(
+    JSON.stringify({
+      timestamp: new Date().toISOString(),
+      code: event.code,
+      correlationId: event.correlationId,
+    }),
+  );
+}

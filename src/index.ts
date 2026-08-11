@@ -1,16 +1,7 @@
-import express from "express";
 import { env } from "./config/env";
-import { healthRouter } from "./routes/health.route";
-import { twilioWebhookRouter } from "./routes/twilio-webhook.route";
+import { createApp } from "./app";
 
-const app = express();
-
-// Twilio's webhook body validation (and our own signature check) needs the
-// parsed form fields, so this must run before the webhook route.
-app.use(express.urlencoded({ extended: false }));
-
-app.use(healthRouter);
-app.use(twilioWebhookRouter);
+const app = createApp();
 
 // Vercel imports this module purely for its default export and invokes the
 // app directly as a request handler, so the app must not also start its own
