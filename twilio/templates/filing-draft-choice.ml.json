@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_filing_draft_choice_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "നിങ്ങൾക്ക് സേവ് ചെയ്ത ഒരു ഫയലിംഗ് ഡ്രാഫ്റ്റ് ഉണ്ട്. എന്താണ് ചെയ്യേണ്ടത്?",
+      "actions": [
+        { "title": "ഡ്രാഫ്റ്റ് തുടരുക", "id": "filing:resume-draft" },
+        { "title": "പുതിയ ഫയലിംഗ് ആരംഭിക്കുക", "id": "filing:start-new" },
+        { "title": "പ്രധാന മെനു", "id": "nav:main-menu" }
+      ]
+    }
+  }
+}

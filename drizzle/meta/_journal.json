@@ -15,6 +15,13 @@
       "when": 1786433841754,
       "tag": "0001_elite_pyro",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786445099099,
+      "tag": "0002_mean_daredevil",
+      "breakpoints": true
     }
   ]
 }

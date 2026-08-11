@@ -8,7 +8,9 @@ import { logWebhookEvent, logWorkflowError, maskSender } from "../lib/logger";
 import { routeInboundMessage, type InboundRouterDeps } from "../services/inbound-router";
 import { DrizzleConversationRepository } from "../repositories/drizzle-conversation-repository";
 import { DrizzleProcessedWebhookRepository } from "../repositories/drizzle-processed-webhook-repository";
+import { DrizzleFilingRepository } from "../repositories/drizzle-filing-repository";
 import type { ProcessedWebhookRepository } from "../repositories/processed-webhook-repository";
+import { withTransaction } from "../db/client";
 
 const ROUTE_PATH = "/webhooks/twilio/whatsapp";
 const EMPTY_TWIML_RESPONSE = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
@@ -22,6 +24,11 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
   const conversationRepo = new DrizzleConversationRepository();
   const messagingClient = createTwilioMessagingClient(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
   const mainMenuContentSid = { en: env.TWILIO_MAIN_MENU_CONTENT_SID_EN, ml: env.TWILIO_MAIN_MENU_CONTENT_SID_ML };
+  const mainMenuSenderDeps = {
+    messagingClient,
+    fromNumber: env.TWILIO_WHATSAPP_FROM,
+    contentSidByLanguage: mainMenuContentSid,
+  };
 
   return {
     conversationRepo,
@@ -33,10 +40,18 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       contentSid: env.TWILIO_LANGUAGE_CONTENT_SID,
       mainMenuContentSid,
     },
-    mainMenuSenderDeps: {
-      messagingClient,
-      fromNumber: env.TWILIO_WHATSAPP_FROM,
-      contentSidByLanguage: mainMenuContentSid,
+    mainMenuSenderDeps,
+    filingWorkflowDeps: {
+      conversationRepo,
+      filingRepo: new DrizzleFilingRepository(),
+      filingSenderDeps: {
+        messagingClient,
+        fromNumber: env.TWILIO_WHATSAPP_FROM,
+        draftChoiceContentSid: { en: env.TWILIO_FILING_DRAFT_CHOICE_SID_EN, ml: env.TWILIO_FILING_DRAFT_CHOICE_SID_ML },
+        noticeContentSid: { en: env.TWILIO_FILING_NOTICE_SID_EN, ml: env.TWILIO_FILING_NOTICE_SID_ML },
+      },
+      mainMenuSenderDeps,
+      withTransaction,
     },
   };
 }

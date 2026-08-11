@@ -5,12 +5,16 @@ import { createApp } from "../src/app";
 import { env } from "../src/config/env";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryProcessedWebhookRepository } from "../src/repositories/in-memory/processed-webhook-repository";
+import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
+import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import type { ProcessedWebhookRepository } from "../src/repositories/processed-webhook-repository";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
 
 const ROUTE_PATH = "/webhooks/twilio/whatsapp";
 const WEBHOOK_URL = `${env.PUBLIC_BASE_URL}${ROUTE_PATH}`;
 const MAIN_MENU_CONTENT_SID = { en: env.TWILIO_MAIN_MENU_CONTENT_SID_EN, ml: env.TWILIO_MAIN_MENU_CONTENT_SID_ML };
+const DRAFT_CHOICE_CONTENT_SID = { en: env.TWILIO_FILING_DRAFT_CHOICE_SID_EN, ml: env.TWILIO_FILING_DRAFT_CHOICE_SID_ML };
+const NOTICE_CONTENT_SID = { en: env.TWILIO_FILING_NOTICE_SID_EN, ml: env.TWILIO_FILING_NOTICE_SID_ML };
 
 function sign(params: Record<string, string>): string {
   return getExpectedTwilioSignature(env.TWILIO_AUTH_TOKEN, WEBHOOK_URL, params);
@@ -30,6 +34,7 @@ function buildDeps(
   processedWebhookRepo: ProcessedWebhookRepository,
   messagingClient: FakeMessagingClient,
 ) {
+  const mainMenuSenderDeps = { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, contentSidByLanguage: MAIN_MENU_CONTENT_SID };
   return {
     conversationRepo,
     processedWebhookRepo,
@@ -40,7 +45,19 @@ function buildDeps(
       contentSid: env.TWILIO_LANGUAGE_CONTENT_SID,
       mainMenuContentSid: MAIN_MENU_CONTENT_SID,
     },
-    mainMenuSenderDeps: { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
+    mainMenuSenderDeps,
+    filingWorkflowDeps: {
+      conversationRepo,
+      filingRepo: new InMemoryFilingRepository(conversationRepo),
+      filingSenderDeps: {
+        messagingClient,
+        fromNumber: env.TWILIO_WHATSAPP_FROM,
+        draftChoiceContentSid: DRAFT_CHOICE_CONTENT_SID,
+        noticeContentSid: NOTICE_CONTENT_SID,
+      },
+      mainMenuSenderDeps,
+      withTransaction: createInMemoryWithTransaction(),
+    },
   };
 }
 
@@ -263,7 +280,7 @@ describe("POST /webhooks/twilio/whatsapp", () => {
     });
   });
 
-  it("routes a full-conversation menu selection (List Picker) to FILING_START end to end", async () => {
+  it("routes a full conversation from Hi through a created filing draft, end to end (#8's no-draft flow)", async () => {
     const from = "whatsapp:+15005550011";
     const send = (params: Record<string, string>) =>
       request(app).post(ROUTE_PATH).type("form").set("X-Twilio-Signature", sign(params)).send(params);
@@ -277,21 +294,37 @@ describe("POST /webhooks/twilio/whatsapp", () => {
       ButtonPayload: "language:en",
       NumMedia: "0",
     });
-    const response = await send({
+
+    const noticeResponse = await send({
       MessageSid: "SMflowa000000000000000000000000003",
       From: from,
       To: "whatsapp:+14155238886",
       Body: "File or resume case",
-      ListId: "menu:file-case",
-      ListTitle: "File or resume case",
+      ButtonPayload: "menu:file-case",
       NumMedia: "0",
     });
 
-    expect(response.status).toBe(200);
+    expect(noticeResponse.status).toBe(200);
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith({
+      from: env.TWILIO_WHATSAPP_FROM,
+      to: from,
+      contentSid: env.TWILIO_FILING_NOTICE_SID_EN,
+    });
+
+    const acceptResponse = await send({
+      MessageSid: "SMflowa000000000000000000000000004",
+      From: from,
+      To: "whatsapp:+14155238886",
+      Body: "Continue",
+      ButtonPayload: "filing:accept-test-notice",
+      NumMedia: "0",
+    });
+
+    expect(acceptResponse.status).toBe(200);
     expect(messagingClient.sendText).toHaveBeenCalledWith({
       from: env.TWILIO_WHATSAPP_FROM,
       to: from,
-      body: "Let's start your cheque-case filing.",
+      body: expect.stringContaining("Your filing draft is ready"),
     });
   });
 

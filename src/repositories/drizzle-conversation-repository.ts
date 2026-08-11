@@ -1,12 +1,14 @@
-import { eq } from "drizzle-orm";
-import { getDb } from "../db/client";
+import { eq, sql } from "drizzle-orm";
+import { getDb, type Transaction } from "../db/client";
 import { conversations } from "../db/schema";
-import type {
-  ConversationLanguage,
-  ConversationRecord,
-  ConversationRepository,
-  ConversationState,
+import {
+  ConversationNotFoundError,
+  type ConversationLanguage,
+  type ConversationRecord,
+  type ConversationRepository,
+  type ConversationState,
 } from "./conversation-repository";
+import type { RepositoryTransaction } from "./transaction";
 
 export class DrizzleConversationRepository implements ConversationRepository {
   async findByWhatsappNumber(whatsappNumber: string): Promise<ConversationRecord | null> {
@@ -73,5 +75,37 @@ export class DrizzleConversationRepository implements ConversationRepository {
       .update(conversations)
       .set({ lastInboundAt, updatedAt: new Date() })
       .where(eq(conversations.whatsappNumber, whatsappNumber));
+  }
+
+  async lockById(tx: RepositoryTransaction, conversationId: string): Promise<ConversationRecord> {
+    const [row] = await (tx as Transaction)
+      .select()
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .for("update");
+
+    if (!row) {
+      throw new ConversationNotFoundError(conversationId);
+    }
+    return row;
+  }
+
+  async setStateInTx(tx: RepositoryTransaction, conversationId: string, state: ConversationState): Promise<void> {
+    await (tx as Transaction)
+      .update(conversations)
+      .set({ state, updatedAt: new Date(), version: sql`${conversations.version} + 1` })
+      .where(eq(conversations.id, conversationId));
+  }
+
+  async setActiveFilingAndState(
+    tx: RepositoryTransaction,
+    conversationId: string,
+    activeFilingId: string,
+    state: ConversationState,
+  ): Promise<void> {
+    await (tx as Transaction)
+      .update(conversations)
+      .set({ activeFilingId, state, updatedAt: new Date(), version: sql`${conversations.version} + 1` })
+      .where(eq(conversations.id, conversationId));
   }
 }

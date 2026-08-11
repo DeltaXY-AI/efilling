@@ -19,9 +19,10 @@ See [PRD.md](./PRD.md) for the complete product requirements.
 
 The backend is a TypeScript/Express application with a health endpoint, an
 authenticated Twilio WhatsApp Sandbox webhook, a bilingual (English/
-Malayalam) language-selection flow, and a localized Complainant Advocate
-main menu with routing, all with durable conversation persistence,
-deployable to Vercel.
+Malayalam) language-selection flow, a localized Complainant Advocate main
+menu with routing, and filing-draft creation/resume with transactional,
+concurrency-safe state transitions, all with durable conversation
+persistence, deployable to Vercel.
 
 ## Requirements
 
@@ -39,9 +40,10 @@ Fill in the Twilio variables in `.env` before starting the app — see
 [docs/twilio-sandbox-setup.md](./docs/twilio-sandbox-setup.md) for how to obtain them
 and configure the Sandbox webhook,
 [docs/language-selection-setup.md](./docs/language-selection-setup.md) for provisioning
-the database and creating the Twilio Content Template the language picker uses, and
+the database and creating the Twilio Content Template the language picker uses,
 [docs/main-menu-setup.md](./docs/main-menu-setup.md) for creating the localized main-menu
-Content Templates.
+Content Templates, and [docs/filing-drafts-setup.md](./docs/filing-drafts-setup.md) for
+the filing-draft templates and migration.
 
 ## Development
 
@@ -108,39 +110,53 @@ Accepted requests are then routed by conversation state
 (`src/services/inbound-router.ts`): any initial inbound message from a new
 advocate opens a bilingual (English/Malayalam) Quick Reply picker, a
 recognized selection is persisted, moves the conversation to `MAIN_MENU`,
-and immediately sends the localized main menu. From `MAIN_MENU`, a stable
-menu action routes to `FILING_START`, `CASE_STATUS_START`, or back to
-`AWAITING_LANGUAGE` (change language); `menu`/`മെനു` redisplays the current
-menu. See [docs/language-selection-setup.md](./docs/language-selection-setup.md)
-and [docs/main-menu-setup.md](./docs/main-menu-setup.md) for the Content
+and immediately sends the localized main menu. From `MAIN_MENU`, `menu:file-case`
+checks for an active filing draft (`FILING_DRAFT_CHOICE` if one exists,
+otherwise `FILING_NOTICE`); `menu:case-status` moves to `CASE_STATUS_START`;
+`menu:change-language` returns to `AWAITING_LANGUAGE`; `menu`/`മെനു` redisplays
+the current menu. Accepting the test-data notice creates exactly one filing
+draft (role `COMPLAINANT_ADVOCATE`, status `DRAFT`) inside a single
+row-locked transaction and reaches `ADVOCATE_ENROLMENT_PENDING`. See
+[docs/language-selection-setup.md](./docs/language-selection-setup.md),
+[docs/main-menu-setup.md](./docs/main-menu-setup.md), and
+[docs/filing-drafts-setup.md](./docs/filing-drafts-setup.md) for the Content
 Template and database setup this depends on.
 
 ## Database
 
-Conversation state and webhook idempotency are stored in Postgres via
-[Drizzle ORM](https://orm.drizzle.team) — see `src/db/schema.ts`. Migrations are
-committed under `drizzle/`:
+Conversation state, filing drafts, and webhook idempotency are stored in
+Postgres via [Drizzle ORM](https://orm.drizzle.team) — see `src/db/schema.ts`.
+Migrations are committed under `drizzle/`:
 
 ```bash
 npm run db:generate   # regenerate migration SQL after changing src/db/schema.ts
 npm run db:migrate     # apply pending migrations to DATABASE_URL
 ```
 
+`src/db/client.ts` uses `drizzle-orm/neon-serverless` with a WebSocket
+`Pool`, not the plain HTTP driver — filing-draft creation needs a real,
+row-locked transaction (`SELECT ... FOR UPDATE`) to check for an active
+draft and transition atomically, which Neon's HTTP driver cannot do at all.
+
 ## Twilio Content Templates
 
 The language picker is a Twilio Quick Reply Content Template defined as code
 in `twilio/templates/language-selection.json`; the localized main menu is two
 Quick Reply/List Picker Content Templates in
-`twilio/templates/complainant-advocate-menu.{en,ml}.json`. Both sets of
-create/verify scripts share the same idempotent create-or-reuse logic and
-structural comparison (`twilio/scripts/content-api-client.ts` and
-`template-comparison.ts`):
+`twilio/templates/complainant-advocate-menu.{en,ml}.json`; the filing
+draft-choice and test-data-notice templates are four more Quick Reply
+templates in `twilio/templates/filing-{draft-choice,notice}.{en,ml}.json`.
+All three sets of create/verify scripts share the same idempotent
+create-or-reuse logic and structural comparison
+(`twilio/scripts/content-api-client.ts` and `template-comparison.ts`):
 
 ```bash
 npm run twilio:template:create   # idempotent: creates once, reuses on reruns
 npm run twilio:template:verify   # confirms the deployed template matches the spec
 npm run twilio:menu:create       # same, for both the English and Malayalam menus
 npm run twilio:menu:verify
+npm run twilio:filing:create     # same, for all four filing templates
+npm run twilio:filing:verify
 ```
 
 ## Deployment (Vercel)
@@ -155,10 +171,13 @@ single Vercel serverless function via `vercel.json`.
 
 Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`,
 `TWILIO_LANGUAGE_CONTENT_SID`, `TWILIO_MAIN_MENU_CONTENT_SID_EN`,
-`TWILIO_MAIN_MENU_CONTENT_SID_ML`, `PUBLIC_BASE_URL`, and `DATABASE_URL` in the
+`TWILIO_MAIN_MENU_CONTENT_SID_ML`, `TWILIO_FILING_DRAFT_CHOICE_SID_EN`,
+`TWILIO_FILING_DRAFT_CHOICE_SID_ML`, `TWILIO_FILING_NOTICE_SID_EN`,
+`TWILIO_FILING_NOTICE_SID_ML`, `PUBLIC_BASE_URL`, and `DATABASE_URL` in the
 Vercel project's **Production** environment (see
 [docs/twilio-sandbox-setup.md](./docs/twilio-sandbox-setup.md),
-[docs/language-selection-setup.md](./docs/language-selection-setup.md), and
-[docs/main-menu-setup.md](./docs/main-menu-setup.md)). Redeploy after
+[docs/language-selection-setup.md](./docs/language-selection-setup.md),
+[docs/main-menu-setup.md](./docs/main-menu-setup.md), and
+[docs/filing-drafts-setup.md](./docs/filing-drafts-setup.md)). Redeploy after
 changing any environment variable. Any variables added later should also be set in
 Vercel and documented in `.env.example`.

@@ -1,43 +1,65 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { handleInboundForMainMenu, type MainMenuWorkflowDeps } from "../src/services/main-menu-workflow";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
+import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
+import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
 
 const WHATSAPP_NUMBER = "whatsapp:+15005550006";
 const FROM_NUMBER = "whatsapp:+14155238886";
 const LANGUAGE_CONTENT_SID = "HXlanguage0000000000000000000000000";
 const MAIN_MENU_CONTENT_SID = { en: "HXmenuen00000000000000000000000000", ml: "HXmenuml00000000000000000000000000" };
-
-function baseInput(overrides: Partial<Parameters<typeof handleInboundForMainMenu>[1]> = {}) {
-  return {
-    whatsappNumber: WHATSAPP_NUMBER,
-    messageId: "SM0000000000000000000000000000000",
-    language: "en" as const,
-    selection: {},
-    ...overrides,
-  };
-}
+const DRAFT_CHOICE_CONTENT_SID = { en: "HXdraftchoiceen00000000000000000000", ml: "HXdraftchoiceml00000000000000000000" };
+const NOTICE_CONTENT_SID = { en: "HXnoticeen000000000000000000000000", ml: "HXnoticeml000000000000000000000000" };
 
 describe("handleInboundForMainMenu", () => {
   let conversationRepo: InMemoryConversationRepository;
   let messagingClient: FakeMessagingClient;
   let deps: MainMenuWorkflowDeps;
+  let conversationId: string;
+
+  function baseInput(overrides: Partial<Parameters<typeof handleInboundForMainMenu>[1]> = {}) {
+    return {
+      conversationId,
+      whatsappNumber: WHATSAPP_NUMBER,
+      messageId: "SM0000000000000000000000000000000",
+      language: "en" as const,
+      selection: {},
+      ...overrides,
+    };
+  }
 
   beforeEach(async () => {
     conversationRepo = new InMemoryConversationRepository();
     messagingClient = createFakeMessagingClient();
-    await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+    const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+    conversationId = conversation.id;
     await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+
+    const languageWorkflowDeps = {
+      conversationRepo,
+      messagingClient,
+      fromNumber: FROM_NUMBER,
+      contentSid: LANGUAGE_CONTENT_SID,
+      mainMenuContentSid: MAIN_MENU_CONTENT_SID,
+    };
+    const mainMenuSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID };
 
     deps = {
       conversationRepo,
-      mainMenuSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
-      languageWorkflowDeps: {
+      mainMenuSenderDeps,
+      languageWorkflowDeps,
+      filingWorkflowDeps: {
         conversationRepo,
-        messagingClient,
-        fromNumber: FROM_NUMBER,
-        contentSid: LANGUAGE_CONTENT_SID,
-        mainMenuContentSid: MAIN_MENU_CONTENT_SID,
+        filingRepo: new InMemoryFilingRepository(conversationRepo),
+        filingSenderDeps: {
+          messagingClient,
+          fromNumber: FROM_NUMBER,
+          draftChoiceContentSid: DRAFT_CHOICE_CONTENT_SID,
+          noticeContentSid: NOTICE_CONTENT_SID,
+        },
+        mainMenuSenderDeps,
+        withTransaction: createInMemoryWithTransaction(),
       },
     };
   });
@@ -65,18 +87,16 @@ describe("handleInboundForMainMenu", () => {
     );
   });
 
-  it("routes menu:file-case to FILING_START with the localized acknowledgement", async () => {
+  it("delegates menu:file-case to the filing workflow (#8) — no active draft opens the test notice", async () => {
     const result = await handleInboundForMainMenu(deps, baseInput({ selection: { buttonPayload: "menu:file-case" } }));
 
     expect(result.delivered).toBe(true);
-    expect(messagingClient.sendText).toHaveBeenCalledWith({
-      from: FROM_NUMBER,
-      to: WHATSAPP_NUMBER,
-      body: "Let's start your cheque-case filing.",
-    });
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ contentSid: NOTICE_CONTENT_SID.en }),
+    );
 
     const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-    expect(conversation).toMatchObject({ state: "FILING_START" });
+    expect(conversation).toMatchObject({ state: "FILING_NOTICE" });
   });
 
   it("routes menu:case-status to CASE_STATUS_START with the localized acknowledgement", async () => {
