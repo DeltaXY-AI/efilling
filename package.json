@@ -12,9 +12,15 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node --env-file=.env dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx --env-file=.env src/db/migrate.ts",
+    "twilio:template:create": "tsx --env-file=.env twilio/scripts/create-language-template.ts",
+    "twilio:template:verify": "tsx --env-file=.env twilio/scripts/verify-language-template.ts"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "drizzle-orm": "^0.45.2",
     "express": "^5.1.0",
     "twilio": "^6.0.2",
     "zod": "^3.23.8"
@@ -23,6 +29,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^22.10.2",
     "@types/supertest": "^6.0.2",
+    "drizzle-kit": "^0.31.10",
     "supertest": "^7.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",

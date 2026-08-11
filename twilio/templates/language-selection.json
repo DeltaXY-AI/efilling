@@ -1,0 +1,19 @@
+{
+  "friendly_name": "oncourts_language_selection_v1",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "🙏 നമസ്കാരം | Welcome\n\nWelcome to 24x7 ON Courts, Kollam.\n\nPlease choose your preferred language.\nദയവായി ഭാഷ തിരഞ്ഞെടുക്കുക.",
+      "actions": [
+        {
+          "title": "English",
+          "id": "language:en"
+        },
+        {
+          "title": "മലയാളം",
+          "id": "language:ml"
+        }
+      ]
+    }
+  }
+}

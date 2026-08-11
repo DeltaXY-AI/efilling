@@ -13,6 +13,9 @@ export interface TwilioWebhookBody {
   ProfileName?: string;
   Body?: string;
   NumMedia?: string;
+  /** Present when the advocate tapped a Quick Reply button. */
+  ButtonPayload?: string;
+  ButtonText?: string;
   [field: string]: unknown;
 }
 

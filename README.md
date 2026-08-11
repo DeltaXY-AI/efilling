@@ -17,8 +17,10 @@ See [PRD.md](./PRD.md) for the complete product requirements.
 
 ## Status
 
-The backend is a TypeScript/Express application with a health endpoint and an
-authenticated Twilio WhatsApp Sandbox webhook, deployable to Vercel.
+The backend is a TypeScript/Express application with a health endpoint, an
+authenticated Twilio WhatsApp Sandbox webhook, and a bilingual (English/
+Malayalam) language-selection flow with durable conversation persistence,
+deployable to Vercel.
 
 ## Requirements
 
@@ -34,7 +36,9 @@ cp .env.example .env
 
 Fill in the Twilio variables in `.env` before starting the app — see
 [docs/twilio-sandbox-setup.md](./docs/twilio-sandbox-setup.md) for how to obtain them
-and configure the Sandbox webhook.
+and configure the Sandbox webhook, and
+[docs/language-selection-setup.md](./docs/language-selection-setup.md) for provisioning
+the database and creating the Twilio Content Template the language picker uses.
 
 ## Development
 
@@ -94,8 +98,36 @@ normalized into a provider-neutral inbound-message object (see
 <Response></Response>
 ```
 
-No bot reply is sent yet — see [docs/twilio-sandbox-setup.md](./docs/twilio-sandbox-setup.md)
-for how to configure and verify this webhook against a real Sandbox.
+See [docs/twilio-sandbox-setup.md](./docs/twilio-sandbox-setup.md) for how to configure
+and verify this webhook against a real Sandbox.
+
+Accepted requests are then routed through the language-selection workflow: any
+initial inbound message from a new advocate opens a bilingual (English/
+Malayalam) Quick Reply picker, a recognized selection is persisted and moves
+the conversation to `MAIN_MENU`, and sending `language`/`ഭാഷ` reopens the
+picker. See [docs/language-selection-setup.md](./docs/language-selection-setup.md)
+for the Content Template and database setup this depends on.
+
+## Database
+
+Conversation state and webhook idempotency are stored in Postgres via
+[Drizzle ORM](https://orm.drizzle.team) — see `src/db/schema.ts`. Migrations are
+committed under `drizzle/`:
+
+```bash
+npm run db:generate   # regenerate migration SQL after changing src/db/schema.ts
+npm run db:migrate     # apply pending migrations to DATABASE_URL
+```
+
+## Twilio Content Template
+
+The language picker is a Twilio Quick Reply Content Template defined as code
+in `twilio/templates/language-selection.json`:
+
+```bash
+npm run twilio:template:create   # idempotent: creates once, reuses on reruns
+npm run twilio:template:verify   # confirms the deployed template matches the spec
+```
 
 ## Deployment (Vercel)
 
@@ -107,8 +139,10 @@ single Vercel serverless function via `vercel.json`.
 3. Deploy to production: `vercel --prod`.
 4. Verify the deployment by requesting `https://<your-production-domain>/health`.
 
-Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`, and
-`PUBLIC_BASE_URL` in the Vercel project's **Production** environment (see
-[docs/twilio-sandbox-setup.md](./docs/twilio-sandbox-setup.md)). Redeploy after
+Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`,
+`TWILIO_LANGUAGE_CONTENT_SID`, `PUBLIC_BASE_URL`, and `DATABASE_URL` in the Vercel
+project's **Production** environment (see
+[docs/twilio-sandbox-setup.md](./docs/twilio-sandbox-setup.md) and
+[docs/language-selection-setup.md](./docs/language-selection-setup.md)). Redeploy after
 changing any environment variable. Any variables added later should also be set in
 Vercel and documented in `.env.example`.
