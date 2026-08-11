@@ -8,6 +8,7 @@ import type { ContentResource, ContentTemplateSpec } from "../twilio/scripts/con
 const SPEC: ContentTemplateSpec = JSON.parse(
   readFileSync(join(__dirname, "..", "twilio", "templates", "language-selection.json"), "utf8"),
 );
+const SPEC_QUICK_REPLY = SPEC.types["twilio/quick-reply"] as { body: string; actions: unknown[] };
 
 function resourceFrom(sid: string, overrides: Partial<ContentTemplateSpec> = {}): ContentResource {
   return { ...SPEC, ...overrides, sid };
@@ -74,7 +75,7 @@ describe("Twilio Content Template scripts", () => {
 
     it("exits non-zero with a diff when a same-name template has different content", async () => {
       const mismatched = resourceFrom("HXmismatch00000000000000000000000", {
-        types: { "twilio/quick-reply": { body: "a totally different body", actions: SPEC.types["twilio/quick-reply"].actions } },
+        types: { "twilio/quick-reply": { body: "a totally different body", actions: SPEC_QUICK_REPLY.actions } },
       });
       fetchMock.mockResolvedValueOnce(jsonResponse({ contents: [mismatched], meta: { next_page_url: null } }));
 
@@ -175,7 +176,7 @@ describe("Twilio Content Template scripts", () => {
 
     it("exits non-zero with mismatch details when the remote template differs", async () => {
       const remote = resourceFrom(process.env.TWILIO_LANGUAGE_CONTENT_SID!, {
-        types: { "twilio/quick-reply": { body: "different", actions: SPEC.types["twilio/quick-reply"].actions } },
+        types: { "twilio/quick-reply": { body: "different", actions: SPEC_QUICK_REPLY.actions } },
       });
       fetchMock.mockResolvedValueOnce(jsonResponse(remote));
 

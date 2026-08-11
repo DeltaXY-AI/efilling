@@ -1,7 +1,8 @@
-import { isLanguageChangeRequest, parseLanguageSelection, type LanguageCode, type SelectionInput } from "../domain/language-selection";
+import { parseLanguageSelection, type LanguageCode, type SelectionInput } from "../domain/language-selection";
 import type { TwilioMessagingClient } from "../adapters/twilio/messaging-client";
 import type { ConversationRepository } from "../repositories/conversation-repository";
 import { logWorkflowError } from "../lib/logger";
+import { sendMainMenu, type SupportedLanguage } from "./main-menu-sender";
 
 const PLAIN_TEXT_LANGUAGE_MENU = [
   "🙏 നമസ്കാരം | Welcome",
@@ -20,7 +21,10 @@ export interface LanguageWorkflowDeps {
   conversationRepo: ConversationRepository;
   messagingClient: TwilioMessagingClient;
   fromNumber: string;
+  /** Content SID of the bilingual language-selection picker (#3). */
   contentSid: string;
+  /** Content SIDs of the localized main menu (#5), sent right after a confirmed selection. */
+  mainMenuContentSid: Record<SupportedLanguage, string>;
 }
 
 export interface LanguageWorkflowInput {
@@ -32,7 +36,7 @@ export interface LanguageWorkflowInput {
 }
 
 export interface LanguageWorkflowResult {
-  /** False when both the Content Template send and its plain-text fallback failed. */
+  /** False when a required outbound send (and its fallback, where one exists) failed. */
   delivered: boolean;
 }
 
@@ -85,10 +89,31 @@ async function sendConfirmation(
 }
 
 /**
- * Implements the Part C routing rules: opens the bilingual language picker
- * for new/awaiting-language advocates, persists a recognized selection and
- * moves to MAIN_MENU, and reopens the picker on an explicit language-change
- * request. MAIN_MENU routing beyond that is out of scope for this slice.
+ * Clears any selected language, moves the conversation back to
+ * AWAITING_LANGUAGE, and resends the picker. The single reusable
+ * "change language" action shared by #3's own "language"/"ഭാഷ" trigger and
+ * #5's `menu:change-language` menu action — never a second implementation.
+ */
+export async function reopenLanguagePicker(
+  deps: LanguageWorkflowDeps,
+  input: { whatsappNumber: string; messageId: string },
+): Promise<LanguageWorkflowResult> {
+  const now = new Date();
+  await deps.conversationRepo.resetToAwaitingLanguage(input.whatsappNumber, now);
+  return {
+    delivered: await sendLanguagePicker(deps, { whatsappNumber: input.whatsappNumber, messageId: input.messageId, selection: {} }),
+  };
+}
+
+/**
+ * Implements the Part C routing rules for a conversation that does not yet
+ * have a confirmed language: opens the bilingual picker for a brand-new
+ * advocate, and for one already AWAITING_LANGUAGE either persists a
+ * recognized selection (sending the confirmation, then immediately the
+ * localized main menu per #5) or re-sends the picker for anything
+ * unrecognized. Once a conversation reaches MAIN_MENU (or beyond), routing
+ * moves to `main-menu-workflow.ts` — this function is never called for
+ * those states.
  */
 export async function handleInboundForLanguageSelection(
   deps: LanguageWorkflowDeps,
@@ -104,17 +129,6 @@ export async function handleInboundForLanguageSelection(
     return { delivered: await sendLanguagePicker(deps, input) };
   }
 
-  if (conversation.state === "MAIN_MENU") {
-    if (isLanguageChangeRequest(input.selection)) {
-      await deps.conversationRepo.resetToAwaitingLanguage(input.whatsappNumber, now);
-      return { delivered: await sendLanguagePicker(deps, input) };
-    }
-
-    await deps.conversationRepo.touchLastInboundAt(input.whatsappNumber, now);
-    return { delivered: true };
-  }
-
-  // AWAITING_LANGUAGE
   const selected = parseLanguageSelection(input.selection);
 
   if (!selected) {
@@ -123,5 +137,10 @@ export async function handleInboundForLanguageSelection(
   }
 
   await deps.conversationRepo.setLanguageAndMainMenu(input.whatsappNumber, selected, now);
-  return { delivered: await sendConfirmation(deps, input, selected) };
+  const confirmationDelivered = await sendConfirmation(deps, input, selected);
+  const menuDelivered = await sendMainMenu(
+    { messagingClient: deps.messagingClient, fromNumber: deps.fromNumber, contentSidByLanguage: deps.mainMenuContentSid },
+    { to: input.whatsappNumber, language: selected, correlationId: input.messageId },
+  );
+  return { delivered: confirmationDelivered && menuDelivered };
 }

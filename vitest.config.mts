@@ -8,6 +8,8 @@ export default defineConfig({
       TWILIO_AUTH_TOKEN: "test-auth-token",
       TWILIO_WHATSAPP_FROM: "whatsapp:+15005550006",
       TWILIO_LANGUAGE_CONTENT_SID: "HXtest00000000000000000000000000",
+      TWILIO_MAIN_MENU_CONTENT_SID_EN: "HXtestmenuen0000000000000000000000",
+      TWILIO_MAIN_MENU_CONTENT_SID_ML: "HXtestmenuml0000000000000000000000",
       PUBLIC_BASE_URL: "https://example.test",
       // Never actually connected to in tests — routes are exercised via
       // createApp({ twilioWebhookDeps }) with in-memory repositories, but

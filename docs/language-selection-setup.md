@@ -77,10 +77,12 @@ Redeploy after changing any environment variable.
 
 1. From a phone joined to the Sandbox, send `Hi`.
 2. Confirm the bilingual Quick Reply picker arrives.
-3. Tap **English** — confirm `✓ English selected.` arrives, and that the
+3. Tap **English** — confirm `✓ English selected.` arrives, followed
+   immediately by the localized main menu (see
+   [docs/main-menu-setup.md](./main-menu-setup.md)), and that the
    conversation is persisted with `language = en`, `state = MAIN_MENU`.
 4. In a fresh test conversation, tap **മലയാളം** — confirm the Malayalam
-   confirmation arrives with `language = ml`.
+   confirmation and main menu arrive with `language = ml`.
 5. Send another ordinary message — confirm the picker does **not** reopen.
 6. Send `language` or `ഭാഷ` — confirm the picker reopens.
 7. Replay the same signed webhook request (e.g. by resending a test fixture

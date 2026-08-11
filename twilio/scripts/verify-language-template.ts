@@ -2,13 +2,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import {
-  diffTemplates,
   getContentTemplate,
   loadTwilioCredentialsFromEnv,
   redactCredentials,
-  templatesMatch,
   type ContentTemplateSpec,
 } from "./content-api-client";
+import { diffTemplates, templatesMatch } from "./template-comparison";
 
 const SPEC_PATH = join(__dirname, "..", "templates", "language-selection.json");
 

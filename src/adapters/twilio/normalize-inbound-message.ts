@@ -16,6 +16,9 @@ export interface TwilioWebhookBody {
   /** Present when the advocate tapped a Quick Reply button. */
   ButtonPayload?: string;
   ButtonText?: string;
+  /** Present when the advocate tapped a List Picker item. */
+  ListId?: string;
+  ListTitle?: string;
   [field: string]: unknown;
 }
 

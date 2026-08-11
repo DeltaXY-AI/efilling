@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DuplicateTemplatesError,
+  TemplateMismatchError,
   createContentTemplate,
-  diffTemplates,
+  ensureContentTemplate,
   getContentTemplate,
   listContentTemplates,
   loadTwilioCredentialsFromEnv,
-  templatesMatch,
+  nextVersionSuggestion,
   type ContentResource,
   type ContentTemplateSpec,
 } from "../twilio/scripts/content-api-client";
@@ -28,6 +30,10 @@ const SPEC: ContentTemplateSpec = {
 
 function resourceFrom(spec: ContentTemplateSpec, sid: string): ContentResource {
   return { ...spec, sid, url: `https://content.twilio.com/v1/Content/${sid}` };
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status });
 }
 
 describe("loadTwilioCredentialsFromEnv", () => {
@@ -56,80 +62,14 @@ describe("loadTwilioCredentialsFromEnv", () => {
   });
 });
 
-describe("templatesMatch / diffTemplates", () => {
-  it("matches an identical template regardless of object key order", () => {
-    const reordered: ContentTemplateSpec = {
-      language: SPEC.language,
-      types: SPEC.types,
-      friendly_name: SPEC.friendly_name,
-    };
-
-    expect(templatesMatch(SPEC, reordered)).toBe(true);
-    expect(diffTemplates(SPEC, reordered)).toEqual([]);
+describe("nextVersionSuggestion", () => {
+  it("increments an existing version suffix", () => {
+    expect(nextVersionSuggestion("oncourts_language_selection_v1")).toBe("oncourts_language_selection_v2");
+    expect(nextVersionSuggestion("oncourts_menu_v9")).toBe("oncourts_menu_v10");
   });
 
-  it("does not ignore whitespace differences in the body", () => {
-    const withTrailingSpace: ContentTemplateSpec = {
-      ...SPEC,
-      types: { "twilio/quick-reply": { ...SPEC.types["twilio/quick-reply"], body: "Welcome " } },
-    };
-
-    expect(templatesMatch(SPEC, withTrailingSpace)).toBe(false);
-  });
-
-  it("treats a different action order as a mismatch", () => {
-    const reorderedActions: ContentTemplateSpec = {
-      ...SPEC,
-      types: {
-        "twilio/quick-reply": {
-          body: SPEC.types["twilio/quick-reply"].body,
-          actions: [...SPEC.types["twilio/quick-reply"].actions].reverse(),
-        },
-      },
-    };
-
-    expect(templatesMatch(SPEC, reorderedActions)).toBe(false);
-    expect(diffTemplates(SPEC, reorderedActions).some((line) => line.includes("actions"))).toBe(true);
-  });
-
-  it.each([
-    ["button title", { title: "Not English" }],
-    ["button id/payload", { id: "language:xx" }],
-  ])("treats a changed %s as a mismatch", (_label, override) => {
-    const changed: ContentTemplateSpec = {
-      ...SPEC,
-      types: {
-        "twilio/quick-reply": {
-          body: SPEC.types["twilio/quick-reply"].body,
-          actions: [{ ...SPEC.types["twilio/quick-reply"].actions[0], ...override }, SPEC.types["twilio/quick-reply"].actions[1]],
-        },
-      },
-    };
-
-    expect(templatesMatch(SPEC, changed)).toBe(false);
-  });
-
-  it("treats a changed language as a mismatch", () => {
-    const changedLanguage: ContentTemplateSpec = { ...SPEC, language: "ml" };
-
-    expect(templatesMatch(SPEC, changedLanguage)).toBe(false);
-    expect(diffTemplates(SPEC, changedLanguage).some((line) => line.includes("language"))).toBe(true);
-  });
-
-  it("reports a missing twilio/quick-reply type on the remote template", () => {
-    const missingType = { ...SPEC, types: {} } as unknown as ContentTemplateSpec;
-
-    expect(templatesMatch(SPEC, missingType)).toBe(false);
-    expect(diffTemplates(SPEC, missingType).some((line) => line.includes("missing on remote"))).toBe(true);
-  });
-
-  it("reports each differing top-level field", () => {
-    const different: ContentTemplateSpec = { ...SPEC, friendly_name: "other_name", language: "ml" };
-
-    const diff = diffTemplates(SPEC, different);
-    expect(diff).toEqual(
-      expect.arrayContaining([expect.stringContaining("friendly_name"), expect.stringContaining("language")]),
-    );
+  it("appends _v2 when there is no version suffix", () => {
+    expect(nextVersionSuggestion("oncourts_language_selection")).toBe("oncourts_language_selection_v2");
   });
 });
 
@@ -231,5 +171,63 @@ describe("Content API client", () => {
 
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).not.toContain(CREDENTIALS.authToken);
+  });
+});
+
+describe("ensureContentTemplate", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("creates a new template when none exists yet", async () => {
+    const created = resourceFrom(SPEC, "HXnew00000000000000000000000000000");
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ contents: [], meta: { next_page_url: null } }))
+      .mockResolvedValueOnce(jsonResponse(created, 201));
+
+    const result = await ensureContentTemplate(CREDENTIALS, SPEC);
+
+    expect(result).toEqual({ outcome: "created", sid: created.sid });
+  });
+
+  it("reuses an identical existing template without a create request", async () => {
+    const existing = resourceFrom(SPEC, "HXexisting0000000000000000000000");
+    fetchMock.mockResolvedValueOnce(jsonResponse({ contents: [existing], meta: { next_page_url: null } }));
+
+    const result = await ensureContentTemplate(CREDENTIALS, SPEC);
+
+    expect(result).toEqual({ outcome: "reused", sid: existing.sid });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws TemplateMismatchError for a same-name template with different content", async () => {
+    const mismatched = resourceFrom(SPEC, "HXmismatch00000000000000000000000");
+    mismatched.types = { "twilio/quick-reply": { body: "different", actions: [] } };
+    fetchMock.mockResolvedValueOnce(jsonResponse({ contents: [mismatched], meta: { next_page_url: null } }));
+
+    const error = await ensureContentTemplate(CREDENTIALS, SPEC).catch((thrown) => thrown);
+
+    expect(error).toBeInstanceOf(TemplateMismatchError);
+    expect((error as InstanceType<typeof TemplateMismatchError>).remoteSid).toBe(mismatched.sid);
+    expect((error as InstanceType<typeof TemplateMismatchError>).differences.length).toBeGreaterThan(0);
+  });
+
+  it("throws DuplicateTemplatesError and creates nothing when duplicates exist", async () => {
+    const dup1 = resourceFrom(SPEC, "HXdup100000000000000000000000000000");
+    const dup2 = resourceFrom(SPEC, "HXdup200000000000000000000000000000");
+    fetchMock.mockResolvedValueOnce(jsonResponse({ contents: [dup1, dup2], meta: { next_page_url: null } }));
+
+    const error = await ensureContentTemplate(CREDENTIALS, SPEC).catch((thrown) => thrown);
+
+    expect(error).toBeInstanceOf(DuplicateTemplatesError);
+    expect((error as InstanceType<typeof DuplicateTemplatesError>).sids).toEqual([dup1.sid, dup2.sid]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

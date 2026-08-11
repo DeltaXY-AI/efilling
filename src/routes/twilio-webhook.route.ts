@@ -5,30 +5,38 @@ import { normalizeInboundMessage, type TwilioWebhookBody } from "../adapters/twi
 import { createTwilioMessagingClient } from "../adapters/twilio/messaging-client";
 import { normalizeWhatsappNumber } from "../lib/normalize-whatsapp-number";
 import { logWebhookEvent, logWorkflowError, maskSender } from "../lib/logger";
-import { handleInboundForLanguageSelection, type LanguageWorkflowDeps } from "../services/language-workflow";
+import { routeInboundMessage, type InboundRouterDeps } from "../services/inbound-router";
 import { DrizzleConversationRepository } from "../repositories/drizzle-conversation-repository";
 import { DrizzleProcessedWebhookRepository } from "../repositories/drizzle-processed-webhook-repository";
-import type { ConversationRepository } from "../repositories/conversation-repository";
 import type { ProcessedWebhookRepository } from "../repositories/processed-webhook-repository";
 
 const ROUTE_PATH = "/webhooks/twilio/whatsapp";
 const EMPTY_TWIML_RESPONSE = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
-export interface TwilioWebhookRouterDeps {
-  conversationRepo: ConversationRepository;
+export interface TwilioWebhookRouterDeps extends InboundRouterDeps {
   processedWebhookRepo: ProcessedWebhookRepository;
-  languageWorkflowDeps: Pick<LanguageWorkflowDeps, "messagingClient" | "fromNumber" | "contentSid">;
 }
 
 /** Real, Vercel/production-wired dependencies — a live database and the real Twilio API. */
 export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps {
+  const conversationRepo = new DrizzleConversationRepository();
+  const messagingClient = createTwilioMessagingClient(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN);
+  const mainMenuContentSid = { en: env.TWILIO_MAIN_MENU_CONTENT_SID_EN, ml: env.TWILIO_MAIN_MENU_CONTENT_SID_ML };
+
   return {
-    conversationRepo: new DrizzleConversationRepository(),
+    conversationRepo,
     processedWebhookRepo: new DrizzleProcessedWebhookRepository(),
     languageWorkflowDeps: {
-      messagingClient: createTwilioMessagingClient(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN),
+      conversationRepo,
+      messagingClient,
       fromNumber: env.TWILIO_WHATSAPP_FROM,
       contentSid: env.TWILIO_LANGUAGE_CONTENT_SID,
+      mainMenuContentSid,
+    },
+    mainMenuSenderDeps: {
+      messagingClient,
+      fromNumber: env.TWILIO_WHATSAPP_FROM,
+      contentSidByLanguage: mainMenuContentSid,
     },
   };
 }
@@ -97,20 +105,21 @@ export function createTwilioWebhookRouter(deps: TwilioWebhookRouterDeps): Router
     }
 
     try {
-      const result = await handleInboundForLanguageSelection(
-        { conversationRepo: deps.conversationRepo, ...deps.languageWorkflowDeps },
-        {
-          whatsappNumber,
-          messageId: inboundMessage.messageId,
-          selection: { buttonPayload: body.ButtonPayload, buttonText: body.ButtonText, body: inboundMessage.text },
-        },
-      );
+      const result = await routeInboundMessage(deps, {
+        whatsappNumber,
+        messageId: inboundMessage.messageId,
+        buttonPayload: body.ButtonPayload,
+        buttonText: body.ButtonText,
+        listId: body.ListId,
+        listTitle: body.ListTitle,
+        body: inboundMessage.text,
+      });
       await deps.processedWebhookRepo.markOutcome(inboundMessage.messageId, result.delivered ? "processed" : "failed");
     } catch {
       // An unexpected failure (e.g. the database is unreachable) must never
       // surface as a 500 or leave Twilio retrying forever — ack the request,
       // and mark the event failed for operators to investigate.
-      logWorkflowError({ code: "language_workflow_unexpected_error", correlationId: inboundMessage.messageId });
+      logWorkflowError({ code: "inbound_routing_unexpected_error", correlationId: inboundMessage.messageId });
       await deps.processedWebhookRepo.markOutcome(inboundMessage.messageId, "failed").catch(() => undefined);
     }
 
