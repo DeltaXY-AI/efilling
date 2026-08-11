@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_filing_notice_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "This is a demonstration service. Use anonymized test data only.\n\nContinuing will not file a real case with any court.",
+      "actions": [
+        { "title": "Continue", "id": "filing:accept-test-notice" },
+        { "title": "Main menu", "id": "nav:main-menu" }
+      ]
+    }
+  }
+}

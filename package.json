@@ -18,19 +18,23 @@
     "twilio:template:create": "tsx --env-file=.env twilio/scripts/create-language-template.ts",
     "twilio:template:verify": "tsx --env-file=.env twilio/scripts/verify-language-template.ts",
     "twilio:menu:create": "tsx --env-file=.env twilio/scripts/create-main-menu-templates.ts",
-    "twilio:menu:verify": "tsx --env-file=.env twilio/scripts/verify-main-menu-templates.ts"
+    "twilio:menu:verify": "tsx --env-file=.env twilio/scripts/verify-main-menu-templates.ts",
+    "twilio:filing:create": "tsx --env-file=.env twilio/scripts/create-filing-templates.ts",
+    "twilio:filing:verify": "tsx --env-file=.env twilio/scripts/verify-filing-templates.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
     "drizzle-orm": "^0.45.2",
     "express": "^5.1.0",
     "twilio": "^6.0.2",
+    "ws": "^8.21.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^22.10.2",
     "@types/supertest": "^6.0.2",
+    "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.10",
     "supertest": "^7.0.0",
     "tsx": "^4.19.2",

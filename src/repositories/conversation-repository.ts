@@ -1,14 +1,35 @@
+import type { RepositoryTransaction } from "./transaction";
+
 export type ConversationLanguage = "en" | "ml";
-export type ConversationState = "NEW" | "AWAITING_LANGUAGE" | "MAIN_MENU" | "FILING_START" | "CASE_STATUS_START";
+export type ConversationState =
+  | "NEW"
+  | "AWAITING_LANGUAGE"
+  | "MAIN_MENU"
+  | "FILING_START"
+  | "CASE_STATUS_START"
+  | "FILING_DRAFT_CHOICE"
+  | "FILING_NOTICE"
+  | "ADVOCATE_ENROLMENT_PENDING";
 
 export interface ConversationRecord {
   id: string;
   whatsappNumber: string;
   language: ConversationLanguage | null;
   state: ConversationState;
+  /** Authoritative active-draft pointer (#8) — never inferred from the most recently updated filing. */
+  activeFilingId: string | null;
+  version: number;
   lastInboundAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+/** Thrown by `lockById` when the conversation row no longer exists. */
+export class ConversationNotFoundError extends Error {
+  constructor(public readonly conversationId: string) {
+    super(`Conversation not found: ${conversationId}`);
+    this.name = "ConversationNotFoundError";
+  }
 }
 
 /**
@@ -37,4 +58,24 @@ export interface ConversationRepository {
 
   /** Updates only the last-inbound timestamp, without changing language/state. */
   touchLastInboundAt(whatsappNumber: string, lastInboundAt: Date): Promise<void>;
+
+  /**
+   * Locks the conversation row for the remainder of `tx` (`SELECT ... FOR
+   * UPDATE`), so concurrent filing transitions on the same conversation
+   * serialize instead of racing. Must be called inside a transaction
+   * started via `withTransaction`. Throws `ConversationNotFoundError` if
+   * the row no longer exists.
+   */
+  lockById(tx: RepositoryTransaction, conversationId: string): Promise<ConversationRecord>;
+
+  /** Transitions state within an existing transaction, without touching language or activeFilingId. */
+  setStateInTx(tx: RepositoryTransaction, conversationId: string, state: ConversationState): Promise<void>;
+
+  /** Sets the active filing and the next state together, atomically, within an existing transaction. */
+  setActiveFilingAndState(
+    tx: RepositoryTransaction,
+    conversationId: string,
+    activeFilingId: string,
+    state: ConversationState,
+  ): Promise<void>;
 }

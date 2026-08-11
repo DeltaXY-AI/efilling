@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_filing_notice_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "ഇത് ഒരു ഡെമോൺസ്ട്രേഷൻ സേവനമാണ്. അജ്ഞാതമാക്കിയ ടെസ്റ്റ് ഡാറ്റ മാത്രം ഉപയോഗിക്കുക.\n\nതുടരുന്നത് ഏതെങ്കിലും കോടതിയിൽ യഥാർത്ഥ കേസ് ഫയൽ ചെയ്യില്ല.",
+      "actions": [
+        { "title": "തുടരുക", "id": "filing:accept-test-notice" },
+        { "title": "പ്രധാന മെനു", "id": "nav:main-menu" }
+      ]
+    }
+  }
+}

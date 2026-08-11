@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_filing_draft_choice_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "You have a saved filing draft. What would you like to do?",
+      "actions": [
+        { "title": "Resume draft", "id": "filing:resume-draft" },
+        { "title": "Start new filing", "id": "filing:start-new" },
+        { "title": "Main menu", "id": "nav:main-menu" }
+      ]
+    }
+  }
+}

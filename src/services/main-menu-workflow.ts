@@ -1,6 +1,7 @@
 import { MENU_ACTION_TARGET_STATE, isMenuRedisplayRequest, parseMenuAction, type MenuSelectionInput } from "../domain/main-menu";
 import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from "./main-menu-sender";
 import { reopenLanguagePicker, type LanguageWorkflowDeps, type LanguageWorkflowResult } from "./language-workflow";
+import { handleFileOrResume, type FilingWorkflowDeps } from "./filing-workflow";
 import type { ConversationRepository } from "../repositories/conversation-repository";
 import { logWorkflowError } from "../lib/logger";
 
@@ -9,9 +10,12 @@ export interface MainMenuWorkflowDeps {
   mainMenuSenderDeps: MainMenuSenderDeps;
   /** Reused as-is for the change-language action — never a second picker implementation. */
   languageWorkflowDeps: LanguageWorkflowDeps;
+  /** Reused as-is for menu:file-case (#8) — never a second implementation of the draft/notice flow. */
+  filingWorkflowDeps: FilingWorkflowDeps;
 }
 
 export interface MainMenuWorkflowInput {
+  conversationId: string;
   whatsappNumber: string;
   messageId: string;
   /** The conversation's persisted language — always set once state is MAIN_MENU. */
@@ -27,11 +31,6 @@ const HELP_TEXT: Record<SupportedLanguage, string> = {
 const CLARIFICATION_TEXT: Record<SupportedLanguage, string> = {
   en: "Sorry, I didn't understand that. Please choose an option below.",
   ml: "ക്ഷമിക്കണം, മനസ്സിലായില്ല. ചുവടെയുള്ള ഒരു ഓപ്ഷൻ തിരഞ്ഞെടുക്കുക.",
-};
-
-const FILE_CASE_ACKNOWLEDGEMENT: Record<SupportedLanguage, string> = {
-  en: "Let's start your cheque-case filing.",
-  ml: "നിങ്ങളുടെ ചെക്ക് കേസ് ഫയലിംഗ് ആരംഭിക്കാം.",
 };
 
 const CASE_STATUS_ACKNOWLEDGEMENT: Record<SupportedLanguage, string> = {
@@ -97,10 +96,21 @@ export async function handleInboundForMainMenu(
     return { delivered: helpSent && menuDelivered };
   }
 
-  // menu:file-case / menu:case-status
+  if (action === "menu:file-case") {
+    // #8 owns everything past this point: active-draft check, draft-choice
+    // vs. test-notice routing, and draft creation — never reimplemented here.
+    return handleFileOrResume(deps.filingWorkflowDeps, {
+      conversationId: input.conversationId,
+      whatsappNumber: input.whatsappNumber,
+      messageId: input.messageId,
+      language: input.language,
+    });
+  }
+
+  // menu:case-status — case-status lookup itself remains out of scope; this
+  // slice only owns the initial transition + acknowledgement.
   const targetState = MENU_ACTION_TARGET_STATE[action];
   await deps.conversationRepo.setState(input.whatsappNumber, targetState, now);
-  const acknowledgement = action === "menu:file-case" ? FILE_CASE_ACKNOWLEDGEMENT : CASE_STATUS_ACKNOWLEDGEMENT;
-  const delivered = await sendPlainText(deps, input, acknowledgement[input.language], "main_menu_acknowledgement_send_failed");
+  const delivered = await sendPlainText(deps, input, CASE_STATUS_ACKNOWLEDGEMENT[input.language], "main_menu_acknowledgement_send_failed");
   return { delivered };
 }
