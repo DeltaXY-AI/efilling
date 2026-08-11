@@ -1,10 +1,18 @@
 import { and, eq } from "drizzle-orm";
 import type { Transaction } from "../db/client";
 import { conversations, filings } from "../db/schema";
-import type { CreateDraftInput, FilingRecord, FilingRepository } from "./filing-repository";
+import {
+  FilingNotFoundError,
+  type CreateDraftInput,
+  type FilingRecord,
+  type FilingRepository,
+  type SaveEnrolmentCandidateInput,
+} from "./filing-repository";
 import type { RepositoryTransaction } from "./transaction";
 
 const ADVOCATE_ENROLMENT_PENDING_STEP = "ADVOCATE_ENROLMENT_PENDING";
+const ADVOCATE_ENROLMENT_CONFIRM_STEP = "ADVOCATE_ENROLMENT_CONFIRM";
+const COMPLAINANT_DETAILS_START_STEP = "COMPLAINANT_DETAILS_START";
 
 export class DrizzleFilingRepository implements FilingRepository {
   async findActiveDraft(tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord | null> {
@@ -50,6 +58,54 @@ export class DrizzleFilingRepository implements FilingRepository {
     await (tx as Transaction)
       .update(filings)
       .set({ testNoticeAcceptedAt: acceptedAt, updatedAt: new Date() })
+      .where(eq(filings.id, filingId));
+  }
+
+  async lockById(tx: RepositoryTransaction, filingId: string): Promise<FilingRecord> {
+    const [row] = await (tx as Transaction).select().from(filings).where(eq(filings.id, filingId)).for("update");
+
+    if (!row) {
+      throw new FilingNotFoundError(filingId);
+    }
+    return row;
+  }
+
+  async saveEnrolmentCandidate(tx: RepositoryTransaction, filingId: string, input: SaveEnrolmentCandidateInput): Promise<void> {
+    await (tx as Transaction)
+      .update(filings)
+      .set({
+        advocateEnrolmentOriginal: input.original,
+        advocateEnrolmentNormalized: input.normalized,
+        advocateEnrolmentStatus: "PENDING_CONFIRMATION",
+        currentStep: ADVOCATE_ENROLMENT_CONFIRM_STEP,
+        updatedAt: new Date(),
+      })
+      .where(eq(filings.id, filingId));
+  }
+
+  async confirmEnrolment(tx: RepositoryTransaction, filingId: string, confirmedAt: Date): Promise<void> {
+    await (tx as Transaction)
+      .update(filings)
+      .set({
+        advocateEnrolmentStatus: "RECORDED_UNVERIFIED",
+        advocateEnrolmentConfirmedAt: confirmedAt,
+        currentStep: COMPLAINANT_DETAILS_START_STEP,
+        updatedAt: new Date(),
+      })
+      .where(eq(filings.id, filingId));
+  }
+
+  async clearEnrolmentCandidate(tx: RepositoryTransaction, filingId: string): Promise<void> {
+    await (tx as Transaction)
+      .update(filings)
+      .set({
+        advocateEnrolmentOriginal: null,
+        advocateEnrolmentNormalized: null,
+        advocateEnrolmentStatus: null,
+        advocateEnrolmentConfirmedAt: null,
+        currentStep: ADVOCATE_ENROLMENT_PENDING_STEP,
+        updatedAt: new Date(),
+      })
       .where(eq(filings.id, filingId));
   }
 }

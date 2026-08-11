@@ -1,7 +1,16 @@
 import type { ConversationLanguage } from "./conversation-repository";
 import type { RepositoryTransaction } from "./transaction";
 
-export type OutboundMessageType = "FILING_NOTICE" | "FILING_DRAFT_CHOICE" | "FILING_DRAFT_CREATED" | "FILING_RESUMED" | "MAIN_MENU";
+export type OutboundMessageType =
+  | "FILING_NOTICE"
+  | "FILING_DRAFT_CHOICE"
+  | "FILING_DRAFT_CREATED"
+  | "FILING_RESUMED"
+  | "MAIN_MENU"
+  | "ADVOCATE_ENROLMENT_PROMPT"
+  | "ADVOCATE_ENROLMENT_CONFIRM"
+  | "ADVOCATE_ENROLMENT_RECORDED"
+  | "FILING_SAVED";
 export type OutboundMessageStatus = "pending" | "sent" | "failed";
 
 export interface OutboundMessageRecord {

@@ -20,9 +20,9 @@ See [PRD.md](./PRD.md) for the complete product requirements.
 The backend is a TypeScript/Express application with a health endpoint, an
 authenticated Twilio WhatsApp Sandbox webhook, a bilingual (English/
 Malayalam) language-selection flow, a localized Complainant Advocate main
-menu with routing, and filing-draft creation/resume with transactional,
-concurrency-safe state transitions, all with durable conversation
-persistence, deployable to Vercel.
+menu with routing, filing-draft creation/resume, and advocate-enrolment
+number capture/confirmation, all with transactional, concurrency-safe state
+transitions and durable conversation persistence, deployable to Vercel.
 
 ## Requirements
 
@@ -42,8 +42,10 @@ and configure the Sandbox webhook,
 [docs/language-selection-setup.md](./docs/language-selection-setup.md) for provisioning
 the database and creating the Twilio Content Template the language picker uses,
 [docs/main-menu-setup.md](./docs/main-menu-setup.md) for creating the localized main-menu
-Content Templates, and [docs/filing-drafts-setup.md](./docs/filing-drafts-setup.md) for
-the filing-draft templates and migration.
+Content Templates, [docs/filing-drafts-setup.md](./docs/filing-drafts-setup.md) for
+the filing-draft templates and migration, and
+[docs/advocate-enrolment-setup.md](./docs/advocate-enrolment-setup.md) for the
+advocate-enrolment templates and migration.
 
 ## Development
 
@@ -116,11 +118,19 @@ otherwise `FILING_NOTICE`); `menu:case-status` moves to `CASE_STATUS_START`;
 `menu:change-language` returns to `AWAITING_LANGUAGE`; `menu`/`മെനു` redisplays
 the current menu. Accepting the test-data notice creates exactly one filing
 draft (role `COMPLAINANT_ADVOCATE`, status `DRAFT`) inside a single
-row-locked transaction and reaches `ADVOCATE_ENROLMENT_PENDING`. See
-[docs/language-selection-setup.md](./docs/language-selection-setup.md),
-[docs/main-menu-setup.md](./docs/main-menu-setup.md), and
-[docs/filing-drafts-setup.md](./docs/filing-drafts-setup.md) for the Content
-Template and database setup this depends on.
+row-locked transaction and reaches `ADVOCATE_ENROLMENT_PENDING`, which
+immediately sends the localized enrolment-number prompt. A validated,
+normalized number moves to `ADVOCATE_ENROLMENT_CONFIRM` and shows the
+number back for confirmation; **Confirm** records it as
+`RECORDED_UNVERIFIED` (never `VERIFIED` — no Bar Council integration
+exists) and reaches `COMPLAINANT_DETAILS_START`, **Edit** clears the
+candidate and returns to `ADVOCATE_ENROLMENT_PENDING`, and **Save and
+exit** preserves the candidate/`current_step` and returns to `MAIN_MENU`.
+See [docs/language-selection-setup.md](./docs/language-selection-setup.md),
+[docs/main-menu-setup.md](./docs/main-menu-setup.md),
+[docs/filing-drafts-setup.md](./docs/filing-drafts-setup.md), and
+[docs/advocate-enrolment-setup.md](./docs/advocate-enrolment-setup.md) for
+the Content Template and database setup this depends on.
 
 ## Database
 
@@ -145,10 +155,14 @@ in `twilio/templates/language-selection.json`; the localized main menu is two
 Quick Reply/List Picker Content Templates in
 `twilio/templates/complainant-advocate-menu.{en,ml}.json`; the filing
 draft-choice and test-data-notice templates are four more Quick Reply
-templates in `twilio/templates/filing-{draft-choice,notice}.{en,ml}.json`.
-All three sets of create/verify scripts share the same idempotent
-create-or-reuse logic and structural comparison
-(`twilio/scripts/content-api-client.ts` and `template-comparison.ts`):
+templates in `twilio/templates/filing-{draft-choice,notice}.{en,ml}.json`;
+the advocate-enrolment prompt (`twilio/text`) and confirmation
+(`twilio/quick-reply`, with a `{{1}}` variable for the normalized number)
+templates are four more in
+`twilio/templates/advocate-enrolment-{prompt,confirm}.{en,ml}.json`. All
+sets of create/verify scripts share the same idempotent create-or-reuse
+logic and structural comparison (`twilio/scripts/content-api-client.ts`
+and `template-comparison.ts`):
 
 ```bash
 npm run twilio:template:create   # idempotent: creates once, reuses on reruns
@@ -157,6 +171,8 @@ npm run twilio:menu:create       # same, for both the English and Malayalam menu
 npm run twilio:menu:verify
 npm run twilio:filing:create     # same, for all four filing templates
 npm run twilio:filing:verify
+npm run twilio:enrolment:create  # same, for all four advocate-enrolment templates
+npm run twilio:enrolment:verify
 ```
 
 ## Deployment (Vercel)
@@ -173,11 +189,14 @@ Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`,
 `TWILIO_LANGUAGE_CONTENT_SID`, `TWILIO_MAIN_MENU_CONTENT_SID_EN`,
 `TWILIO_MAIN_MENU_CONTENT_SID_ML`, `TWILIO_FILING_DRAFT_CHOICE_SID_EN`,
 `TWILIO_FILING_DRAFT_CHOICE_SID_ML`, `TWILIO_FILING_NOTICE_SID_EN`,
-`TWILIO_FILING_NOTICE_SID_ML`, `PUBLIC_BASE_URL`, and `DATABASE_URL` in the
-Vercel project's **Production** environment (see
+`TWILIO_FILING_NOTICE_SID_ML`, `TWILIO_ENROLMENT_PROMPT_SID_EN`,
+`TWILIO_ENROLMENT_PROMPT_SID_ML`, `TWILIO_ENROLMENT_CONFIRM_SID_EN`,
+`TWILIO_ENROLMENT_CONFIRM_SID_ML`, `PUBLIC_BASE_URL`, and `DATABASE_URL` in
+the Vercel project's **Production** environment (see
 [docs/twilio-sandbox-setup.md](./docs/twilio-sandbox-setup.md),
 [docs/language-selection-setup.md](./docs/language-selection-setup.md),
-[docs/main-menu-setup.md](./docs/main-menu-setup.md), and
-[docs/filing-drafts-setup.md](./docs/filing-drafts-setup.md)). Redeploy after
-changing any environment variable. Any variables added later should also be set in
-Vercel and documented in `.env.example`.
+[docs/main-menu-setup.md](./docs/main-menu-setup.md),
+[docs/filing-drafts-setup.md](./docs/filing-drafts-setup.md), and
+[docs/advocate-enrolment-setup.md](./docs/advocate-enrolment-setup.md)).
+Redeploy after changing any environment variable. Any variables added later
+should also be set in Vercel and documented in `.env.example`.

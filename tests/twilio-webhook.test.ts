@@ -16,6 +16,8 @@ const WEBHOOK_URL = `${env.PUBLIC_BASE_URL}${ROUTE_PATH}`;
 const MAIN_MENU_CONTENT_SID = { en: env.TWILIO_MAIN_MENU_CONTENT_SID_EN, ml: env.TWILIO_MAIN_MENU_CONTENT_SID_ML };
 const DRAFT_CHOICE_CONTENT_SID = { en: env.TWILIO_FILING_DRAFT_CHOICE_SID_EN, ml: env.TWILIO_FILING_DRAFT_CHOICE_SID_ML };
 const NOTICE_CONTENT_SID = { en: env.TWILIO_FILING_NOTICE_SID_EN, ml: env.TWILIO_FILING_NOTICE_SID_ML };
+const ENROLMENT_PROMPT_CONTENT_SID = { en: env.TWILIO_ENROLMENT_PROMPT_SID_EN, ml: env.TWILIO_ENROLMENT_PROMPT_SID_ML };
+const ENROLMENT_CONFIRM_CONTENT_SID = { en: env.TWILIO_ENROLMENT_CONFIRM_SID_EN, ml: env.TWILIO_ENROLMENT_CONFIRM_SID_ML };
 
 function sign(params: Record<string, string>): string {
   return getExpectedTwilioSignature(env.TWILIO_AUTH_TOKEN, WEBHOOK_URL, params);
@@ -36,6 +38,14 @@ function buildDeps(
   messagingClient: FakeMessagingClient,
 ) {
   const mainMenuSenderDeps = { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, contentSidByLanguage: MAIN_MENU_CONTENT_SID };
+  const enrolmentSenderDeps = {
+    messagingClient,
+    fromNumber: env.TWILIO_WHATSAPP_FROM,
+    promptContentSid: ENROLMENT_PROMPT_CONTENT_SID,
+    confirmContentSid: ENROLMENT_CONFIRM_CONTENT_SID,
+  };
+  const filingRepo = new InMemoryFilingRepository(conversationRepo);
+  const outboundMessageRepo = new InMemoryOutboundMessageRepository();
   return {
     conversationRepo,
     processedWebhookRepo,
@@ -49,14 +59,23 @@ function buildDeps(
     mainMenuSenderDeps,
     filingWorkflowDeps: {
       conversationRepo,
-      filingRepo: new InMemoryFilingRepository(conversationRepo),
-      outboundMessageRepo: new InMemoryOutboundMessageRepository(),
+      filingRepo,
+      outboundMessageRepo,
       filingSenderDeps: {
         messagingClient,
         fromNumber: env.TWILIO_WHATSAPP_FROM,
         draftChoiceContentSid: DRAFT_CHOICE_CONTENT_SID,
         noticeContentSid: NOTICE_CONTENT_SID,
       },
+      mainMenuSenderDeps,
+      enrolmentSenderDeps,
+      withTransaction: createInMemoryWithTransaction(),
+    },
+    enrolmentWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      outboundMessageRepo,
+      enrolmentSenderDeps,
       mainMenuSenderDeps,
       withTransaction: createInMemoryWithTransaction(),
     },

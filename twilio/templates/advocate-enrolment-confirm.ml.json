@@ -1,0 +1,17 @@
+{
+  "friendly_name": "oncourts_advocate_enrolment_confirm_v1_ml",
+  "language": "ml",
+  "variables": {
+    "1": "KER/1234/2010"
+  },
+  "types": {
+    "twilio/quick-reply": {
+      "body": "അഭിഭാഷക എൻറോൾമെന്റ് നമ്പർ: {{1}}\n\nഈ നമ്പർ ഡെമോൺസ്ട്രേഷനായി രേഖപ്പെടുത്തും. ഇത് ബാർ കൗൺസിലുമായി പരിശോധിച്ചിട്ടില്ല.",
+      "actions": [
+        { "title": "സ്ഥിരീകരിക്കുക", "id": "enrolment:confirm" },
+        { "title": "എഡിറ്റ് ചെയ്യുക", "id": "enrolment:edit" },
+        { "title": "സേവ് ചെയ്ത് പുറത്തുപോകുക", "id": "filing:save-exit" }
+      ]
+    }
+  }
+}
