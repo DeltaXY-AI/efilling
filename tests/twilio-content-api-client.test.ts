@@ -92,6 +92,38 @@ describe("templatesMatch / diffTemplates", () => {
     expect(diffTemplates(SPEC, reorderedActions).some((line) => line.includes("actions"))).toBe(true);
   });
 
+  it.each([
+    ["button title", { title: "Not English" }],
+    ["button id/payload", { id: "language:xx" }],
+    ["action type", { type: "OTHER_TYPE" }],
+  ])("treats a changed %s as a mismatch", (_label, override) => {
+    const changed: ContentTemplateSpec = {
+      ...SPEC,
+      types: {
+        "twilio/quick-reply": {
+          body: SPEC.types["twilio/quick-reply"].body,
+          actions: [{ ...SPEC.types["twilio/quick-reply"].actions[0], ...override }, SPEC.types["twilio/quick-reply"].actions[1]],
+        },
+      },
+    };
+
+    expect(templatesMatch(SPEC, changed)).toBe(false);
+  });
+
+  it("treats a changed language as a mismatch", () => {
+    const changedLanguage: ContentTemplateSpec = { ...SPEC, language: "ml" };
+
+    expect(templatesMatch(SPEC, changedLanguage)).toBe(false);
+    expect(diffTemplates(SPEC, changedLanguage).some((line) => line.includes("language"))).toBe(true);
+  });
+
+  it("reports a missing twilio/quick-reply type on the remote template", () => {
+    const missingType = { ...SPEC, types: {} } as unknown as ContentTemplateSpec;
+
+    expect(templatesMatch(SPEC, missingType)).toBe(false);
+    expect(diffTemplates(SPEC, missingType).some((line) => line.includes("missing on remote"))).toBe(true);
+  });
+
   it("reports each differing top-level field", () => {
     const different: ContentTemplateSpec = { ...SPEC, friendly_name: "other_name", language: "ml" };
 
