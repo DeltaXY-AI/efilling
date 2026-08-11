@@ -112,6 +112,52 @@ describe("filing-workflow", () => {
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       expect(conversation).toMatchObject({ state: "FILING_NOTICE" });
     });
+
+    it("falls back to the numbered plain-text notice when the Content Template send fails (no active draft)", async () => {
+      messagingClient.sendContentTemplate.mockRejectedValueOnce(new Error("Twilio 500"));
+
+      const result = await handleFileOrResume(deps, fileOrResumeInput());
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("1. Continue") }));
+    });
+
+    it("falls back to the numbered plain-text draft-choice menu when the Content Template send fails (active draft)", async () => {
+      const filing = await filingRepo.createDraft(undefined, {
+        conversationId,
+        language: "en",
+        role: "COMPLAINANT_ADVOCATE",
+        testNoticeVersion: "v1",
+      });
+      await conversationRepo.setActiveFilingAndState(undefined, conversationId, filing.id, "MAIN_MENU");
+      messagingClient.sendContentTemplate.mockRejectedValueOnce(new Error("Twilio 500"));
+
+      const result = await handleFileOrResume(deps, fileOrResumeInput());
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("1. Resume draft") }),
+      );
+    });
+
+    it("does not send a misleading success message when the transaction itself fails (e.g. DB unreachable)", async () => {
+      const brokenDeps: FilingWorkflowDeps = {
+        ...deps,
+        withTransaction: async () => {
+          throw new Error("connection refused");
+        },
+      };
+
+      await expect(handleFileOrResume(brokenDeps, fileOrResumeInput())).rejects.toThrow("connection refused");
+
+      expect(messagingClient.sendContentTemplate).not.toHaveBeenCalled();
+      expect(messagingClient.sendText).not.toHaveBeenCalled();
+      // The route layer (src/routes/twilio-webhook.route.ts) is what catches
+      // this, acks 200 anyway, and marks the webhook event failed — it never
+      // reaches here as a false "success".
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "MAIN_MENU" });
+    });
   });
 
   describe("handleDraftChoiceInput (Part A/G)", () => {
@@ -305,6 +351,8 @@ describe("filing-workflow", () => {
       const firstConversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       const firstFilingId = firstConversation?.activeFilingId;
       expect(firstFilingId).toBeTruthy();
+      const firstFilingBefore = filingRepo.findById(firstFilingId!);
+      expect(firstFilingBefore).toMatchObject({ status: "DRAFT", currentStep: "ADVOCATE_ENROLMENT_PENDING" });
 
       // Advocate re-enters the menu, sees the draft choice, and starts a new filing.
       await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_DRAFT_CHOICE", new Date());
@@ -316,10 +364,16 @@ describe("filing-workflow", () => {
       expect(secondConversation?.activeFilingId).not.toBe(firstFilingId);
       expect(secondConversation).toMatchObject({ state: "ADVOCATE_ENROLMENT_PENDING" });
 
-      // The first filing must still exist, unchanged, just no longer active.
-      const firstFiling = await filingRepo.findActiveDraft(undefined, conversationId);
-      expect(firstFiling?.id).toBe(secondConversation?.activeFilingId); // findActiveDraft now resolves the new one
-      expect(firstFiling?.id).not.toBe(firstFilingId);
+      // The first filing row itself — fetched directly by id, not via
+      // findActiveDraft (which would now resolve the new one) — must still
+      // exist, completely unchanged: same status, step, and timestamps.
+      const firstFilingAfter = filingRepo.findById(firstFilingId!);
+      expect(firstFilingAfter).toEqual(firstFilingBefore);
+
+      // And the new active filing is a genuinely different row.
+      const secondFiling = await filingRepo.findActiveDraft(undefined, conversationId);
+      expect(secondFiling?.id).toBe(secondConversation?.activeFilingId);
+      expect(secondFiling?.id).not.toBe(firstFilingId);
     });
   });
 });

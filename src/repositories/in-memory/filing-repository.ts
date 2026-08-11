@@ -52,4 +52,9 @@ export class InMemoryFilingRepository implements FilingRepository {
     }
     this.byId.set(filingId, { ...existing, testNoticeAcceptedAt: acceptedAt, updatedAt: new Date() });
   }
+
+  /** Test-wiring helper (not part of the FilingRepository interface) so tests can assert a specific filing's fields directly, e.g. to prove a prior draft was left unchanged. */
+  findById(filingId: string): FilingRecord | null {
+    return this.byId.get(filingId) ?? null;
+  }
 }
