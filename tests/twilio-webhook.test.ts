@@ -243,4 +243,49 @@ describe("POST /webhooks/twilio/whatsapp", () => {
       body: "✓ English selected.",
     });
   });
+
+  it("acks with 200 and logs safely instead of a 500 when the idempotency claim itself fails (e.g. DB unreachable)", async () => {
+    const errorLogSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const brokenProcessedWebhookRepo = {
+      tryClaim: vi.fn().mockRejectedValue(new Error("connection refused")),
+      markOutcome: vi.fn(),
+    };
+    const brokenApp = createApp({
+      twilioWebhookDeps: {
+        conversationRepo: new InMemoryConversationRepository(),
+        processedWebhookRepo: brokenProcessedWebhookRepo,
+        languageWorkflowDeps: {
+          messagingClient,
+          fromNumber: env.TWILIO_WHATSAPP_FROM,
+          contentSid: env.TWILIO_LANGUAGE_CONTENT_SID,
+        },
+      },
+    });
+
+    const params = {
+      MessageSid: "SM0000000000000000000000000000001",
+      From: "whatsapp:+15005550010",
+      To: "whatsapp:+14155238886",
+      Body: "Hi",
+      NumMedia: "0",
+    };
+
+    const response = await request(brokenApp)
+      .post(ROUTE_PATH)
+      .type("form")
+      .set("X-Twilio-Signature", sign(params))
+      .send(params);
+
+    expect(response.status).toBe(200);
+    expect(response.text).toBe('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+    // No side effects ran — the claim itself failed before anything else did.
+    expect(messagingClient.sendContentTemplate).not.toHaveBeenCalled();
+    expect(brokenProcessedWebhookRepo.markOutcome).not.toHaveBeenCalled();
+
+    const errorOutput = errorLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+    expect(errorOutput).toContain("processed_webhook_claim_failed");
+    expect(errorOutput).not.toContain("connection refused");
+
+    errorLogSpy.mockRestore();
+  });
 });

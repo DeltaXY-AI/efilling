@@ -6,12 +6,10 @@
       "body": "🙏 നമസ്കാരം | Welcome\n\nWelcome to 24x7 ON Courts, Kollam.\n\nPlease choose your preferred language.\nദയവായി ഭാഷ തിരഞ്ഞെടുക്കുക.",
       "actions": [
         {
-          "type": "QUICK_REPLY",
           "title": "English",
           "id": "language:en"
         },
         {
-          "type": "QUICK_REPLY",
           "title": "മലയാളം",
           "id": "language:ml"
         }

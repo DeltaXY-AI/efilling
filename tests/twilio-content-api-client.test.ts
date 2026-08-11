@@ -19,8 +19,8 @@ const SPEC: ContentTemplateSpec = {
     "twilio/quick-reply": {
       body: "Welcome",
       actions: [
-        { type: "QUICK_REPLY", title: "English", id: "language:en" },
-        { type: "QUICK_REPLY", title: "മലയാളം", id: "language:ml" },
+        { title: "English", id: "language:en" },
+        { title: "മലയാളം", id: "language:ml" },
       ],
     },
   },
@@ -95,7 +95,6 @@ describe("templatesMatch / diffTemplates", () => {
   it.each([
     ["button title", { title: "Not English" }],
     ["button id/payload", { id: "language:xx" }],
-    ["action type", { type: "OTHER_TYPE" }],
   ])("treats a changed %s as a mismatch", (_label, override) => {
     const changed: ContentTemplateSpec = {
       ...SPEC,
@@ -202,5 +201,35 @@ describe("Content API client", () => {
     fetchMock.mockResolvedValueOnce(new Response("server exploded", { status: 500 }));
 
     await expect(createContentTemplate(CREDENTIALS, SPEC)).rejects.toThrow(/HTTP 500/);
+  });
+
+  it("never lets the Auth Token through even if Twilio's error response body echoes it back", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          code: 20003,
+          message: `Authentication failed for account ${CREDENTIALS.accountSid} using token ${CREDENTIALS.authToken}`,
+          more_info: `https://twilio.com/docs/errors/20003?token=${CREDENTIALS.authToken}`,
+          status: 401,
+        }),
+        { status: 401 },
+      ),
+    );
+
+    const error = await createContentTemplate(CREDENTIALS, SPEC).catch((thrown: Error) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toContain(CREDENTIALS.authToken);
+    expect((error as Error).message).not.toContain(CREDENTIALS.accountSid);
+    expect((error as Error).message).toContain("code=20003");
+  });
+
+  it("falls back to a generic message for an unrecognized/raw error body, even if it contains the token", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(`raw dump including ${CREDENTIALS.authToken}`, { status: 500 }));
+
+    const error = await createContentTemplate(CREDENTIALS, SPEC).catch((thrown: Error) => thrown);
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).not.toContain(CREDENTIALS.authToken);
   });
 });

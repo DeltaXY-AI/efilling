@@ -57,11 +57,31 @@ export function createTwilioWebhookRouter(deps: TwilioWebhookRouterDeps): Router
     // Twilio retries failed/timed-out deliveries with the same MessageSid.
     // Claiming it here — before any side effect — is what makes a retry a
     // silent no-op instead of a duplicate picker/confirmation send.
-    const claimed = await deps.processedWebhookRepo.tryClaim(
-      inboundMessage.messageId,
-      "whatsapp_inbound",
-      maskSender(inboundMessage.from),
-    );
+    let claimed: boolean;
+    try {
+      claimed = await deps.processedWebhookRepo.tryClaim(
+        inboundMessage.messageId,
+        "whatsapp_inbound",
+        maskSender(inboundMessage.from),
+      );
+    } catch {
+      // The claim itself failed (e.g. the database is unreachable) before
+      // any row was written, so there is nothing to mark as failed and no
+      // safe way to guarantee dedup — explicit policy: ack the request
+      // (never surface a 500 here, which would leave Twilio retrying this
+      // MessageSid forever) and log a safe error for operators.
+      logWorkflowError({ code: "processed_webhook_claim_failed", correlationId: inboundMessage.messageId });
+      logWebhookEvent({
+        route: ROUTE_PATH,
+        status: 200,
+        outcome: "accepted",
+        messageId: inboundMessage.messageId,
+        mediaCount: inboundMessage.media.length,
+        from: inboundMessage.from,
+      });
+      res.status(200).type("application/xml").send(EMPTY_TWIML_RESPONSE);
+      return;
+    }
 
     if (!claimed) {
       logWebhookEvent({

@@ -5,6 +5,7 @@ import {
   diffTemplates,
   listContentTemplates,
   loadTwilioCredentialsFromEnv,
+  redactCredentials,
   templatesMatch,
   type ContentTemplateSpec,
 } from "./content-api-client";
@@ -73,12 +74,33 @@ export async function main(): Promise<void> {
   console.log(`TWILIO_LANGUAGE_CONTENT_SID=${created.sid}`);
 }
 
+/**
+ * Runs `main()` and, if it throws, prints a redacted failure message and
+ * sets a non-zero exit code. Exported separately from the auto-run guard
+ * below so tests can exercise this exact failure path (including the
+ * redaction) without relying on `process.argv`.
+ */
+export async function run(): Promise<void> {
+  try {
+    await main();
+  } catch (error) {
+    let message = error instanceof Error ? error.message : String(error);
+    // Defense-in-depth: redact the configured credentials from whatever
+    // reaches this catch, even if it didn't come from a Twilio Content API
+    // response (which is already redacted at the source).
+    try {
+      message = redactCredentials(message, loadTwilioCredentialsFromEnv());
+    } catch {
+      // Credentials themselves aren't available — nothing to redact.
+    }
+    console.error("✗ Failed to create Twilio Content Template");
+    console.error(message);
+    process.exitCode = 1;
+  }
+}
+
 // Only auto-run when executed directly (`tsx create-language-template.ts` /
 // `npm run twilio:template:create`) — not when imported by tests.
 if (process.argv[1] === __filename) {
-  main().catch((error) => {
-    console.error("✗ Failed to create Twilio Content Template");
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  });
+  void run();
 }

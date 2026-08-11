@@ -13,7 +13,10 @@ export interface TwilioCredentials {
 }
 
 export interface QuickReplyAction {
-  type: string;
+  // Twilio's Content API does not accept/round-trip a per-action "type"
+  // field for twilio/quick-reply — confirmed against a real Content
+  // resource: it always comes back as just {id, title}. Comparing against
+  // one would make verification permanently fail for any real template.
   title: string;
   id: string;
 }
@@ -60,11 +63,67 @@ function authHeader(credentials: TwilioCredentials): string {
   return `Basic ${Buffer.from(`${credentials.accountSid}:${credentials.authToken}`).toString("base64")}`;
 }
 
-async function parseJsonOrThrow(response: Response, action: string): Promise<unknown> {
+/**
+ * Replaces any literal occurrence of the configured Account SID/Auth Token
+ * with a placeholder. Defense-in-depth on top of `safeErrorMessage` below —
+ * applied at every point an error message is ever constructed or printed,
+ * so a credential can never surface even if it reaches an error by some
+ * path this module didn't anticipate.
+ */
+export function redactCredentials(text: string, credentials: TwilioCredentials): string {
+  let redacted = text;
+  if (credentials.accountSid) {
+    redacted = redacted.split(credentials.accountSid).join("[REDACTED]");
+  }
+  if (credentials.authToken) {
+    redacted = redacted.split(credentials.authToken).join("[REDACTED]");
+  }
+  return redacted;
+}
+
+const MAX_SAFE_ERROR_FIELD_LENGTH = 300;
+
+interface TwilioErrorPayload {
+  code?: unknown;
+  message?: unknown;
+  more_info?: unknown;
+  status?: unknown;
+}
+
+/**
+ * Twilio's own error responses are JSON with a small set of known fields
+ * (code/message/more_info/status). Rather than ever including the raw
+ * response body in a thrown error — which a coding agent or developer could
+ * then print verbatim — this extracts only those known-safe fields, then
+ * still redacts the configured credentials from them as a second layer.
+ * Anything that isn't recognized Twilio error shape becomes a generic,
+ * bodyless message instead of being included as-is.
+ */
+function safeErrorMessage(rawBody: string, credentials: TwilioCredentials): string {
+  let parsed: TwilioErrorPayload;
+  try {
+    parsed = JSON.parse(rawBody) as TwilioErrorPayload;
+  } catch {
+    return "Twilio returned a non-JSON error body";
+  }
+
+  const fields = [
+    typeof parsed.code === "number" || typeof parsed.code === "string" ? `code=${parsed.code}` : null,
+    typeof parsed.status === "number" || typeof parsed.status === "string" ? `status=${parsed.status}` : null,
+    typeof parsed.message === "string"
+      ? `message=${redactCredentials(parsed.message, credentials).slice(0, MAX_SAFE_ERROR_FIELD_LENGTH)}`
+      : null,
+    typeof parsed.more_info === "string" ? `more_info=${redactCredentials(parsed.more_info, credentials)}` : null,
+  ].filter((field): field is string => field !== null);
+
+  return fields.length > 0 ? fields.join(" ") : "Twilio returned an error body with no recognized fields";
+}
+
+async function parseJsonOrThrow(response: Response, action: string, credentials: TwilioCredentials): Promise<unknown> {
   const text = await response.text();
 
   if (!response.ok) {
-    throw new Error(`Twilio Content API ${action} failed with HTTP ${response.status}: ${text}`);
+    throw new Error(`Twilio Content API ${action} failed with HTTP ${response.status}: ${safeErrorMessage(text, credentials)}`);
   }
 
   try {
@@ -81,7 +140,7 @@ export async function listContentTemplates(credentials: TwilioCredentials): Prom
 
   while (url) {
     const response = await fetch(url, { headers: { Authorization: authHeader(credentials) } });
-    const page = (await parseJsonOrThrow(response, "list")) as ContentListPage;
+    const page = (await parseJsonOrThrow(response, "list", credentials)) as ContentListPage;
     resources.push(...page.contents);
     url = page.meta.next_page_url;
   }
@@ -102,7 +161,7 @@ export async function getContentTemplate(
     return null;
   }
 
-  return (await parseJsonOrThrow(response, "fetch")) as ContentResource;
+  return (await parseJsonOrThrow(response, "fetch", credentials)) as ContentResource;
 }
 
 /** Creates a new Content resource from the given specification. */
@@ -116,7 +175,7 @@ export async function createContentTemplate(
     body: JSON.stringify(spec),
   });
 
-  return (await parseJsonOrThrow(response, "create")) as ContentResource;
+  return (await parseJsonOrThrow(response, "create", credentials)) as ContentResource;
 }
 
 /**

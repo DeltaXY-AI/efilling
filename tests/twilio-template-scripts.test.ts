@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { main as createMain } from "../twilio/scripts/create-language-template";
+import { main as createMain, run as runCreate } from "../twilio/scripts/create-language-template";
 import { main as verifyMain } from "../twilio/scripts/verify-language-template";
 import type { ContentResource, ContentTemplateSpec } from "../twilio/scripts/content-api-client";
 
@@ -120,6 +120,23 @@ describe("Twilio Content Template scripts", () => {
 
       await createMain();
 
+      expect(loggedOutput()).not.toContain("test-auth-token");
+    });
+
+    it("never logs the Auth Token even when Twilio's own error response body echoes it back", async () => {
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse(
+          { code: 20003, message: `bad auth token: ${process.env.TWILIO_AUTH_TOKEN}`, status: 401 },
+          401,
+        ),
+      );
+
+      // main() throws on this failure (it's not one of the handled
+      // create/reuse/mismatch/duplicate branches) — run() is what the real
+      // CLI entry point uses to catch, redact, and set the exit code.
+      await runCreate();
+
+      expect(process.exitCode).toBe(1);
       expect(loggedOutput()).not.toContain("test-auth-token");
     });
   });
