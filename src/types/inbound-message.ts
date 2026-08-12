@@ -5,7 +5,16 @@
  * contract.
  */
 export interface InboundMedia {
-  url: string;
+  /** Directly usable download URL — always present for Twilio. */
+  url?: string;
+  /**
+   * Provider's own media identifier, present instead of `url` for providers
+   * that only hand back an id in the webhook payload (Kapso/Meta) — the
+   * caller must resolve it to a URL via a separate follow-up call before
+   * downloading. Deliberately not resolved inside normalization, which
+   * stays synchronous and side-effect-free for every provider.
+   */
+  mediaId?: string;
   contentType: string;
   index: number;
 }
