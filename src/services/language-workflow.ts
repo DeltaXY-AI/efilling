@@ -12,6 +12,13 @@ const PLAIN_TEXT_LANGUAGE_MENU = [
   "2. മലയാളം",
 ].join("\n");
 
+const INTERACTIVE_LANGUAGE_BODY = "🙏 നമസ്കാരം | Welcome\n\nPlease choose your preferred language:";
+// Button titles, well within Meta's 20-character limit for both scripts.
+const INTERACTIVE_LANGUAGE_BUTTONS = [
+  { id: "language:en", title: "English" },
+  { id: "language:ml", title: "മലയാളം" },
+];
+
 const CONFIRMATIONS: Record<LanguageCode, string> = {
   en: "✓ English selected.",
   ml: "✓ മലയാളം തിരഞ്ഞെടുത്തു.",
@@ -41,11 +48,29 @@ export interface LanguageWorkflowResult {
 }
 
 /**
- * Sends the bilingual language picker via the Content Template, falling
- * back to the numbered plain-text menu if that send fails. Never surfaces
- * Twilio's internal error to the advocate.
+ * Sends the bilingual language picker, preferring a provider's native
+ * interactive buttons when available (Kapso — #16 task 6), then the
+ * Content Template (Twilio), then the numbered plain-text menu. Never
+ * surfaces a provider's internal error to the advocate.
  */
 async function sendLanguagePicker(deps: LanguageWorkflowDeps, input: LanguageWorkflowInput): Promise<boolean> {
+  if (deps.messagingClient.sendInteractiveButtons) {
+    try {
+      await deps.messagingClient.sendInteractiveButtons({
+        from: deps.fromNumber,
+        to: input.whatsappNumber,
+        bodyText: INTERACTIVE_LANGUAGE_BODY,
+        buttons: INTERACTIVE_LANGUAGE_BUTTONS,
+      });
+      return true;
+    } catch {
+      logWorkflowError({ code: "language_picker_interactive_send_failed", correlationId: input.messageId });
+      // Falls through to the Content Template / plain-text path below —
+      // same graceful-degradation chain Twilio's Content Template failure
+      // already falls into.
+    }
+  }
+
   try {
     await deps.messagingClient.sendContentTemplate({
       from: deps.fromNumber,

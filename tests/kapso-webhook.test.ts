@@ -71,7 +71,10 @@ describe("POST /webhooks/kapso/whatsapp", () => {
 
   beforeEach(() => {
     logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    messagingClient = createFakeMessagingClient();
+    // The real Kapso client always has native interactive buttons/lists
+    // (#16 task 6) — matching that shape here so these route tests exercise
+    // what actually happens, not a hypothetical Kapso-without-interactive.
+    messagingClient = createFakeMessagingClient({ interactive: true });
     app = createApp({
       kapsoWebhookDeps: buildDeps(new InMemoryConversationRepository(), new InMemoryProcessedWebhookRepository(), messagingClient),
     });
@@ -95,11 +98,19 @@ describe("POST /webhooks/kapso/whatsapp", () => {
     const logged = findLoggedEvent(logSpy, "wamid.kapso1");
     expect(logged).toMatchObject({ status: 200, outcome: "accepted", mediaCount: 0 });
 
-    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith({
+    // Native interactive buttons, not the Content Template — Kapso has no
+    // SID equivalent, so the language picker goes out as real Kapso/Meta
+    // interactive structure (#16 task 6), not a fallback.
+    expect(messagingClient.sendInteractiveButtons).toHaveBeenCalledWith({
       from: FROM_NUMBER,
       to: "15005550006",
-      contentSid: TEMPLATES_NOT_YET_WIRED,
+      bodyText: expect.stringContaining("Please choose your preferred language"),
+      buttons: [
+        { id: "language:en", title: "English" },
+        { id: "language:ml", title: "മലയാളം" },
+      ],
     });
+    expect(messagingClient.sendContentTemplate).not.toHaveBeenCalled();
   });
 
   it("rejects a request with an invalid signature and never dispatches", async () => {
@@ -112,6 +123,7 @@ describe("POST /webhooks/kapso/whatsapp", () => {
       .send(rawBody);
 
     expect(response.status).toBe(403);
+    expect(messagingClient.sendInteractiveButtons).not.toHaveBeenCalled();
     expect(messagingClient.sendContentTemplate).not.toHaveBeenCalled();
   });
 
@@ -145,14 +157,14 @@ describe("POST /webhooks/kapso/whatsapp", () => {
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(messagingClient.sendContentTemplate).toHaveBeenCalledTimes(1);
+    expect(messagingClient.sendInteractiveButtons).toHaveBeenCalledTimes(1);
   });
 
-  it("persists an interactive button-reply language selection, then sends the confirmation and main menu", async () => {
+  it("persists an interactive button-reply language selection, then sends the confirmation and a native interactive main menu", async () => {
     const from = "15005550008";
     const firstBody = JSON.stringify({ message: { id: "wamid.kapso6", from, text: { body: "Hi" } } });
     await request(app).post(ROUTE_PATH).set("Content-Type", "application/json").set("X-Webhook-Signature", sign(firstBody)).send(firstBody);
-    messagingClient.sendContentTemplate.mockClear();
+    messagingClient.sendInteractiveButtons!.mockClear();
 
     const selectionBody = JSON.stringify({
       message: { id: "wamid.kapso7", from, type: "interactive", interactive: { button_reply: { id: "language:en", title: "English" } } },
@@ -165,11 +177,14 @@ describe("POST /webhooks/kapso/whatsapp", () => {
 
     expect(response.status).toBe(200);
     expect(messagingClient.sendText).toHaveBeenCalledWith({ from: FROM_NUMBER, to: from, body: "✓ English selected." });
-    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith({
+    expect(messagingClient.sendInteractiveList).toHaveBeenCalledWith({
       from: FROM_NUMBER,
       to: from,
-      contentSid: TEMPLATES_NOT_YET_WIRED,
+      bodyText: expect.any(String),
+      buttonText: expect.any(String),
+      sections: [{ rows: expect.arrayContaining([{ id: "menu:file-case", title: expect.any(String) }]) }],
     });
+    expect(messagingClient.sendContentTemplate).not.toHaveBeenCalled();
   });
 
   it("never logs the webhook secret, signature, message body, or media id", async () => {

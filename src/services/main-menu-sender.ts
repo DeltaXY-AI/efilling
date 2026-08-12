@@ -40,14 +40,67 @@ const PLAIN_TEXT_MENU: Record<SupportedLanguage, string> = {
   ].join("\n"),
 };
 
+const INTERACTIVE_MENU_BODY: Record<SupportedLanguage, string> = {
+  en: "What would you like to do today?",
+  ml: "ഇന്ന് എന്താണ് ചെയ്യേണ്ടത്?",
+};
+
+const INTERACTIVE_MENU_BUTTON_TEXT: Record<SupportedLanguage, string> = {
+  en: "Choose an option",
+  ml: "ഓപ്ഷൻ തിരഞ്ഞെടുക്കുക",
+};
+
+// Row titles must stay within Meta's 24-character list-row-title limit.
+// The English titles fit as-is. The Malayalam titles are NOT the
+// PLAIN_TEXT_MENU sentences (those run well past 24 characters with their
+// connecting words) — they reuse the shorter phrases already established
+// as this action's recognized text-fallback in domain/main-menu.ts's
+// TEXT_TO_ACTION map, rather than a new translation invented here. Still
+// worth a native-speaker content review before use outside the spike. If
+// Meta rejects a title's length anyway, the send throws and the existing
+// Content Template / plain-text fallback below takes over — a degraded-UX
+// risk, not a correctness one.
+const INTERACTIVE_MENU_ROWS: Record<SupportedLanguage, { id: string; title: string }[]> = {
+  en: [
+    { id: "menu:file-case", title: "File or resume case" },
+    { id: "menu:case-status", title: "Check case status" },
+    { id: "menu:change-language", title: "Change language" },
+    { id: "menu:help", title: "Help" },
+  ],
+  ml: [
+    { id: "menu:file-case", title: "കേസ് ഫയൽ ചെയ്യുക" },
+    { id: "menu:case-status", title: "കേസ് സ്ഥിതി" },
+    { id: "menu:change-language", title: "ഭാഷ മാറ്റുക" },
+    { id: "menu:help", title: "സഹായം" },
+  ],
+};
+
 /**
- * Sends the localized main-menu Content Template, falling back to the
- * numbered plain-text menu if that send fails. Never surfaces Twilio's
- * internal error to the advocate. Shared by the language workflow (menu
- * sent right after a confirmed selection) and the main-menu workflow (menu
- * redisplay, help, unknown input) so there is exactly one send path.
+ * Sends the localized main menu, preferring a provider's native
+ * interactive list when available (Kapso — #16 task 6), then the Content
+ * Template (Twilio), then the numbered plain-text menu. Never surfaces a
+ * provider's internal error to the advocate. Shared by the language
+ * workflow (menu sent right after a confirmed selection) and the main-menu
+ * workflow (menu redisplay, help, unknown input) so there is exactly one
+ * send path.
  */
 export async function sendMainMenu(deps: MainMenuSenderDeps, input: SendMainMenuInput): Promise<boolean> {
+  if (deps.messagingClient.sendInteractiveList) {
+    try {
+      await deps.messagingClient.sendInteractiveList({
+        from: deps.fromNumber,
+        to: input.to,
+        bodyText: INTERACTIVE_MENU_BODY[input.language],
+        buttonText: INTERACTIVE_MENU_BUTTON_TEXT[input.language],
+        sections: [{ rows: INTERACTIVE_MENU_ROWS[input.language] }],
+      });
+      return true;
+    } catch {
+      logWorkflowError({ code: "main_menu_interactive_send_failed", correlationId: input.correlationId });
+      // Falls through to the Content Template / plain-text path below.
+    }
+  }
+
   try {
     await deps.messagingClient.sendContentTemplate({
       from: deps.fromNumber,
