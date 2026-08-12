@@ -11,7 +11,8 @@ export interface InboundMedia {
 }
 
 export interface InboundMessage {
-  provider: "twilio";
+  /** "kapso" is reserved for the issue #16 spike adapter — not yet a live sender. */
+  provider: "twilio" | "kapso";
   messageId: string;
   channel: "whatsapp";
   from: string;

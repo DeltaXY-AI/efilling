@@ -1,15 +1,15 @@
 import { vi } from "vitest";
-import type { TwilioMessagingClient } from "../../src/adapters/twilio/messaging-client";
+import type { MessagingClient } from "../../src/types/messaging-client";
 
-export interface FakeMessagingClient extends TwilioMessagingClient {
-  sendContentTemplate: ReturnType<typeof vi.fn<TwilioMessagingClient["sendContentTemplate"]>>;
-  sendText: ReturnType<typeof vi.fn<TwilioMessagingClient["sendText"]>>;
+export interface FakeMessagingClient extends MessagingClient {
+  sendContentTemplate: ReturnType<typeof vi.fn<MessagingClient["sendContentTemplate"]>>;
+  sendText: ReturnType<typeof vi.fn<MessagingClient["sendText"]>>;
 }
 
-/** A TwilioMessagingClient test double that resolves successfully by default. */
+/** A MessagingClient test double that resolves successfully by default — provider-agnostic, usable for any adapter under test. */
 export function createFakeMessagingClient(): FakeMessagingClient {
   return {
-    sendContentTemplate: vi.fn<TwilioMessagingClient["sendContentTemplate"]>().mockResolvedValue(undefined),
-    sendText: vi.fn<TwilioMessagingClient["sendText"]>().mockResolvedValue(undefined),
+    sendContentTemplate: vi.fn<MessagingClient["sendContentTemplate"]>().mockResolvedValue(undefined),
+    sendText: vi.fn<MessagingClient["sendText"]>().mockResolvedValue(undefined),
   };
 }

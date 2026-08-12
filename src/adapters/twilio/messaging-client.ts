@@ -1,16 +1,13 @@
 import Twilio from "twilio";
+import type { MessagingClient } from "../../types/messaging-client";
 
 /**
  * Thin wrapper around the Twilio REST client for outbound WhatsApp sends,
- * so the language workflow can depend on an interface instead of the SDK
- * directly and tests can inject a fake instead of calling Twilio.
+ * implementing the provider-neutral MessagingClient contract so the
+ * language workflow can depend on an interface instead of the SDK directly
+ * and tests can inject a fake instead of calling Twilio.
  */
-export interface TwilioMessagingClient {
-  sendContentTemplate(input: { from: string; to: string; contentSid: string }): Promise<void>;
-  sendText(input: { from: string; to: string; body: string }): Promise<void>;
-}
-
-export function createTwilioMessagingClient(accountSid: string, authToken: string): TwilioMessagingClient {
+export function createTwilioMessagingClient(accountSid: string, authToken: string): MessagingClient {
   const client = Twilio(accountSid, authToken);
 
   return {

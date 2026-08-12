@@ -1,9 +1,9 @@
-import type { TwilioMessagingClient } from "../adapters/twilio/messaging-client";
+import type { MessagingClient } from "../types/messaging-client";
 import { logWorkflowError } from "../lib/logger";
 import type { SupportedLanguage } from "./main-menu-sender";
 
 export interface FilingSenderDeps {
-  messagingClient: TwilioMessagingClient;
+  messagingClient: MessagingClient;
   fromNumber: string;
   draftChoiceContentSid: Record<SupportedLanguage, string>;
   noticeContentSid: Record<SupportedLanguage, string>;
@@ -51,7 +51,7 @@ const PLAIN_TEXT_NOTICE: Record<SupportedLanguage, string> = {
 };
 
 async function sendWithFallback(
-  deps: { messagingClient: TwilioMessagingClient; fromNumber: string },
+  deps: { messagingClient: MessagingClient; fromNumber: string },
   input: SendFilingMessageInput,
   contentSid: string,
   fallbackText: string,
@@ -91,7 +91,7 @@ export function sendFilingNotice(deps: FilingSenderDeps, input: SendFilingMessag
 
 /** Sends a plain informational message (no buttons) — used for resume/support/completion messages. */
 export async function sendFilingPlainText(
-  deps: { messagingClient: TwilioMessagingClient; fromNumber: string },
+  deps: { messagingClient: MessagingClient; fromNumber: string },
   input: SendFilingMessageInput,
   body: string,
   errorCode: string,

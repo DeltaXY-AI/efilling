@@ -1,5 +1,5 @@
 import { parseLanguageSelection, type LanguageCode, type SelectionInput } from "../domain/language-selection";
-import type { TwilioMessagingClient } from "../adapters/twilio/messaging-client";
+import type { MessagingClient } from "../types/messaging-client";
 import type { ConversationRepository } from "../repositories/conversation-repository";
 import { logWorkflowError } from "../lib/logger";
 import { sendMainMenu, type SupportedLanguage } from "./main-menu-sender";
@@ -19,7 +19,7 @@ const CONFIRMATIONS: Record<LanguageCode, string> = {
 
 export interface LanguageWorkflowDeps {
   conversationRepo: ConversationRepository;
-  messagingClient: TwilioMessagingClient;
+  messagingClient: MessagingClient;
   fromNumber: string;
   /** Content SID of the bilingual language-selection picker (#3). */
   contentSid: string;

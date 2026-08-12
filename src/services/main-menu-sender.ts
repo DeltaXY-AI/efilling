@@ -1,11 +1,11 @@
-import type { TwilioMessagingClient } from "../adapters/twilio/messaging-client";
+import type { MessagingClient } from "../types/messaging-client";
 import { logWorkflowError } from "../lib/logger";
 import type { LanguageCode } from "../domain/language-selection";
 
 export type SupportedLanguage = LanguageCode;
 
 export interface MainMenuSenderDeps {
-  messagingClient: TwilioMessagingClient;
+  messagingClient: MessagingClient;
   fromNumber: string;
   contentSidByLanguage: Record<SupportedLanguage, string>;
 }
