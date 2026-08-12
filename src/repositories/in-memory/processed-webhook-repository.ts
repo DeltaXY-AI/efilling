@@ -1,8 +1,9 @@
-import type { ProcessedWebhookRepository, WebhookEventOutcome } from "../processed-webhook-repository";
+import type { ProcessedWebhookRepository, WebhookEventOutcome, WebhookEventProvider } from "../processed-webhook-repository";
 
 interface StoredEvent {
   eventType: string;
   whatsappNumberMaskedOrHash?: string;
+  provider: WebhookEventProvider;
   status: "processing" | WebhookEventOutcome;
   errorCode?: string;
 }
@@ -11,11 +12,16 @@ interface StoredEvent {
 export class InMemoryProcessedWebhookRepository implements ProcessedWebhookRepository {
   private readonly byMessageSid = new Map<string, StoredEvent>();
 
-  async tryClaim(messageSid: string, eventType: string, whatsappNumberMaskedOrHash?: string): Promise<boolean> {
+  async tryClaim(
+    messageSid: string,
+    eventType: string,
+    whatsappNumberMaskedOrHash?: string,
+    provider: WebhookEventProvider = "twilio",
+  ): Promise<boolean> {
     if (this.byMessageSid.has(messageSid)) {
       return false;
     }
-    this.byMessageSid.set(messageSid, { eventType, whatsappNumberMaskedOrHash, status: "processing" });
+    this.byMessageSid.set(messageSid, { eventType, whatsappNumberMaskedOrHash, provider, status: "processing" });
     return true;
   }
 

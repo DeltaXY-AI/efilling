@@ -88,6 +88,7 @@ export function createTwilioWebhookRouter(deps: TwilioWebhookRouterDeps): Router
         inboundMessage.messageId,
         "whatsapp_inbound",
         maskSender(inboundMessage.from),
+        "twilio",
       );
     } catch {
       // The claim itself failed (e.g. the database is unreachable) before

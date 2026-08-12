@@ -1,15 +1,21 @@
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { processedWebhookEvents } from "../db/schema";
-import type { ProcessedWebhookRepository, WebhookEventOutcome } from "./processed-webhook-repository";
+import type { ProcessedWebhookRepository, WebhookEventOutcome, WebhookEventProvider } from "./processed-webhook-repository";
 
 export class DrizzleProcessedWebhookRepository implements ProcessedWebhookRepository {
-  async tryClaim(messageSid: string, eventType: string, whatsappNumberMaskedOrHash?: string): Promise<boolean> {
+  async tryClaim(
+    messageSid: string,
+    eventType: string,
+    whatsappNumberMaskedOrHash?: string,
+    provider: WebhookEventProvider = "twilio",
+  ): Promise<boolean> {
     const db = getDb();
     const inserted = await db
       .insert(processedWebhookEvents)
       .values({
         messageSid,
+        provider,
         eventType,
         whatsappNumberMaskedOrHash,
         status: "processing",

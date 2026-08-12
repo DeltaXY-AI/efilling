@@ -18,6 +18,10 @@ export const conversationStateEnum = pgEnum("conversation_state", [
   "ADVOCATE_ENROLMENT_PENDING",
 ]);
 export const webhookEventStatusEnum = pgEnum("webhook_event_status", ["processing", "processed", "failed"]);
+// #16 spike — which vendor delivered this event. Defaults to "twilio" so the
+// existing Twilio webhook route needs no immediate call-site change; "kapso"
+// is reserved for the spike adapter (not yet a live sender).
+export const webhookProviderEnum = pgEnum("webhook_provider", ["twilio", "kapso"]);
 export const filingRoleEnum = pgEnum("filing_role", ["COMPLAINANT_ADVOCATE"]);
 export const filingStatusEnum = pgEnum("filing_status", ["DRAFT", "SUBMITTED", "ABANDONED"]);
 export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
@@ -37,6 +41,15 @@ export const conversations = pgTable("conversations", {
   // Authoritative active-draft pointer — never infer it from the most
   // recently updated filing. Nullable: no active filing until one exists.
   activeFilingId: uuid("active_filing_id").references((): AnyPgColumn => filings.id),
+  // #16 spike — schema-only groundwork for Kapso's business-scoped user ID
+  // (BSUID), which may arrive without a phone number in a future
+  // `whatsapp.contact.identity_changed` event. Nullable and unpopulated by
+  // any code path today: whatsapp_number stays the sole, required identity
+  // key until an actual BSUID-bearing adapter needs it. A plain `.unique()`
+  // on a nullable column is safe in Postgres — multiple NULLs are permitted,
+  // so existing phone-keyed rows are unaffected.
+  businessScopedUserId: text("business_scoped_user_id").unique(),
+  whatsappUsername: text("whatsapp_username"),
   // Incremented on every conversation update. The actual concurrency
   // guarantee for filing transitions comes from row-locking the
   // conversation inside a transaction (see ConversationRepository.lockById)
@@ -94,6 +107,11 @@ export const outboundMessages = pgTable("outbound_messages", {
 export const processedWebhookEvents = pgTable("processed_webhook_events", {
   id: uuid("id").defaultRandom().primaryKey(),
   messageSid: text("message_sid").notNull().unique(),
+  // #16 spike — records which vendor's event this is. The uniqueness
+  // guarantee still rests on message_sid alone (Twilio SIDs and Kapso
+  // wamids are not going to collide in practice); this column is
+  // provenance, not (yet) part of the dedupe key.
+  provider: webhookProviderEnum("provider").notNull().default("twilio"),
   eventType: text("event_type").notNull(),
   whatsappNumberMaskedOrHash: text("whatsapp_number_masked_or_hash"),
   receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
