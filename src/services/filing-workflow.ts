@@ -3,6 +3,7 @@ import type { ConversationRecord, ConversationRepository, ConversationState } fr
 import type { FilingRepository } from "../repositories/filing-repository";
 import type { OutboundMessageRepository, OutboundMessageType } from "../repositories/outbound-message-repository";
 import type { RepositoryTransaction } from "../repositories/transaction";
+import type { SendOutcome } from "../types/messaging-client";
 import { sendDraftChoice, sendFilingNotice, sendFilingPlainText, type FilingSenderDeps } from "./filing-sender";
 import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from "./main-menu-sender";
 
@@ -110,10 +111,16 @@ async function commitWithOutbound(
   return result;
 }
 
-/** Dispatches the send and records its outcome on the enqueued outbound row — never leaves it stuck at "pending". */
-async function finalizeOutbound(deps: FilingWorkflowDeps, outboundId: string, delivered: boolean): Promise<void> {
-  if (delivered) {
-    await deps.outboundMessageRepo.markSent(outboundId);
+/**
+ * Dispatches the send and records its outcome on the enqueued outbound row
+ * — never leaves it stuck at "pending". Recording `providerMessageId` on a
+ * successful send is what makes that row reconcilable against a later
+ * delivery-status webhook (#16 task 7) — see kapso-webhook.route.ts's
+ * status-event handling and OutboundMessageRepository.recordDeliveryStatus.
+ */
+async function finalizeOutbound(deps: FilingWorkflowDeps, outboundId: string, outcome: SendOutcome): Promise<void> {
+  if (outcome.delivered) {
+    await deps.outboundMessageRepo.markSent(outboundId, outcome.providerMessageId);
   } else {
     await deps.outboundMessageRepo.markFailed(outboundId, "send_failed");
   }
@@ -152,12 +159,12 @@ export async function handleFileOrResume(deps: FilingWorkflowDeps, input: FileOr
   }
 
   const sendInput = sendInputFor(input);
-  const delivered =
+  const outcome =
     sendKind === "draft-choice"
       ? await sendDraftChoice(deps.filingSenderDeps, sendInput)
       : await sendFilingNotice(deps.filingSenderDeps, sendInput);
-  await finalizeOutbound(deps, commit.outboundId as string, delivered);
-  return { delivered };
+  await finalizeOutbound(deps, commit.outboundId as string, outcome);
+  return { delivered: outcome.delivered };
 }
 
 /**
@@ -172,7 +179,8 @@ export async function handleDraftChoiceInput(deps: FilingWorkflowDeps, input: Fi
   const sendInput = sendInputFor(input);
 
   if (!action) {
-    return { delivered: await sendDraftChoice(deps.filingSenderDeps, sendInput) };
+    const outcome = await sendDraftChoice(deps.filingSenderDeps, sendInput);
+    return { delivered: outcome.delivered };
   }
 
   if (action === "nav:main-menu") {
@@ -186,9 +194,9 @@ export async function handleDraftChoiceInput(deps: FilingWorkflowDeps, input: Fi
     if (!commit.committed) {
       return { delivered: true };
     }
-    const delivered = await sendMainMenu(deps.mainMenuSenderDeps, sendInput);
-    await finalizeOutbound(deps, commit.outboundId as string, delivered);
-    return { delivered };
+    const outcome = await sendMainMenu(deps.mainMenuSenderDeps, sendInput);
+    await finalizeOutbound(deps, commit.outboundId as string, outcome);
+    return { delivered: outcome.delivered };
   }
 
   if (action === "filing:start-new") {
@@ -202,9 +210,9 @@ export async function handleDraftChoiceInput(deps: FilingWorkflowDeps, input: Fi
     if (!commit.committed) {
       return { delivered: true };
     }
-    const delivered = await sendFilingNotice(deps.filingSenderDeps, sendInput);
-    await finalizeOutbound(deps, commit.outboundId as string, delivered);
-    return { delivered };
+    const outcome = await sendFilingNotice(deps.filingSenderDeps, sendInput);
+    await finalizeOutbound(deps, commit.outboundId as string, outcome);
+    return { delivered: outcome.delivered };
   }
 
   // filing:resume-draft
@@ -243,9 +251,13 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
   const sendInput = sendInputFor(input);
 
   if (kind === "unsupported-step") {
-    return {
-      delivered: await sendFilingPlainText(deps.filingSenderDeps, sendInput, UNSUPPORTED_STEP_TEXT[input.language], "filing_resume_unsupported_step"),
-    };
+    const outcome = await sendFilingPlainText(
+      deps.filingSenderDeps,
+      sendInput,
+      UNSUPPORTED_STEP_TEXT[input.language],
+      "filing_resume_unsupported_step",
+    );
+    return { delivered: outcome.delivered };
   }
 
   if (!commit.committed) {
@@ -255,14 +267,14 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
   }
 
   if (kind === "no-draft") {
-    const delivered = await sendFilingNotice(deps.filingSenderDeps, sendInput);
-    await finalizeOutbound(deps, commit.outboundId as string, delivered);
-    return { delivered };
+    const outcome = await sendFilingNotice(deps.filingSenderDeps, sendInput);
+    await finalizeOutbound(deps, commit.outboundId as string, outcome);
+    return { delivered: outcome.delivered };
   }
 
-  const delivered = await sendFilingPlainText(deps.filingSenderDeps, sendInput, RESUMED_TEXT[input.language], "filing_resume_confirmation_send_failed");
-  await finalizeOutbound(deps, commit.outboundId as string, delivered);
-  return { delivered };
+  const outcome = await sendFilingPlainText(deps.filingSenderDeps, sendInput, RESUMED_TEXT[input.language], "filing_resume_confirmation_send_failed");
+  await finalizeOutbound(deps, commit.outboundId as string, outcome);
+  return { delivered: outcome.delivered };
 }
 
 /**
@@ -276,7 +288,8 @@ export async function handleFilingNoticeInput(deps: FilingWorkflowDeps, input: F
   const sendInput = sendInputFor(input);
 
   if (!action) {
-    return { delivered: await sendFilingNotice(deps.filingSenderDeps, sendInput) };
+    const outcome = await sendFilingNotice(deps.filingSenderDeps, sendInput);
+    return { delivered: outcome.delivered };
   }
 
   if (action === "nav:main-menu") {
@@ -290,9 +303,9 @@ export async function handleFilingNoticeInput(deps: FilingWorkflowDeps, input: F
     if (!commit.committed) {
       return { delivered: true };
     }
-    const delivered = await sendMainMenu(deps.mainMenuSenderDeps, sendInput);
-    await finalizeOutbound(deps, commit.outboundId as string, delivered);
-    return { delivered };
+    const outcome = await sendMainMenu(deps.mainMenuSenderDeps, sendInput);
+    await finalizeOutbound(deps, commit.outboundId as string, outcome);
+    return { delivered: outcome.delivered };
   }
 
   // filing:accept-test-notice
@@ -316,12 +329,12 @@ export async function handleFilingNoticeInput(deps: FilingWorkflowDeps, input: F
     return { delivered: true };
   }
 
-  const delivered = await sendFilingPlainText(
+  const outcome = await sendFilingPlainText(
     deps.filingSenderDeps,
     sendInput,
     COMPLETION_TEXT[input.language],
     "filing_draft_created_confirmation_send_failed",
   );
-  await finalizeOutbound(deps, commit.outboundId as string, delivered);
-  return { delivered };
+  await finalizeOutbound(deps, commit.outboundId as string, outcome);
+  return { delivered: outcome.delivered };
 }

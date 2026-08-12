@@ -32,6 +32,13 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "MAIN_MENU",
 ]);
 export const outboundMessageStatusEnum = pgEnum("outbound_message_status", ["pending", "sent", "failed"]);
+// #16 task 7 — Meta's WhatsApp delivery lifecycle for a message we sent,
+// reported back asynchronously via provider status webhooks. Deliberately
+// separate from outboundMessageStatusEnum above: `status` answers "did our
+// send API call succeed", `deliveryStatus` answers "what did the provider
+// later report happened to it" — conflating the two would lose information
+// when a send succeeds but later fails to deliver.
+export const outboundDeliveryStatusEnum = pgEnum("outbound_delivery_status", ["sent", "delivered", "read", "failed"]);
 
 export const conversations = pgTable("conversations", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -100,6 +107,19 @@ export const outboundMessages = pgTable("outbound_messages", {
   language: conversationLanguageEnum("language").notNull(),
   status: outboundMessageStatusEnum("status").notNull().default("pending"),
   errorCode: text("error_code"),
+  // #16 task 7 — the provider's own message id (Twilio MessageSid or Kapso
+  // wamid), recorded at markSent time. This is the join key a delivery-status
+  // webhook (sent/delivered/read/failed) is reconciled against — nullable
+  // because it doesn't exist until a send has actually succeeded, and a
+  // failed send never gets one.
+  providerMessageId: text("provider_message_id").unique(),
+  deliveryStatus: outboundDeliveryStatusEnum("delivery_status"),
+  // Compared against an incoming status webhook's own timestamp before
+  // overwriting — Kapso's own docs note "possible out-of-order delivery"
+  // after its ordering-buffer timeout, so a late-arriving "sent" event must
+  // never regress a row already marked "read".
+  deliveryStatusUpdatedAt: timestamp("delivery_status_updated_at", { withTimezone: true }),
+  deliveryErrorCode: text("delivery_error_code"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -60,3 +60,24 @@ export function logWorkflowError(event: WorkflowLogErrorEvent): void {
     }),
   );
 }
+
+interface DeliveryStatusLogEvent {
+  /** The provider's own message id (Twilio MessageSid / Kapso wamid) — never the message body it refers to. */
+  providerMessageId: string;
+  status: string;
+  /** False when no outbound_messages row has this providerMessageId — not necessarily an error (#16 task 7); worth watching if it recurs. */
+  matched: boolean;
+}
+
+/** Logs a delivery-status webhook's outcome (sent/delivered/read/failed reconciliation) — never the message content it refers to. */
+export function logDeliveryStatusEvent(event: DeliveryStatusLogEvent): void {
+  console.log(
+    JSON.stringify({
+      timestamp: new Date().toISOString(),
+      type: "delivery_status",
+      providerMessageId: event.providerMessageId,
+      status: event.status,
+      matched: event.matched,
+    }),
+  );
+}

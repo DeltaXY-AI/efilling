@@ -48,12 +48,17 @@ async function sendPlainText(deps: MainMenuWorkflowDeps, input: MainMenuWorkflow
   }
 }
 
-function redisplayMenu(deps: MainMenuWorkflowDeps, input: MainMenuWorkflowInput): Promise<boolean> {
-  return sendMainMenu(deps.mainMenuSenderDeps, {
+// Menu redisplay/help/clarification are not part of the outbox — there's no
+// outbound_messages row to reconcile a provider message id against here, so
+// this unwraps SendOutcome to the plain boolean every caller in this file
+// already expects (unlike the nav:main-menu transitions in filing-workflow.ts).
+async function redisplayMenu(deps: MainMenuWorkflowDeps, input: MainMenuWorkflowInput): Promise<boolean> {
+  const { delivered } = await sendMainMenu(deps.mainMenuSenderDeps, {
     to: input.whatsappNumber,
     language: input.language,
     correlationId: input.messageId,
   });
+  return delivered;
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { InteractiveButton, MessagingClient } from "../types/messaging-client";
+import type { InteractiveButton, MessagingClient, SendOutcome } from "../types/messaging-client";
 import { logWorkflowError } from "../lib/logger";
 import type { SupportedLanguage } from "./main-menu-sender";
 
@@ -110,16 +110,16 @@ async function sendWithFallback(
   fallbackText: string,
   codePrefix: string,
   interactive?: InteractiveButtonsSend,
-): Promise<boolean> {
+): Promise<SendOutcome> {
   if (interactive && deps.messagingClient.sendInteractiveButtons) {
     try {
-      await deps.messagingClient.sendInteractiveButtons({
+      const result = await deps.messagingClient.sendInteractiveButtons({
         from: deps.fromNumber,
         to: input.to,
         bodyText: interactive.bodyText,
         buttons: interactive.buttons,
       });
-      return true;
+      return { delivered: true, providerMessageId: result.providerMessageId };
     } catch {
       logWorkflowError({ code: `${codePrefix}_interactive_send_failed`, correlationId: input.correlationId });
       // Falls through to the Content Template / plain-text path below.
@@ -127,23 +127,23 @@ async function sendWithFallback(
   }
 
   try {
-    await deps.messagingClient.sendContentTemplate({ from: deps.fromNumber, to: input.to, contentSid });
-    return true;
+    const result = await deps.messagingClient.sendContentTemplate({ from: deps.fromNumber, to: input.to, contentSid });
+    return { delivered: true, providerMessageId: result.providerMessageId };
   } catch {
     logWorkflowError({ code: `${codePrefix}_content_send_failed`, correlationId: input.correlationId });
 
     try {
-      await deps.messagingClient.sendText({ from: deps.fromNumber, to: input.to, body: fallbackText });
-      return true;
+      const result = await deps.messagingClient.sendText({ from: deps.fromNumber, to: input.to, body: fallbackText });
+      return { delivered: true, providerMessageId: result.providerMessageId };
     } catch {
       logWorkflowError({ code: `${codePrefix}_fallback_send_failed`, correlationId: input.correlationId });
-      return false;
+      return { delivered: false };
     }
   }
 }
 
 /** Sends the localized draft-choice message, preferring native interactive buttons, then Content Template, then plain text. */
-export function sendDraftChoice(deps: FilingSenderDeps, input: SendFilingMessageInput): Promise<boolean> {
+export function sendDraftChoice(deps: FilingSenderDeps, input: SendFilingMessageInput): Promise<SendOutcome> {
   return sendWithFallback(
     deps,
     input,
@@ -155,7 +155,7 @@ export function sendDraftChoice(deps: FilingSenderDeps, input: SendFilingMessage
 }
 
 /** Sends the localized test-data-notice message, preferring native interactive buttons, then Content Template, then plain text. */
-export function sendFilingNotice(deps: FilingSenderDeps, input: SendFilingMessageInput): Promise<boolean> {
+export function sendFilingNotice(deps: FilingSenderDeps, input: SendFilingMessageInput): Promise<SendOutcome> {
   return sendWithFallback(
     deps,
     input,
@@ -172,12 +172,12 @@ export async function sendFilingPlainText(
   input: SendFilingMessageInput,
   body: string,
   errorCode: string,
-): Promise<boolean> {
+): Promise<SendOutcome> {
   try {
-    await deps.messagingClient.sendText({ from: deps.fromNumber, to: input.to, body });
-    return true;
+    const result = await deps.messagingClient.sendText({ from: deps.fromNumber, to: input.to, body });
+    return { delivered: true, providerMessageId: result.providerMessageId };
   } catch {
     logWorkflowError({ code: errorCode, correlationId: input.correlationId });
-    return false;
+    return { delivered: false };
   }
 }

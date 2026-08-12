@@ -1,4 +1,9 @@
-import type { EnqueueOutboundMessageInput, OutboundMessageRecord, OutboundMessageRepository } from "../outbound-message-repository";
+import type {
+  EnqueueOutboundMessageInput,
+  OutboundDeliveryStatus,
+  OutboundMessageRecord,
+  OutboundMessageRepository,
+} from "../outbound-message-repository";
 import type { RepositoryTransaction } from "../transaction";
 
 let nextId = 1;
@@ -7,6 +12,7 @@ let nextId = 1;
 export class InMemoryOutboundMessageRepository implements OutboundMessageRepository {
   private readonly byId = new Map<string, OutboundMessageRecord>();
   private readonly byDedupeKey = new Map<string, string>();
+  private readonly idByProviderMessageId = new Map<string, string>();
 
   async enqueue(_tx: RepositoryTransaction, input: EnqueueOutboundMessageInput): Promise<OutboundMessageRecord | null> {
     if (this.byDedupeKey.has(input.dedupeKey)) {
@@ -22,6 +28,10 @@ export class InMemoryOutboundMessageRepository implements OutboundMessageReposit
       language: input.language,
       status: "pending",
       errorCode: null,
+      providerMessageId: null,
+      deliveryStatus: null,
+      deliveryStatusUpdatedAt: null,
+      deliveryErrorCode: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -30,12 +40,37 @@ export class InMemoryOutboundMessageRepository implements OutboundMessageReposit
     return record;
   }
 
-  async markSent(id: string): Promise<void> {
-    this.update(id, { status: "sent", errorCode: null });
+  async markSent(id: string, providerMessageId?: string): Promise<void> {
+    this.update(id, { status: "sent", errorCode: null, providerMessageId: providerMessageId ?? null });
+    if (providerMessageId) {
+      this.idByProviderMessageId.set(providerMessageId, id);
+    }
   }
 
   async markFailed(id: string, errorCode: string): Promise<void> {
     this.update(id, { status: "failed", errorCode });
+  }
+
+  async recordDeliveryStatus(
+    providerMessageId: string,
+    status: OutboundDeliveryStatus,
+    occurredAt: Date,
+    errorCode?: string,
+  ): Promise<{ matched: boolean }> {
+    const id = this.idByProviderMessageId.get(providerMessageId);
+    if (!id) {
+      return { matched: false };
+    }
+
+    const existing = this.byId.get(id);
+    // Never let an out-of-order retry regress a status already newer than
+    // this event — same guard as the Drizzle implementation.
+    if (existing?.deliveryStatusUpdatedAt && existing.deliveryStatusUpdatedAt >= occurredAt) {
+      return { matched: true };
+    }
+
+    this.update(id, { deliveryStatus: status, deliveryStatusUpdatedAt: occurredAt, deliveryErrorCode: errorCode ?? null });
+    return { matched: true };
   }
 
   /** Test-wiring helper (not part of the OutboundMessageRepository interface) so tests can assert a record's fields directly. */

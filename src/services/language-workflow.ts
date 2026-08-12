@@ -163,7 +163,10 @@ export async function handleInboundForLanguageSelection(
 
   await deps.conversationRepo.setLanguageAndMainMenu(input.whatsappNumber, selected, now);
   const confirmationDelivered = await sendConfirmation(deps, input, selected);
-  const menuDelivered = await sendMainMenu(
+  // Not part of the outbox — this initial menu send has no outbound_messages
+  // row to reconcile a provider message id against, so only .delivered
+  // matters here (unlike the nav:main-menu transitions in filing-workflow.ts).
+  const { delivered: menuDelivered } = await sendMainMenu(
     { messagingClient: deps.messagingClient, fromNumber: deps.fromNumber, contentSidByLanguage: deps.mainMenuContentSid },
     { to: input.whatsappNumber, language: selected, correlationId: input.messageId },
   );

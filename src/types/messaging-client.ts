@@ -3,6 +3,18 @@ export interface SendResult {
   providerMessageId: string;
 }
 
+/**
+ * Outcome of a sender helper (sendMainMenu, sendDraftChoice, ...), which may
+ * have tried several tiers (interactive -> Content Template -> plain text)
+ * before succeeding or exhausting all of them. `providerMessageId` is only
+ * present when a send actually succeeded — callers that don't need
+ * reconciliation (e.g. a menu redisplay outside the outbox) can ignore it.
+ */
+export interface SendOutcome {
+  delivered: boolean;
+  providerMessageId?: string;
+}
+
 export interface InteractiveButton {
   id: string;
   title: string;

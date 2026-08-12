@@ -89,7 +89,7 @@ describe("POST /webhooks/kapso/whatsapp", () => {
 
     const response = await request(app)
       .post(ROUTE_PATH)
-      .set("Content-Type", "application/json")
+      .set("Content-Type", "application/json").set("X-Webhook-Event", "whatsapp.message.received")
       .set("X-Webhook-Signature", sign(rawBody))
       .send(rawBody);
 
@@ -118,7 +118,7 @@ describe("POST /webhooks/kapso/whatsapp", () => {
 
     const response = await request(app)
       .post(ROUTE_PATH)
-      .set("Content-Type", "application/json")
+      .set("Content-Type", "application/json").set("X-Webhook-Event", "whatsapp.message.received")
       .set("X-Webhook-Signature", "definitely-not-valid")
       .send(rawBody);
 
@@ -130,7 +130,7 @@ describe("POST /webhooks/kapso/whatsapp", () => {
   it("rejects a request with a missing signature", async () => {
     const rawBody = JSON.stringify({ message: { id: "wamid.kapso3", from: "15005550006", text: { body: "Hi" } } });
 
-    const response = await request(app).post(ROUTE_PATH).set("Content-Type", "application/json").send(rawBody);
+    const response = await request(app).post(ROUTE_PATH).set("Content-Type", "application/json").set("X-Webhook-Event", "whatsapp.message.received").send(rawBody);
 
     expect(response.status).toBe(403);
   });
@@ -141,7 +141,7 @@ describe("POST /webhooks/kapso/whatsapp", () => {
 
     const response = await request(app)
       .post(ROUTE_PATH)
-      .set("Content-Type", "application/json")
+      .set("Content-Type", "application/json").set("X-Webhook-Event", "whatsapp.message.received")
       .set("X-Webhook-Signature", sign(signedBody))
       .send(sentBody);
 
@@ -152,8 +152,8 @@ describe("POST /webhooks/kapso/whatsapp", () => {
     const rawBody = JSON.stringify({ message: { id: "wamid.kapso5", from: "15005550007", text: { body: "Hi" } } });
     const signature = sign(rawBody);
 
-    const first = await request(app).post(ROUTE_PATH).set("Content-Type", "application/json").set("X-Webhook-Signature", signature).send(rawBody);
-    const second = await request(app).post(ROUTE_PATH).set("Content-Type", "application/json").set("X-Webhook-Signature", signature).send(rawBody);
+    const first = await request(app).post(ROUTE_PATH).set("Content-Type", "application/json").set("X-Webhook-Event", "whatsapp.message.received").set("X-Webhook-Signature", signature).send(rawBody);
+    const second = await request(app).post(ROUTE_PATH).set("Content-Type", "application/json").set("X-Webhook-Event", "whatsapp.message.received").set("X-Webhook-Signature", signature).send(rawBody);
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
@@ -163,7 +163,7 @@ describe("POST /webhooks/kapso/whatsapp", () => {
   it("persists an interactive button-reply language selection, then sends the confirmation and a native interactive main menu", async () => {
     const from = "15005550008";
     const firstBody = JSON.stringify({ message: { id: "wamid.kapso6", from, text: { body: "Hi" } } });
-    await request(app).post(ROUTE_PATH).set("Content-Type", "application/json").set("X-Webhook-Signature", sign(firstBody)).send(firstBody);
+    await request(app).post(ROUTE_PATH).set("Content-Type", "application/json").set("X-Webhook-Event", "whatsapp.message.received").set("X-Webhook-Signature", sign(firstBody)).send(firstBody);
     messagingClient.sendInteractiveButtons!.mockClear();
 
     const selectionBody = JSON.stringify({
@@ -171,7 +171,7 @@ describe("POST /webhooks/kapso/whatsapp", () => {
     });
     const response = await request(app)
       .post(ROUTE_PATH)
-      .set("Content-Type", "application/json")
+      .set("Content-Type", "application/json").set("X-Webhook-Event", "whatsapp.message.received")
       .set("X-Webhook-Signature", sign(selectionBody))
       .send(selectionBody);
 
@@ -193,7 +193,7 @@ describe("POST /webhooks/kapso/whatsapp", () => {
     });
     const signature = sign(rawBody);
 
-    await request(app).post(ROUTE_PATH).set("Content-Type", "application/json").set("X-Webhook-Signature", signature).send(rawBody);
+    await request(app).post(ROUTE_PATH).set("Content-Type", "application/json").set("X-Webhook-Event", "whatsapp.message.received").set("X-Webhook-Signature", signature).send(rawBody);
 
     const loggedOutput = logSpy.mock.calls.map((call: unknown[]) => call.join(" ")).join("\n");
 
@@ -209,7 +209,7 @@ describe("POST /webhooks/kapso/whatsapp", () => {
 
     const response = await request(defaultApp)
       .post(ROUTE_PATH)
-      .set("Content-Type", "application/json")
+      .set("Content-Type", "application/json").set("X-Webhook-Event", "whatsapp.message.received")
       .set("X-Webhook-Signature", sign(rawBody))
       .send(rawBody);
 

@@ -73,7 +73,7 @@ describe("interactive-first send with graceful fallback", () => {
 
     const delivered = await sendMainMenu(deps, { to: WHATSAPP_NUMBER, language: "en", correlationId: "wamid.3" });
 
-    expect(delivered).toBe(true);
+    expect(delivered.delivered).toBe(true);
     expect(interactiveClient.sendInteractiveList).toHaveBeenCalledWith({
       from: FROM_NUMBER,
       to: WHATSAPP_NUMBER,
@@ -99,7 +99,7 @@ describe("interactive-first send with graceful fallback", () => {
 
     const delivered = await sendMainMenu(deps, { to: WHATSAPP_NUMBER, language: "ml", correlationId: "wamid.4" });
 
-    expect(delivered).toBe(true);
+    expect(delivered.delivered).toBe(true);
     expect(interactiveClient.sendContentTemplate).toHaveBeenCalledWith({ from: FROM_NUMBER, to: WHATSAPP_NUMBER, contentSid: CONTENT_SID });
   });
 
@@ -113,7 +113,7 @@ describe("interactive-first send with graceful fallback", () => {
 
     const delivered = await sendDraftChoice(deps, { to: WHATSAPP_NUMBER, language: "en", correlationId: "wamid.5" });
 
-    expect(delivered).toBe(true);
+    expect(delivered.delivered).toBe(true);
     expect(interactiveClient.sendInteractiveButtons).toHaveBeenCalledWith({
       from: FROM_NUMBER,
       to: WHATSAPP_NUMBER,
@@ -137,7 +137,7 @@ describe("interactive-first send with graceful fallback", () => {
 
     const delivered = await sendFilingNotice(deps, { to: WHATSAPP_NUMBER, language: "ml", correlationId: "wamid.6" });
 
-    expect(delivered).toBe(true);
+    expect(delivered.delivered).toBe(true);
     expect(interactiveClient.sendInteractiveButtons).toHaveBeenCalledWith({
       from: FROM_NUMBER,
       to: WHATSAPP_NUMBER,
@@ -162,7 +162,7 @@ describe("interactive-first send with graceful fallback", () => {
 
     const delivered = await sendDraftChoice(deps, { to: WHATSAPP_NUMBER, language: "en", correlationId: "wamid.7" });
 
-    expect(delivered).toBe(true);
+    expect(delivered.delivered).toBe(true);
     expect(interactiveClient.sendText).toHaveBeenCalledWith({
       from: FROM_NUMBER,
       to: WHATSAPP_NUMBER,

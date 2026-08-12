@@ -43,6 +43,13 @@
       "when": 1786528350862,
       "tag": "0005_busy_excalibur",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786537223665,
+      "tag": "0006_remarkable_psynapse",
+      "breakpoints": true
     }
   ]
 }

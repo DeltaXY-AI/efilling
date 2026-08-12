@@ -2,9 +2,10 @@ import express, { Router, type Request, type Response } from "express";
 import { env } from "../config/env";
 import { isValidKapsoSignature } from "../adapters/kapso/verify-signature";
 import { normalizeKapsoInboundMessage, extractKapsoSelection, type KapsoWebhookBody } from "../adapters/kapso/normalize-inbound-message";
+import { normalizeKapsoDeliveryStatuses, type KapsoStatusWebhookBody } from "../adapters/kapso/normalize-delivery-status";
 import { createKapsoMessagingClient } from "../adapters/kapso/messaging-client";
 import { normalizeWhatsappNumber } from "../lib/normalize-whatsapp-number";
-import { logWebhookEvent, logWorkflowError, maskSender } from "../lib/logger";
+import { logDeliveryStatusEvent, logWebhookEvent, logWorkflowError, maskSender } from "../lib/logger";
 import { routeInboundMessage, type InboundRouterDeps } from "../services/inbound-router";
 import { DrizzleConversationRepository } from "../repositories/drizzle-conversation-repository";
 import { DrizzleProcessedWebhookRepository } from "../repositories/drizzle-processed-webhook-repository";
@@ -14,6 +15,18 @@ import type { ProcessedWebhookRepository } from "../repositories/processed-webho
 import { withTransaction } from "../db/client";
 
 export const KAPSO_ROUTE_PATH = "/webhooks/kapso/whatsapp";
+
+// Per Kapso's webhook docs, every delivery to this URL carries one of these
+// event names in X-Webhook-Event. Anything else (including the header being
+// absent, which real Kapso traffic never does) is treated as forward-compatible
+// unknown and safely no-op'd — never guessed at as an inbound message.
+const DELIVERY_STATUS_EVENT_TYPES: ReadonlySet<string> = new Set([
+  "whatsapp.message.sent",
+  "whatsapp.message.delivered",
+  "whatsapp.message.read",
+  "whatsapp.message.failed",
+]);
+const INBOUND_MESSAGE_EVENT_TYPE = "whatsapp.message.received";
 
 // Kapso has no Content-Template-SID equivalent (see adapters/kapso/messaging-client.ts)
 // — every contentSid field below is an inert placeholder. sendContentTemplate
@@ -88,6 +101,39 @@ export function createDefaultKapsoWebhookRouterDeps(): KapsoWebhookRouterDeps {
 }
 
 /**
+ * Handles a delivery-status webhook (sent/delivered/read/failed). Claims
+ * each status transition's own idempotency key — `${providerMessageId}:${status}`,
+ * not the bare wamid — because the SAME message id legitimately recurs
+ * across its whole lifecycle (sent, then delivered, then read); claiming on
+ * the bare id would make every event after the first look like a duplicate
+ * of it. A status with no matching outbound_messages row (matched: false)
+ * is logged, not treated as an error — see OutboundMessageRepository.recordDeliveryStatus.
+ */
+async function handleDeliveryStatusEvent(deps: KapsoWebhookRouterDeps, body: KapsoStatusWebhookBody): Promise<void> {
+  const updates = normalizeKapsoDeliveryStatuses(body);
+
+  for (const update of updates) {
+    const claimed = await deps.processedWebhookRepo.tryClaim(
+      `${update.providerMessageId}:${update.status}`,
+      "whatsapp_status",
+      undefined,
+      "kapso",
+    );
+    if (!claimed) {
+      continue;
+    }
+
+    const { matched } = await deps.filingWorkflowDeps.outboundMessageRepo.recordDeliveryStatus(
+      update.providerMessageId,
+      update.status,
+      update.occurredAt,
+      update.errorCode,
+    );
+    logDeliveryStatusEvent({ providerMessageId: update.providerMessageId, status: update.status, matched });
+  }
+}
+
+/**
  * Kapso spike webhook route (issue #16). Mirrors twilio-webhook.route.ts's
  * shape deliberately — signature verification before any normalization or
  * logging, an idempotency claim before any side effect, and the exact same
@@ -106,6 +152,22 @@ export function createKapsoWebhookRouter(deps: KapsoWebhookRouterDeps): Router {
       // Reject without normalizing or logging any part of the (unverified) payload.
       logWebhookEvent({ route: KAPSO_ROUTE_PATH, status: 403, outcome: "invalid_signature" });
       res.status(403).json({ error: "Invalid Kapso signature" });
+      return;
+    }
+
+    const eventType = req.header("X-Webhook-Event");
+
+    if (eventType && DELIVERY_STATUS_EVENT_TYPES.has(eventType)) {
+      await handleDeliveryStatusEvent(deps, (req.body ?? {}) as KapsoStatusWebhookBody);
+      res.status(200).json({ status: "accepted" });
+      return;
+    }
+
+    if (eventType !== INBOUND_MESSAGE_EVENT_TYPE) {
+      // Forward-compatible unknown event (or a missing header, which real
+      // Kapso traffic never sends) — ack without guessing at its shape.
+      logWebhookEvent({ route: KAPSO_ROUTE_PATH, status: 200, outcome: "accepted" });
+      res.status(200).json({ status: "accepted" });
       return;
     }
 

@@ -1,4 +1,4 @@
-import type { MessagingClient } from "../types/messaging-client";
+import type { MessagingClient, SendOutcome } from "../types/messaging-client";
 import { logWorkflowError } from "../lib/logger";
 import type { LanguageCode } from "../domain/language-selection";
 
@@ -84,17 +84,17 @@ const INTERACTIVE_MENU_ROWS: Record<SupportedLanguage, { id: string; title: stri
  * workflow (menu redisplay, help, unknown input) so there is exactly one
  * send path.
  */
-export async function sendMainMenu(deps: MainMenuSenderDeps, input: SendMainMenuInput): Promise<boolean> {
+export async function sendMainMenu(deps: MainMenuSenderDeps, input: SendMainMenuInput): Promise<SendOutcome> {
   if (deps.messagingClient.sendInteractiveList) {
     try {
-      await deps.messagingClient.sendInteractiveList({
+      const result = await deps.messagingClient.sendInteractiveList({
         from: deps.fromNumber,
         to: input.to,
         bodyText: INTERACTIVE_MENU_BODY[input.language],
         buttonText: INTERACTIVE_MENU_BUTTON_TEXT[input.language],
         sections: [{ rows: INTERACTIVE_MENU_ROWS[input.language] }],
       });
-      return true;
+      return { delivered: true, providerMessageId: result.providerMessageId };
     } catch {
       logWorkflowError({ code: "main_menu_interactive_send_failed", correlationId: input.correlationId });
       // Falls through to the Content Template / plain-text path below.
@@ -102,25 +102,25 @@ export async function sendMainMenu(deps: MainMenuSenderDeps, input: SendMainMenu
   }
 
   try {
-    await deps.messagingClient.sendContentTemplate({
+    const result = await deps.messagingClient.sendContentTemplate({
       from: deps.fromNumber,
       to: input.to,
       contentSid: deps.contentSidByLanguage[input.language],
     });
-    return true;
+    return { delivered: true, providerMessageId: result.providerMessageId };
   } catch {
     logWorkflowError({ code: "main_menu_content_send_failed", correlationId: input.correlationId });
 
     try {
-      await deps.messagingClient.sendText({
+      const result = await deps.messagingClient.sendText({
         from: deps.fromNumber,
         to: input.to,
         body: PLAIN_TEXT_MENU[input.language],
       });
-      return true;
+      return { delivered: true, providerMessageId: result.providerMessageId };
     } catch {
       logWorkflowError({ code: "main_menu_fallback_send_failed", correlationId: input.correlationId });
-      return false;
+      return { delivered: false };
     }
   }
 }

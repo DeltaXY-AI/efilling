@@ -1,7 +1,12 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { getDb, type Transaction } from "../db/client";
 import { outboundMessages } from "../db/schema";
-import type { EnqueueOutboundMessageInput, OutboundMessageRecord, OutboundMessageRepository } from "./outbound-message-repository";
+import type {
+  EnqueueOutboundMessageInput,
+  OutboundDeliveryStatus,
+  OutboundMessageRecord,
+  OutboundMessageRepository,
+} from "./outbound-message-repository";
 import type { RepositoryTransaction } from "./transaction";
 
 export class DrizzleOutboundMessageRepository implements OutboundMessageRepository {
@@ -23,13 +28,52 @@ export class DrizzleOutboundMessageRepository implements OutboundMessageReposito
     return row ?? null;
   }
 
-  async markSent(id: string): Promise<void> {
+  async markSent(id: string, providerMessageId?: string): Promise<void> {
     const db = getDb();
-    await db.update(outboundMessages).set({ status: "sent", updatedAt: new Date() }).where(eq(outboundMessages.id, id));
+    await db
+      .update(outboundMessages)
+      .set({ status: "sent", providerMessageId: providerMessageId ?? null, updatedAt: new Date() })
+      .where(eq(outboundMessages.id, id));
   }
 
   async markFailed(id: string, errorCode: string): Promise<void> {
     const db = getDb();
     await db.update(outboundMessages).set({ status: "failed", errorCode, updatedAt: new Date() }).where(eq(outboundMessages.id, id));
+  }
+
+  async recordDeliveryStatus(
+    providerMessageId: string,
+    status: OutboundDeliveryStatus,
+    occurredAt: Date,
+    errorCode?: string,
+  ): Promise<{ matched: boolean }> {
+    const db = getDb();
+    const updated = await db
+      .update(outboundMessages)
+      .set({ deliveryStatus: status, deliveryStatusUpdatedAt: occurredAt, deliveryErrorCode: errorCode ?? null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(outboundMessages.providerMessageId, providerMessageId),
+          // Never let an out-of-order retry regress a status already newer
+          // than this event — see schema.ts's comment on deliveryStatusUpdatedAt.
+          or(isNull(outboundMessages.deliveryStatusUpdatedAt), lt(outboundMessages.deliveryStatusUpdatedAt, occurredAt)),
+        ),
+      )
+      .returning({ id: outboundMessages.id });
+
+    if (updated.length > 0) {
+      return { matched: true };
+    }
+
+    // Distinguish "no such providerMessageId at all" (genuinely unmatched)
+    // from "matched, but this event was older than what's already recorded"
+    // (matched — just correctly a no-op) so callers don't miscount either case.
+    const [existing] = await db
+      .select({ id: outboundMessages.id })
+      .from(outboundMessages)
+      .where(eq(outboundMessages.providerMessageId, providerMessageId))
+      .limit(1);
+
+    return { matched: Boolean(existing) };
   }
 }
