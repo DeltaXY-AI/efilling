@@ -9,6 +9,7 @@ import { routeInboundMessage, type InboundRouterDeps } from "../services/inbound
 import { DrizzleConversationRepository } from "../repositories/drizzle-conversation-repository";
 import { DrizzleProcessedWebhookRepository } from "../repositories/drizzle-processed-webhook-repository";
 import { DrizzleFilingRepository } from "../repositories/drizzle-filing-repository";
+import { DrizzleFilingPartyRepository } from "../repositories/drizzle-filing-party-repository";
 import { DrizzleOutboundMessageRepository } from "../repositories/drizzle-outbound-message-repository";
 import type { ProcessedWebhookRepository } from "../repositories/processed-webhook-repository";
 import { withTransaction } from "../db/client";
@@ -32,12 +33,19 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
   };
 
   const filingRepo = new DrizzleFilingRepository();
+  const partyRepo = new DrizzleFilingPartyRepository();
   const outboundMessageRepo = new DrizzleOutboundMessageRepository();
   const enrolmentSenderDeps = {
     messagingClient,
     fromNumber: env.TWILIO_WHATSAPP_FROM,
     promptContentSid: { en: env.TWILIO_ENROLMENT_PROMPT_SID_EN, ml: env.TWILIO_ENROLMENT_PROMPT_SID_ML },
     confirmContentSid: { en: env.TWILIO_ENROLMENT_CONFIRM_SID_EN, ml: env.TWILIO_ENROLMENT_CONFIRM_SID_ML },
+  };
+  const complainantSenderDeps = {
+    messagingClient,
+    fromNumber: env.TWILIO_WHATSAPP_FROM,
+    reviewActionsContentSid: { en: env.TWILIO_COMPLAINANT_REVIEW_SID_EN, ml: env.TWILIO_COMPLAINANT_REVIEW_SID_ML },
+    editFieldsContentSid: { en: env.TWILIO_COMPLAINANT_EDIT_FIELDS_SID_EN, ml: env.TWILIO_COMPLAINANT_EDIT_FIELDS_SID_ML },
   };
 
   return {
@@ -54,6 +62,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
     filingWorkflowDeps: {
       conversationRepo,
       filingRepo,
+      partyRepo,
       outboundMessageRepo,
       filingSenderDeps: {
         messagingClient,
@@ -63,6 +72,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       },
       mainMenuSenderDeps,
       enrolmentSenderDeps,
+      complainantSenderDeps,
       withTransaction,
     },
     enrolmentWorkflowDeps: {
@@ -70,6 +80,16 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       filingRepo,
       outboundMessageRepo,
       enrolmentSenderDeps,
+      mainMenuSenderDeps,
+      complainantSenderDeps,
+      withTransaction,
+    },
+    complainantWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      partyRepo,
+      outboundMessageRepo,
+      complainantSenderDeps,
       mainMenuSenderDeps,
       withTransaction,
     },

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { handleInboundForMainMenu, type MainMenuWorkflowDeps } from "../src/services/main-menu-workflow";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
+import { InMemoryFilingPartyRepository } from "../src/repositories/in-memory/filing-party-repository";
 import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
@@ -14,6 +15,8 @@ const DRAFT_CHOICE_CONTENT_SID = { en: "HXdraftchoiceen00000000000000000000", ml
 const NOTICE_CONTENT_SID = { en: "HXnoticeen000000000000000000000000", ml: "HXnoticeml000000000000000000000000" };
 const ENROLMENT_PROMPT_CONTENT_SID = { en: "HXenrolpromptEn00000000000000000000", ml: "HXenrolpromptMl00000000000000000000" };
 const ENROLMENT_CONFIRM_CONTENT_SID = { en: "HXenrolconfirmEn0000000000000000000", ml: "HXenrolconfirmMl0000000000000000000" };
+const COMPLAINANT_REVIEW_CONTENT_SID = { en: "HXcreviewEn00000000000000000000000", ml: "HXcreviewMl00000000000000000000000" };
+const COMPLAINANT_EDIT_FIELDS_CONTENT_SID = { en: "HXceditEn000000000000000000000000", ml: "HXceditMl000000000000000000000000" };
 
 describe("handleInboundForMainMenu", () => {
   let conversationRepo: InMemoryConversationRepository;
@@ -55,6 +58,7 @@ describe("handleInboundForMainMenu", () => {
       filingWorkflowDeps: {
         conversationRepo,
         filingRepo: new InMemoryFilingRepository(conversationRepo),
+        partyRepo: new InMemoryFilingPartyRepository(),
         outboundMessageRepo: new InMemoryOutboundMessageRepository(),
         filingSenderDeps: {
           messagingClient,
@@ -68,6 +72,12 @@ describe("handleInboundForMainMenu", () => {
           fromNumber: FROM_NUMBER,
           promptContentSid: ENROLMENT_PROMPT_CONTENT_SID,
           confirmContentSid: ENROLMENT_CONFIRM_CONTENT_SID,
+        },
+        complainantSenderDeps: {
+          messagingClient,
+          fromNumber: FROM_NUMBER,
+          reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
+          editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
         },
         withTransaction: createInMemoryWithTransaction(),
       },

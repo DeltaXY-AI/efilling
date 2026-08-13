@@ -12,7 +12,10 @@ import type { RepositoryTransaction } from "./transaction";
 
 const ADVOCATE_ENROLMENT_PENDING_STEP = "ADVOCATE_ENROLMENT_PENDING";
 const ADVOCATE_ENROLMENT_CONFIRM_STEP = "ADVOCATE_ENROLMENT_CONFIRM";
-const COMPLAINANT_DETAILS_START_STEP = "COMPLAINANT_DETAILS_START";
+// #10 Part A: confirming enrolment cascades straight into complainant
+// detail collection in the same transaction, rather than resting at the
+// (now-unused-going-forward) COMPLAINANT_DETAILS_START value.
+const COMPLAINANT_NAME_PENDING_STEP = "COMPLAINANT_NAME_PENDING";
 
 export class DrizzleFilingRepository implements FilingRepository {
   async findActiveDraft(tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord | null> {
@@ -89,7 +92,7 @@ export class DrizzleFilingRepository implements FilingRepository {
       .set({
         advocateEnrolmentStatus: "RECORDED_UNVERIFIED",
         advocateEnrolmentConfirmedAt: confirmedAt,
-        currentStep: COMPLAINANT_DETAILS_START_STEP,
+        currentStep: COMPLAINANT_NAME_PENDING_STEP,
         updatedAt: new Date(),
       })
       .where(eq(filings.id, filingId));
@@ -106,6 +109,13 @@ export class DrizzleFilingRepository implements FilingRepository {
         currentStep: ADVOCATE_ENROLMENT_PENDING_STEP,
         updatedAt: new Date(),
       })
+      .where(eq(filings.id, filingId));
+  }
+
+  async setCurrentStep(tx: RepositoryTransaction, filingId: string, step: string): Promise<void> {
+    await (tx as Transaction)
+      .update(filings)
+      .set({ currentStep: step, updatedAt: new Date() })
       .where(eq(filings.id, filingId));
   }
 }

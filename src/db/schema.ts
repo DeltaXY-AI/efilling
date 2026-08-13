@@ -1,4 +1,4 @@
-import { index, integer, pgEnum, pgTable, text, timestamp, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 /**
  * Conversation + filing + processed-webhook persistence for the
@@ -17,7 +17,24 @@ export const conversationStateEnum = pgEnum("conversation_state", [
   "FILING_NOTICE",
   "ADVOCATE_ENROLMENT_PENDING",
   "ADVOCATE_ENROLMENT_CONFIRM",
+  // #10 Part A. COMPLAINANT_DETAILS_START itself is never persisted going
+  // forward — confirming enrolment now cascades straight into
+  // COMPLAINANT_NAME_PENDING in the same transaction (see
+  // enrolment-workflow.ts's confirmEnrolment). The value is kept in the
+  // enum only so any pre-existing row already sitting at it (from #9) can
+  // still be resumed — see filing-workflow.ts's SUPPORTED_FILING_STEPS.
   "COMPLAINANT_DETAILS_START",
+  "COMPLAINANT_NAME_PENDING",
+  "COMPLAINANT_PHONE_PENDING",
+  "COMPLAINANT_EMAIL_PENDING",
+  "COMPLAINANT_ADDRESS_PENDING",
+  "COMPLAINANT_CONFIRM",
+  "COMPLAINANT_EDIT_FIELD",
+  "COMPLAINANT_EDIT_NAME_PENDING",
+  "COMPLAINANT_EDIT_PHONE_PENDING",
+  "COMPLAINANT_EDIT_EMAIL_PENDING",
+  "COMPLAINANT_EDIT_ADDRESS_PENDING",
+  "ACCUSED_DETAILS_START",
 ]);
 export const webhookEventStatusEnum = pgEnum("webhook_event_status", ["processing", "processed", "failed"]);
 export const filingRoleEnum = pgEnum("filing_role", ["COMPLAINANT_ADVOCATE"]);
@@ -25,6 +42,10 @@ export const filingStatusEnum = pgEnum("filing_status", ["DRAFT", "SUBMITTED", "
 // Never VERIFIED — no Bar Council integration exists (#9 Part B). Nullable
 // on the filings table: no value until a candidate has been typed.
 export const advocateEnrolmentStatusEnum = pgEnum("advocate_enrolment_status", ["PENDING_CONFIRMATION", "RECORDED_UNVERIFIED"]);
+// #10 Part B. COMPLAINANT today, ACCUSED reserved for V6B — same table, no
+// second implementation needed when that slice lands.
+export const filingPartyRoleEnum = pgEnum("filing_party_role", ["COMPLAINANT", "ACCUSED"]);
+export const filingPartyStatusEnum = pgEnum("filing_party_status", ["DRAFT", "CONFIRMED"]);
 export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "FILING_NOTICE",
   "FILING_DRAFT_CHOICE",
@@ -35,6 +56,14 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "ADVOCATE_ENROLMENT_CONFIRM",
   "ADVOCATE_ENROLMENT_RECORDED",
   "FILING_SAVED",
+  "COMPLAINANT_NAME_PROMPT",
+  "COMPLAINANT_PHONE_PROMPT",
+  "COMPLAINANT_EMAIL_PROMPT",
+  "COMPLAINANT_ADDRESS_PROMPT",
+  "COMPLAINANT_SUMMARY",
+  "COMPLAINANT_REVIEW_ACTIONS",
+  "COMPLAINANT_EDIT_FIELDS",
+  "COMPLAINANT_RECORDED",
 ]);
 export const outboundMessageStatusEnum = pgEnum("outbound_message_status", ["pending", "sent", "failed"]);
 
@@ -82,6 +111,40 @@ export const filings = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("filings_conversation_status_idx").on(table.conversationId, table.status, table.updatedAt.desc())],
+);
+
+/**
+ * Normalized per-filing party details (#10 Part B) — one row per
+ * `(filing_id, party_role)`, never party fields bolted onto `filings`
+ * directly. V6A only ever writes `party_role = COMPLAINANT`; V6B reuses the
+ * same table for `ACCUSED` rather than a second implementation. All detail
+ * columns are nullable because a row can exist mid-collection (fields fill
+ * in one at a time, `status` stays DRAFT) before every required field has
+ * been answered. Original and normalized phone are kept separate (#10 Part
+ * C), exactly mirroring how the enrolment number is stored on `filings`.
+ */
+export const filingParties = pgTable(
+  "filing_parties",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    filingId: uuid("filing_id")
+      .notNull()
+      .references(() => filings.id),
+    partyRole: filingPartyRoleEnum("party_role").notNull(),
+    fullName: text("full_name"),
+    phoneOriginal: text("phone_original"),
+    phoneNormalized: text("phone_normalized"),
+    emailNormalized: text("email_normalized"),
+    address: text("address"),
+    status: filingPartyStatusEnum("status").notNull().default("DRAFT"),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("filing_parties_filing_role_unique").on(table.filingId, table.partyRole),
+    index("filing_parties_filing_id_idx").on(table.filingId),
+  ],
 );
 
 /**

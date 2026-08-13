@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_complainant_review_actions_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "ഈ പരാതിക്കാരന്റെ വിവരങ്ങൾ ശരിയാണോ?",
+      "actions": [
+        { "title": "സ്ഥിരീകരിക്കുക", "id": "complainant:confirm" },
+        { "title": "എഡിറ്റ് ചെയ്യുക", "id": "complainant:edit" },
+        { "title": "സേവ് ചെയ്ത് പുറത്തുപോകുക", "id": "filing:save-exit" }
+      ]
+    }
+  }
+}

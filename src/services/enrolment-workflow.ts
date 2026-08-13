@@ -3,6 +3,8 @@ import type { ConversationRepository } from "../repositories/conversation-reposi
 import type { FilingRepository } from "../repositories/filing-repository";
 import type { OutboundMessageRepository } from "../repositories/outbound-message-repository";
 import type { RepositoryTransaction } from "../repositories/transaction";
+import type { ComplainantSenderDeps } from "./complainant-sender";
+import { sendComplainantNamePrompt } from "./complainant-workflow";
 import { sendEnrolmentConfirmation, sendEnrolmentPrompt, type EnrolmentSenderDeps } from "./enrolment-sender";
 import type { FilingWorkflowResult } from "./filing-workflow";
 import { sendFilingPlainText } from "./filing-sender";
@@ -17,6 +19,8 @@ export interface EnrolmentWorkflowDeps {
   enrolmentSenderDeps: EnrolmentSenderDeps;
   /** Reused as-is for "back to main menu" after save-and-exit — never a second implementation. */
   mainMenuSenderDeps: MainMenuSenderDeps;
+  /** Reused as-is for the complainant name prompt sent right after Confirm cascades into COMPLAINANT_NAME_PENDING (#10 Part A) — never a second implementation. */
+  complainantSenderDeps: ComplainantSenderDeps;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -127,8 +131,9 @@ export async function handleEnrolmentInput(deps: EnrolmentWorkflowDeps, input: E
 
 /**
  * Dispatches input while at ADVOCATE_ENROLMENT_CONFIRM (#9 Parts G/H/I):
- * Confirm records the candidate as unverified and advances to
- * COMPLAINANT_DETAILS_START; Edit clears the candidate and returns to
+ * Confirm records the candidate as unverified and cascades straight into
+ * COMPLAINANT_NAME_PENDING, sending the complainant name prompt in the same
+ * transaction (#10 Part A); Edit clears the candidate and returns to
  * ADVOCATE_ENROLMENT_PENDING; Save and exit preserves everything and
  * returns to MAIN_MENU. Unrecognized input redisplays the confirmation
  * with the current candidate, without changing state.
@@ -177,22 +182,37 @@ async function confirmEnrolment(deps: EnrolmentWorkflowDeps, input: EnrolmentAct
     }
 
     await deps.filingRepo.confirmEnrolment(tx, lockedFiling.id, new Date());
-    await deps.conversationRepo.setStateInTx(tx, locked.id, "COMPLAINANT_DETAILS_START");
-    return { committed: true, sends: [{ messageType: "ADVOCATE_ENROLMENT_RECORDED" as const, dedupeSuffix: "enrolment-recorded" }] };
+    // #10 Part A: COMPLAINANT_DETAILS_START's "state entry" transition to
+    // COMPLAINANT_NAME_PENDING happens right here, in the same transaction
+    // — never left resting at an intermediate state waiting for another
+    // inbound message.
+    await deps.conversationRepo.setStateInTx(tx, locked.id, "COMPLAINANT_NAME_PENDING");
+    return {
+      committed: true,
+      sends: [
+        { messageType: "ADVOCATE_ENROLMENT_RECORDED" as const, dedupeSuffix: "enrolment-recorded" },
+        { messageType: "COMPLAINANT_NAME_PROMPT" as const, dedupeSuffix: "complainant-name-prompt" },
+      ],
+    };
   });
 
   if (!commit.committed) {
     return { delivered: true };
   }
 
+  const sendInput = sendInputFor(input);
   const delivered = await sendFilingPlainText(
     deps.enrolmentSenderDeps,
-    sendInputFor(input),
+    sendInput,
     RECORDED_TEXT[input.language],
     "enrolment_recorded_confirmation_send_failed",
   );
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
-  return { delivered };
+
+  const namePromptDelivered = await sendComplainantNamePrompt(deps.complainantSenderDeps, sendInput);
+  await finalizeOutbound(deps, commit.outboundIds[1], namePromptDelivered);
+
+  return { delivered: delivered && namePromptDelivered };
 }
 
 async function editEnrolment(deps: EnrolmentWorkflowDeps, input: EnrolmentActionInput): Promise<FilingWorkflowResult> {

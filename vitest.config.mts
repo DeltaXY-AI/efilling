@@ -18,6 +18,10 @@ export default defineConfig({
       TWILIO_ENROLMENT_PROMPT_SID_ML: "HXtestenrolpromptM0000000000000000",
       TWILIO_ENROLMENT_CONFIRM_SID_EN: "HXtestenrolconfirmE000000000000000",
       TWILIO_ENROLMENT_CONFIRM_SID_ML: "HXtestenrolconfirmM000000000000000",
+      TWILIO_COMPLAINANT_REVIEW_SID_EN: "HXtestcreviewe0000000000000000000",
+      TWILIO_COMPLAINANT_REVIEW_SID_ML: "HXtestcreviewml0000000000000000000",
+      TWILIO_COMPLAINANT_EDIT_FIELDS_SID_EN: "HXtestcedite0000000000000000000000",
+      TWILIO_COMPLAINANT_EDIT_FIELDS_SID_ML: "HXtestceditml0000000000000000000000",
       PUBLIC_BASE_URL: "https://example.test",
       // Never actually connected to in tests — routes are exercised via
       // createApp({ twilioWebhookDeps }) with in-memory repositories, but

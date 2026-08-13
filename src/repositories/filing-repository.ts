@@ -79,8 +79,10 @@ export interface FilingRepository {
 
   /**
    * Marks the pending candidate RECORDED_UNVERIFIED with a confirmation
-   * timestamp and advances `current_step` to COMPLAINANT_DETAILS_START (#9
-   * Part G).
+   * timestamp and advances `current_step` to COMPLAINANT_NAME_PENDING —
+   * cascading straight into complainant detail collection in the same
+   * transaction (#9 Part G; #10 Part A's "state entry" transition out of
+   * COMPLAINANT_DETAILS_START, which is never actually persisted).
    */
   confirmEnrolment(tx: RepositoryTransaction, filingId: string, confirmedAt: Date): Promise<void>;
 
@@ -90,4 +92,14 @@ export interface FilingRepository {
    * entered without corrupting the rest of the filing.
    */
   clearEnrolmentCandidate(tx: RepositoryTransaction, filingId: string): Promise<void>;
+
+  /**
+   * Generic `current_step` setter (#10 Part B: "The conversation state and
+   * filing step must move together in the same transaction"). Used by the
+   * complainant-details flow's own field/edit/confirm transitions, which
+   * have no other filing column to change alongside the step — unlike the
+   * enrolment-specific setters above, which pair a step change with an
+   * enrolment column write.
+   */
+  setCurrentStep(tx: RepositoryTransaction, filingId: string, step: string): Promise<void>;
 }

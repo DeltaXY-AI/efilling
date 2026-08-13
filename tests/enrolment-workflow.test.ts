@@ -15,6 +15,8 @@ const FROM_NUMBER = "whatsapp:+14155238886";
 const MAIN_MENU_CONTENT_SID = { en: "HXmenuen00000000000000000000000000", ml: "HXmenuml00000000000000000000000000" };
 const ENROLMENT_PROMPT_CONTENT_SID = { en: "HXenrolpromptEn00000000000000000000", ml: "HXenrolpromptMl00000000000000000000" };
 const ENROLMENT_CONFIRM_CONTENT_SID = { en: "HXenrolconfirmEn0000000000000000000", ml: "HXenrolconfirmMl0000000000000000000" };
+const COMPLAINANT_REVIEW_CONTENT_SID = { en: "HXcreviewEn00000000000000000000000", ml: "HXcreviewMl00000000000000000000000" };
+const COMPLAINANT_EDIT_FIELDS_CONTENT_SID = { en: "HXceditEn000000000000000000000000", ml: "HXceditMl000000000000000000000000" };
 
 describe("enrolment-workflow", () => {
   let conversationRepo: InMemoryConversationRepository;
@@ -55,6 +57,12 @@ describe("enrolment-workflow", () => {
         confirmContentSid: ENROLMENT_CONFIRM_CONTENT_SID,
       },
       mainMenuSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
+      complainantSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
+        editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
+      },
       withTransaction: createInMemoryWithTransaction(),
     };
   });
@@ -190,21 +198,24 @@ describe("enrolment-workflow", () => {
       await conversationRepo.setState(WHATSAPP_NUMBER, "ADVOCATE_ENROLMENT_CONFIRM", new Date());
     });
 
-    it("enrolment:confirm records RECORDED_UNVERIFIED with a confirmation timestamp and advances to COMPLAINANT_DETAILS_START", async () => {
+    it("enrolment:confirm records RECORDED_UNVERIFIED with a confirmation timestamp and cascades straight into COMPLAINANT_NAME_PENDING (#10 Part A)", async () => {
       const result = await handleEnrolmentConfirmInput(deps, actionInput({ selection: { buttonPayload: "enrolment:confirm" } }));
 
       expect(result.delivered).toBe(true);
       expect(messagingClient.sendText).toHaveBeenCalledWith(
         expect.objectContaining({ body: expect.stringContaining("Advocate enrolment number recorded") }),
       );
+      // #10 Part A: the same Confirm tap also sends the complainant name
+      // prompt — COMPLAINANT_DETAILS_START is never actually persisted.
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("full name") }));
 
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "COMPLAINANT_DETAILS_START" });
+      expect(conversation).toMatchObject({ state: "COMPLAINANT_NAME_PENDING" });
 
       const filing = filingRepo.findById(filingId);
       expect(filing?.advocateEnrolmentStatus).toBe("RECORDED_UNVERIFIED");
       expect(filing?.advocateEnrolmentConfirmedAt).toBeInstanceOf(Date);
-      expect(filing?.currentStep).toBe("COMPLAINANT_DETAILS_START");
+      expect(filing?.currentStep).toBe("COMPLAINANT_NAME_PENDING");
       // Never "VERIFIED" — no Bar Council integration exists.
       expect(filing?.advocateEnrolmentStatus).not.toBe("VERIFIED");
     });
@@ -234,7 +245,7 @@ describe("enrolment-workflow", () => {
       expect(b.delivered).toBe(true);
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       // Exactly one of the two transitions won — never both.
-      expect(["COMPLAINANT_DETAILS_START", "ADVOCATE_ENROLMENT_PENDING"]).toContain(conversation?.state);
+      expect(["COMPLAINANT_NAME_PENDING", "ADVOCATE_ENROLMENT_PENDING"]).toContain(conversation?.state);
     });
 
     it("enrolment:edit clears the candidate and returns to ADVOCATE_ENROLMENT_PENDING with the prompt resent", async () => {

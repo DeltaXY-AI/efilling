@@ -1,8 +1,11 @@
 import { parseDraftChoiceAction, parseFilingNoticeAction, type FilingSelectionInput } from "../domain/filing";
 import type { ConversationState, ConversationRepository } from "../repositories/conversation-repository";
-import type { FilingRepository } from "../repositories/filing-repository";
+import type { FilingPartyRepository } from "../repositories/filing-party-repository";
+import type { FilingRecord, FilingRepository } from "../repositories/filing-repository";
 import type { OutboundMessageRepository } from "../repositories/outbound-message-repository";
 import type { RepositoryTransaction } from "../repositories/transaction";
+import type { ComplainantSenderDeps } from "./complainant-sender";
+import { COMPLAINANT_SUPPORTED_FILING_STEPS, resendComplainantPromptForResume } from "./complainant-workflow";
 import { sendEnrolmentConfirmation, sendEnrolmentPrompt, type EnrolmentSenderDeps } from "./enrolment-sender";
 import { sendDraftChoice, sendFilingNotice, sendFilingPlainText, type FilingSenderDeps } from "./filing-sender";
 import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from "./main-menu-sender";
@@ -11,6 +14,8 @@ import { commitWithOutbound, finalizeOutbound } from "./transactional-outbound";
 export interface FilingWorkflowDeps {
   conversationRepo: ConversationRepository;
   filingRepo: FilingRepository;
+  /** #10's normalized complainant-details store — needed here only to resend the persisted summary when a draft resumes into COMPLAINANT_CONFIRM. */
+  partyRepo: FilingPartyRepository;
   /** Durable outbound intent, enqueued inside the same transaction as each committed state change — see commitWithOutbound in transactional-outbound.ts. */
   outboundMessageRepo: OutboundMessageRepository;
   filingSenderDeps: FilingSenderDeps;
@@ -18,6 +23,8 @@ export interface FilingWorkflowDeps {
   mainMenuSenderDeps: MainMenuSenderDeps;
   /** Reused as-is for the enrolment prompt sent right after a draft is created (#9) and when resuming into it — never a second implementation. */
   enrolmentSenderDeps: EnrolmentSenderDeps;
+  /** Reused as-is for resuming into any of #10's complainant-details steps — never a second implementation. */
+  complainantSenderDeps: ComplainantSenderDeps;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -42,8 +49,12 @@ export interface FilingWorkflowResult {
 
 const TEST_NOTICE_VERSION = "v1";
 
-/** Only ever set by this issue's own createDraft, or #9's saveEnrolmentCandidate — real, deployed, resumable steps. */
-const SUPPORTED_FILING_STEPS: ReadonlySet<string> = new Set(["ADVOCATE_ENROLMENT_PENDING", "ADVOCATE_ENROLMENT_CONFIRM"]);
+/** Only ever set by this issue's own createDraft, #9's saveEnrolmentCandidate, or #10's complainant-details steps — real, deployed, resumable steps. */
+const SUPPORTED_FILING_STEPS: ReadonlySet<string> = new Set([
+  "ADVOCATE_ENROLMENT_PENDING",
+  "ADVOCATE_ENROLMENT_CONFIRM",
+  ...COMPLAINANT_SUPPORTED_FILING_STEPS,
+]);
 
 const RESUMED_TEXT: Record<SupportedLanguage, string> = {
   en: "Your saved filing has been resumed.",
@@ -161,6 +172,9 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
   let kind: "resumed" | "unsupported-step" | "no-draft" | null = null;
   let resumedStep: string | null = null;
   let resumedNormalizedEnrolment: string | null = null;
+  // Captured so #10's resendComplainantPromptForResume can look up the
+  // party by filing id without a second findActiveDraft read after commit.
+  let resumedFiling: FilingRecord | null = null;
 
   const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
     if (locked.state !== "FILING_DRAFT_CHOICE") {
@@ -183,10 +197,22 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
       return { committed: false };
     }
 
-    await deps.conversationRepo.setStateInTx(tx, locked.id, draft.currentStep as ConversationState);
+    // #10 Part A: COMPLAINANT_DETAILS_START is never persisted going
+    // forward (see schema.ts) — any pre-existing row still at that value
+    // resumes as COMPLAINANT_NAME_PENDING, its effective equivalent. Both
+    // the filing's current_step and the conversation's state are corrected
+    // together here (Part B: "must move together in the same transaction")
+    // rather than leaving current_step stale until the next valid answer.
+    const isLegacyDetailsStart = draft.currentStep === "COMPLAINANT_DETAILS_START";
+    const resumeState: ConversationState = isLegacyDetailsStart ? "COMPLAINANT_NAME_PENDING" : (draft.currentStep as ConversationState);
+    if (isLegacyDetailsStart) {
+      await deps.filingRepo.setCurrentStep(tx, draft.id, resumeState);
+    }
+    await deps.conversationRepo.setStateInTx(tx, locked.id, resumeState);
     kind = "resumed";
-    resumedStep = draft.currentStep;
+    resumedStep = resumeState;
     resumedNormalizedEnrolment = draft.advocateEnrolmentNormalized;
+    resumedFiling = isLegacyDetailsStart ? { ...draft, currentStep: resumeState } : draft;
     const dedupeSuffix = draft.currentStep === "ADVOCATE_ENROLMENT_CONFIRM" ? "resumed-enrolment-confirm" : "resumed";
     return { committed: true, sends: [{ messageType: "FILING_RESUMED" as const, dedupeSuffix }] };
   });
@@ -214,11 +240,29 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
   // kind === "resumed". #9 Part I: resuming into ADVOCATE_ENROLMENT_CONFIRM
   // must resend the confirmation template with the saved candidate, not the
   // generic resumed text — the advocate needs to see the number again to
-  // act on Confirm/Edit/Save and exit.
-  const delivered =
-    resumedStep === "ADVOCATE_ENROLMENT_CONFIRM" && resumedNormalizedEnrolment
-      ? await sendEnrolmentConfirmation(deps.enrolmentSenderDeps, sendInput, resumedNormalizedEnrolment)
-      : await sendFilingPlainText(deps.filingSenderDeps, sendInput, RESUMED_TEXT[input.language], "filing_resume_confirmation_send_failed");
+  // act on Confirm/Edit/Save and exit. #10 Part K: resuming into any of the
+  // complainant-details steps must likewise resend the exact pending field
+  // prompt or the review screen, not the generic resumed text.
+  let delivered: boolean;
+  if (resumedStep === "ADVOCATE_ENROLMENT_CONFIRM" && resumedNormalizedEnrolment) {
+    delivered = await sendEnrolmentConfirmation(deps.enrolmentSenderDeps, sendInput, resumedNormalizedEnrolment);
+  } else if (resumedStep && resumedFiling && COMPLAINANT_SUPPORTED_FILING_STEPS.has(resumedStep)) {
+    delivered = await resendComplainantPromptForResume(
+      {
+        conversationRepo: deps.conversationRepo,
+        filingRepo: deps.filingRepo,
+        partyRepo: deps.partyRepo,
+        outboundMessageRepo: deps.outboundMessageRepo,
+        complainantSenderDeps: deps.complainantSenderDeps,
+        mainMenuSenderDeps: deps.mainMenuSenderDeps,
+        withTransaction: deps.withTransaction,
+      },
+      resumedFiling,
+      sendInput,
+    );
+  } else {
+    delivered = await sendFilingPlainText(deps.filingSenderDeps, sendInput, RESUMED_TEXT[input.language], "filing_resume_confirmation_send_failed");
+  }
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
   return { delivered };
 }

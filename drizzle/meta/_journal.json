@@ -43,6 +43,13 @@
       "when": 1786466470359,
       "tag": "0005_wonderful_magneto",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786599812633,
+      "tag": "0006_empty_red_skull",
+      "breakpoints": true
     }
   ]
 }

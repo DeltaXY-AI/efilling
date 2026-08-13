@@ -7,6 +7,7 @@ import {
 } from "../src/services/filing-workflow";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
+import { InMemoryFilingPartyRepository } from "../src/repositories/in-memory/filing-party-repository";
 import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
@@ -18,10 +19,13 @@ const DRAFT_CHOICE_CONTENT_SID = { en: "HXdraftchoiceen00000000000000000000", ml
 const NOTICE_CONTENT_SID = { en: "HXnoticeen000000000000000000000000", ml: "HXnoticeml000000000000000000000000" };
 const ENROLMENT_PROMPT_CONTENT_SID = { en: "HXenrolpromptEn00000000000000000000", ml: "HXenrolpromptMl00000000000000000000" };
 const ENROLMENT_CONFIRM_CONTENT_SID = { en: "HXenrolconfirmEn0000000000000000000", ml: "HXenrolconfirmMl0000000000000000000" };
+const COMPLAINANT_REVIEW_CONTENT_SID = { en: "HXcreviewEn00000000000000000000000", ml: "HXcreviewMl00000000000000000000000" };
+const COMPLAINANT_EDIT_FIELDS_CONTENT_SID = { en: "HXceditEn000000000000000000000000", ml: "HXceditMl000000000000000000000000" };
 
 describe("filing-workflow", () => {
   let conversationRepo: InMemoryConversationRepository;
   let filingRepo: InMemoryFilingRepository;
+  let partyRepo: InMemoryFilingPartyRepository;
   let outboundMessageRepo: InMemoryOutboundMessageRepository;
   let messagingClient: FakeMessagingClient;
   let deps: FilingWorkflowDeps;
@@ -30,6 +34,7 @@ describe("filing-workflow", () => {
   beforeEach(async () => {
     conversationRepo = new InMemoryConversationRepository();
     filingRepo = new InMemoryFilingRepository(conversationRepo);
+    partyRepo = new InMemoryFilingPartyRepository();
     outboundMessageRepo = new InMemoryOutboundMessageRepository();
     messagingClient = createFakeMessagingClient();
 
@@ -40,6 +45,7 @@ describe("filing-workflow", () => {
     deps = {
       conversationRepo,
       filingRepo,
+      partyRepo,
       outboundMessageRepo,
       filingSenderDeps: {
         messagingClient,
@@ -53,6 +59,12 @@ describe("filing-workflow", () => {
         fromNumber: FROM_NUMBER,
         promptContentSid: ENROLMENT_PROMPT_CONTENT_SID,
         confirmContentSid: ENROLMENT_CONFIRM_CONTENT_SID,
+      },
+      complainantSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
+        editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
       },
       withTransaction: createInMemoryWithTransaction(),
     };
@@ -219,6 +231,78 @@ describe("filing-workflow", () => {
       });
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       expect(conversation).toMatchObject({ state: "ADVOCATE_ENROLMENT_CONFIRM" });
+    });
+
+    it("#10 Part A/B: resuming a legacy draft still at COMPLAINANT_DETAILS_START self-corrects both current_step and conversation state to COMPLAINANT_NAME_PENDING", async () => {
+      const filing = await filingRepo.createDraft(undefined, {
+        conversationId,
+        language: "en",
+        role: "COMPLAINANT_ADVOCATE",
+        testNoticeVersion: "v1",
+      });
+      // Simulate a filing left over from #9 before this cascade existed.
+      await filingRepo.setCurrentStep(undefined, filing.id, "COMPLAINANT_DETAILS_START");
+      await conversationRepo.setActiveFilingAndState(undefined, conversationId, filing.id, "FILING_DRAFT_CHOICE");
+
+      const result = await handleDraftChoiceInput(deps, actionInput({ selection: { buttonPayload: "filing:resume-draft" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("full name") }),
+      );
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "COMPLAINANT_NAME_PENDING" });
+      // The filing's current_step is corrected together with the
+      // conversation state, in the same transaction — never left stale.
+      expect(filingRepo.findById(filing.id)).toMatchObject({ currentStep: "COMPLAINANT_NAME_PENDING" });
+    });
+
+    it("#10 Part K: resuming a draft at a complainant field-pending step resends that field's own prompt", async () => {
+      const filing = await filingRepo.createDraft(undefined, {
+        conversationId,
+        language: "en",
+        role: "COMPLAINANT_ADVOCATE",
+        testNoticeVersion: "v1",
+      });
+      await filingRepo.setCurrentStep(undefined, filing.id, "COMPLAINANT_PHONE_PENDING");
+      await conversationRepo.setActiveFilingAndState(undefined, conversationId, filing.id, "FILING_DRAFT_CHOICE");
+
+      const result = await handleDraftChoiceInput(deps, actionInput({ selection: { buttonPayload: "filing:resume-draft" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("phone number") }),
+      );
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "COMPLAINANT_PHONE_PENDING" });
+    });
+
+    it("#10 Part K: resuming a draft at COMPLAINANT_CONFIRM restores the review screen and resends the persisted summary", async () => {
+      const filing = await filingRepo.createDraft(undefined, {
+        conversationId,
+        language: "en",
+        role: "COMPLAINANT_ADVOCATE",
+        testNoticeVersion: "v1",
+      });
+      await filingRepo.setCurrentStep(undefined, filing.id, "COMPLAINANT_CONFIRM");
+      await partyRepo.upsertFields(undefined, filing.id, "COMPLAINANT", {
+        fullName: "Anitha Joseph",
+        phoneOriginal: "9876543210",
+        phoneNormalized: "+919876543210",
+        emailNormalized: null,
+        address: "Thekkumkattil House\nKollam 691008",
+      });
+      await conversationRepo.setActiveFilingAndState(undefined, conversationId, filing.id, "FILING_DRAFT_CHOICE");
+
+      const result = await handleDraftChoiceInput(deps, actionInput({ selection: { buttonPayload: "filing:resume-draft" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("Anitha Joseph") }));
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: COMPLAINANT_REVIEW_CONTENT_SID.en }),
+      );
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "COMPLAINANT_CONFIRM" });
     });
 
     it("filing:resume-draft when the draft has disappeared routes safely to FILING_NOTICE, no user-visible error", async () => {
