@@ -1,8 +1,13 @@
-import type { CreateDraftInput, FilingRecord, FilingRepository } from "../filing-repository";
+import { FilingNotFoundError, type CreateDraftInput, type FilingRecord, type FilingRepository, type SaveEnrolmentCandidateInput } from "../filing-repository";
 import type { RepositoryTransaction } from "../transaction";
 import type { InMemoryConversationRepository } from "./conversation-repository";
+import { InMemoryMutex, type InMemoryTransactionHandle } from "./transaction";
 
 let nextId = 1;
+
+const ADVOCATE_ENROLMENT_PENDING_STEP = "ADVOCATE_ENROLMENT_PENDING";
+const ADVOCATE_ENROLMENT_CONFIRM_STEP = "ADVOCATE_ENROLMENT_CONFIRM";
+const COMPLAINANT_DETAILS_START_STEP = "COMPLAINANT_DETAILS_START";
 
 /**
  * In-memory FilingRepository for tests — never used in production. Takes
@@ -12,6 +17,10 @@ let nextId = 1;
  */
 export class InMemoryFilingRepository implements FilingRepository {
   private readonly byId = new Map<string, FilingRecord>();
+  // Keyed by filing id, mirroring InMemoryConversationRepository's mutex —
+  // so concurrent Confirm/Edit calls on the same filing genuinely queue
+  // instead of both reading stale state (#9 Part K).
+  private readonly mutex = new InMemoryMutex();
 
   constructor(private readonly conversationRepo: InMemoryConversationRepository) {}
 
@@ -34,10 +43,14 @@ export class InMemoryFilingRepository implements FilingRepository {
       conversationId: input.conversationId,
       role: input.role,
       status: "DRAFT",
-      currentStep: "ADVOCATE_ENROLMENT_PENDING",
+      currentStep: ADVOCATE_ENROLMENT_PENDING_STEP,
       language: input.language,
       testNoticeVersion: input.testNoticeVersion,
       testNoticeAcceptedAt: null,
+      advocateEnrolmentOriginal: null,
+      advocateEnrolmentNormalized: null,
+      advocateEnrolmentStatus: null,
+      advocateEnrolmentConfirmedAt: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -46,15 +59,60 @@ export class InMemoryFilingRepository implements FilingRepository {
   }
 
   async recordNoticeAcceptance(_tx: RepositoryTransaction, filingId: string, acceptedAt: Date): Promise<void> {
-    const existing = this.byId.get(filingId);
-    if (!existing) {
-      throw new Error(`InMemoryFilingRepository: no filing ${filingId}`);
+    this.update(filingId, { testNoticeAcceptedAt: acceptedAt });
+  }
+
+  async lockById(tx: RepositoryTransaction, filingId: string): Promise<FilingRecord> {
+    const handle = tx as InMemoryTransactionHandle;
+    const release = await this.mutex.acquire(filingId);
+    handle.releases.push(release);
+
+    const record = this.byId.get(filingId);
+    if (!record) {
+      throw new FilingNotFoundError(filingId);
     }
-    this.byId.set(filingId, { ...existing, testNoticeAcceptedAt: acceptedAt, updatedAt: new Date() });
+    // Return a fresh read, taken only after the lock was actually granted —
+    // a concurrent writer that ran while we were queued must be visible.
+    return record;
+  }
+
+  async saveEnrolmentCandidate(_tx: RepositoryTransaction, filingId: string, input: SaveEnrolmentCandidateInput): Promise<void> {
+    this.update(filingId, {
+      advocateEnrolmentOriginal: input.original,
+      advocateEnrolmentNormalized: input.normalized,
+      advocateEnrolmentStatus: "PENDING_CONFIRMATION",
+      currentStep: ADVOCATE_ENROLMENT_CONFIRM_STEP,
+    });
+  }
+
+  async confirmEnrolment(_tx: RepositoryTransaction, filingId: string, confirmedAt: Date): Promise<void> {
+    this.update(filingId, {
+      advocateEnrolmentStatus: "RECORDED_UNVERIFIED",
+      advocateEnrolmentConfirmedAt: confirmedAt,
+      currentStep: COMPLAINANT_DETAILS_START_STEP,
+    });
+  }
+
+  async clearEnrolmentCandidate(_tx: RepositoryTransaction, filingId: string): Promise<void> {
+    this.update(filingId, {
+      advocateEnrolmentOriginal: null,
+      advocateEnrolmentNormalized: null,
+      advocateEnrolmentStatus: null,
+      advocateEnrolmentConfirmedAt: null,
+      currentStep: ADVOCATE_ENROLMENT_PENDING_STEP,
+    });
   }
 
   /** Test-wiring helper (not part of the FilingRepository interface) so tests can assert a specific filing's fields directly, e.g. to prove a prior draft was left unchanged. */
   findById(filingId: string): FilingRecord | null {
     return this.byId.get(filingId) ?? null;
+  }
+
+  private update(filingId: string, patch: Partial<FilingRecord>): void {
+    const existing = this.byId.get(filingId);
+    if (!existing) {
+      throw new FilingNotFoundError(filingId);
+    }
+    this.byId.set(filingId, { ...existing, ...patch, updatedAt: new Date() });
   }
 }

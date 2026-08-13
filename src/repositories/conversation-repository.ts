@@ -9,7 +9,9 @@ export type ConversationState =
   | "CASE_STATUS_START"
   | "FILING_DRAFT_CHOICE"
   | "FILING_NOTICE"
-  | "ADVOCATE_ENROLMENT_PENDING";
+  | "ADVOCATE_ENROLMENT_PENDING"
+  | "ADVOCATE_ENROLMENT_CONFIRM"
+  | "COMPLAINANT_DETAILS_START";
 
 export interface ConversationRecord {
   id: string;

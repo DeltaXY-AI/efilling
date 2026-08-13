@@ -1,0 +1,9 @@
+{
+  "friendly_name": "oncourts_advocate_enrolment_prompt_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/text": {
+      "body": "നിങ്ങളുടെ അഭിഭാഷക എൻറോൾമെന്റ് നമ്പർ നൽകുക.\n\nഉദാഹരണം: KER/1234/2010\n\nഈ ഡെമോയിൽ നമ്പർ രേഖപ്പെടുത്തും, പക്ഷേ ബാർ കൗൺസിലുമായി പരിശോധിക്കില്ല."
+    }
+  }
+}

@@ -12,6 +12,8 @@ const LANGUAGE_CONTENT_SID = "HXlanguage0000000000000000000000000";
 const MAIN_MENU_CONTENT_SID = { en: "HXmenuen00000000000000000000000000", ml: "HXmenuml00000000000000000000000000" };
 const DRAFT_CHOICE_CONTENT_SID = { en: "HXdraftchoiceen00000000000000000000", ml: "HXdraftchoiceml00000000000000000000" };
 const NOTICE_CONTENT_SID = { en: "HXnoticeen000000000000000000000000", ml: "HXnoticeml000000000000000000000000" };
+const ENROLMENT_PROMPT_CONTENT_SID = { en: "HXenrolpromptEn00000000000000000000", ml: "HXenrolpromptMl00000000000000000000" };
+const ENROLMENT_CONFIRM_CONTENT_SID = { en: "HXenrolconfirmEn0000000000000000000", ml: "HXenrolconfirmMl0000000000000000000" };
 
 describe("handleInboundForMainMenu", () => {
   let conversationRepo: InMemoryConversationRepository;
@@ -61,6 +63,12 @@ describe("handleInboundForMainMenu", () => {
           noticeContentSid: NOTICE_CONTENT_SID,
         },
         mainMenuSenderDeps,
+        enrolmentSenderDeps: {
+          messagingClient,
+          fromNumber: FROM_NUMBER,
+          promptContentSid: ENROLMENT_PROMPT_CONTENT_SID,
+          confirmContentSid: ENROLMENT_CONFIRM_CONTENT_SID,
+        },
         withTransaction: createInMemoryWithTransaction(),
       },
     };

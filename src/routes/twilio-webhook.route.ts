@@ -31,6 +31,15 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
     contentSidByLanguage: mainMenuContentSid,
   };
 
+  const filingRepo = new DrizzleFilingRepository();
+  const outboundMessageRepo = new DrizzleOutboundMessageRepository();
+  const enrolmentSenderDeps = {
+    messagingClient,
+    fromNumber: env.TWILIO_WHATSAPP_FROM,
+    promptContentSid: { en: env.TWILIO_ENROLMENT_PROMPT_SID_EN, ml: env.TWILIO_ENROLMENT_PROMPT_SID_ML },
+    confirmContentSid: { en: env.TWILIO_ENROLMENT_CONFIRM_SID_EN, ml: env.TWILIO_ENROLMENT_CONFIRM_SID_ML },
+  };
+
   return {
     conversationRepo,
     processedWebhookRepo: new DrizzleProcessedWebhookRepository(),
@@ -44,14 +53,23 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
     mainMenuSenderDeps,
     filingWorkflowDeps: {
       conversationRepo,
-      filingRepo: new DrizzleFilingRepository(),
-      outboundMessageRepo: new DrizzleOutboundMessageRepository(),
+      filingRepo,
+      outboundMessageRepo,
       filingSenderDeps: {
         messagingClient,
         fromNumber: env.TWILIO_WHATSAPP_FROM,
         draftChoiceContentSid: { en: env.TWILIO_FILING_DRAFT_CHOICE_SID_EN, ml: env.TWILIO_FILING_DRAFT_CHOICE_SID_ML },
         noticeContentSid: { en: env.TWILIO_FILING_NOTICE_SID_EN, ml: env.TWILIO_FILING_NOTICE_SID_ML },
       },
+      mainMenuSenderDeps,
+      enrolmentSenderDeps,
+      withTransaction,
+    },
+    enrolmentWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      outboundMessageRepo,
+      enrolmentSenderDeps,
       mainMenuSenderDeps,
       withTransaction,
     },
@@ -130,6 +148,7 @@ export function createTwilioWebhookRouter(deps: TwilioWebhookRouterDeps): Router
         listId: body.ListId,
         listTitle: body.ListTitle,
         body: inboundMessage.text,
+        mediaCount: inboundMessage.media.length,
       });
       await deps.processedWebhookRepo.markOutcome(inboundMessage.messageId, result.delivered ? "processed" : "failed");
     } catch {

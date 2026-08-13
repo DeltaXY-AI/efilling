@@ -16,16 +16,25 @@ export const conversationStateEnum = pgEnum("conversation_state", [
   "FILING_DRAFT_CHOICE",
   "FILING_NOTICE",
   "ADVOCATE_ENROLMENT_PENDING",
+  "ADVOCATE_ENROLMENT_CONFIRM",
+  "COMPLAINANT_DETAILS_START",
 ]);
 export const webhookEventStatusEnum = pgEnum("webhook_event_status", ["processing", "processed", "failed"]);
 export const filingRoleEnum = pgEnum("filing_role", ["COMPLAINANT_ADVOCATE"]);
 export const filingStatusEnum = pgEnum("filing_status", ["DRAFT", "SUBMITTED", "ABANDONED"]);
+// Never VERIFIED — no Bar Council integration exists (#9 Part B). Nullable
+// on the filings table: no value until a candidate has been typed.
+export const advocateEnrolmentStatusEnum = pgEnum("advocate_enrolment_status", ["PENDING_CONFIRMATION", "RECORDED_UNVERIFIED"]);
 export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "FILING_NOTICE",
   "FILING_DRAFT_CHOICE",
   "FILING_DRAFT_CREATED",
   "FILING_RESUMED",
   "MAIN_MENU",
+  "ADVOCATE_ENROLMENT_PROMPT",
+  "ADVOCATE_ENROLMENT_CONFIRM",
+  "ADVOCATE_ENROLMENT_RECORDED",
+  "FILING_SAVED",
 ]);
 export const outboundMessageStatusEnum = pgEnum("outbound_message_status", ["pending", "sent", "failed"]);
 
@@ -60,6 +69,15 @@ export const filings = pgTable(
     language: conversationLanguageEnum("language").notNull(),
     testNoticeVersion: text("test_notice_version"),
     testNoticeAcceptedAt: timestamp("test_notice_accepted_at", { withTimezone: true }),
+    // #9 Part B — the advocate's typed enrolment candidate. No uniqueness
+    // constraint: one advocate can have multiple filings. Original and
+    // normalized are stored separately (Part C); status is nullable until a
+    // candidate has been typed, and is never "VERIFIED" — no Bar Council
+    // integration exists in this slice.
+    advocateEnrolmentOriginal: text("advocate_enrolment_original"),
+    advocateEnrolmentNormalized: text("advocate_enrolment_normalized"),
+    advocateEnrolmentStatus: advocateEnrolmentStatusEnum("advocate_enrolment_status"),
+    advocateEnrolmentConfirmedAt: timestamp("advocate_enrolment_confirmed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

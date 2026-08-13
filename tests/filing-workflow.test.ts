@@ -16,6 +16,8 @@ const FROM_NUMBER = "whatsapp:+14155238886";
 const MAIN_MENU_CONTENT_SID = { en: "HXmenuen00000000000000000000000000", ml: "HXmenuml00000000000000000000000000" };
 const DRAFT_CHOICE_CONTENT_SID = { en: "HXdraftchoiceen00000000000000000000", ml: "HXdraftchoiceml00000000000000000000" };
 const NOTICE_CONTENT_SID = { en: "HXnoticeen000000000000000000000000", ml: "HXnoticeml000000000000000000000000" };
+const ENROLMENT_PROMPT_CONTENT_SID = { en: "HXenrolpromptEn00000000000000000000", ml: "HXenrolpromptMl00000000000000000000" };
+const ENROLMENT_CONFIRM_CONTENT_SID = { en: "HXenrolconfirmEn0000000000000000000", ml: "HXenrolconfirmMl0000000000000000000" };
 
 describe("filing-workflow", () => {
   let conversationRepo: InMemoryConversationRepository;
@@ -46,6 +48,12 @@ describe("filing-workflow", () => {
         noticeContentSid: NOTICE_CONTENT_SID,
       },
       mainMenuSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
+      enrolmentSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        promptContentSid: ENROLMENT_PROMPT_CONTENT_SID,
+        confirmContentSid: ENROLMENT_CONFIRM_CONTENT_SID,
+      },
       withTransaction: createInMemoryWithTransaction(),
     };
   });
@@ -190,6 +198,29 @@ describe("filing-workflow", () => {
       expect(conversation).toMatchObject({ state: "ADVOCATE_ENROLMENT_PENDING" });
     });
 
+    it("#9 Part I: resuming a draft at ADVOCATE_ENROLMENT_CONFIRM restores that step and resends the confirmation with the saved candidate", async () => {
+      const filing = await filingRepo.createDraft(undefined, {
+        conversationId,
+        language: "en",
+        role: "COMPLAINANT_ADVOCATE",
+        testNoticeVersion: "v1",
+      });
+      await filingRepo.saveEnrolmentCandidate(undefined, filing.id, { original: "KER/1234/2010", normalized: "KER/1234/2010" });
+      await conversationRepo.setActiveFilingAndState(undefined, conversationId, filing.id, "FILING_DRAFT_CHOICE");
+
+      const result = await handleDraftChoiceInput(deps, actionInput({ selection: { buttonPayload: "filing:resume-draft" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith({
+        from: FROM_NUMBER,
+        to: WHATSAPP_NUMBER,
+        contentSid: ENROLMENT_CONFIRM_CONTENT_SID.en,
+        contentVariables: { "1": "KER/1234/2010" },
+      });
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "ADVOCATE_ENROLMENT_CONFIRM" });
+    });
+
     it("filing:resume-draft when the draft has disappeared routes safely to FILING_NOTICE, no user-visible error", async () => {
       // FILING_DRAFT_CHOICE with no active_filing_id at all — draft "disappeared".
       const result = await handleDraftChoiceInput(deps, actionInput({ selection: { buttonPayload: "filing:resume-draft" } }));
@@ -298,6 +329,20 @@ describe("filing-workflow", () => {
       expect(outbound).toMatchObject({ status: "sent", messageType: "FILING_DRAFT_CREATED", conversationId });
     });
 
+    it("#9 acceptance criterion: entering ADVOCATE_ENROLMENT_PENDING sends the enrolment prompt, durably tracked in its own outbound record", async () => {
+      const result = await handleFilingNoticeInput(deps, actionInput({ selection: { buttonPayload: "filing:accept-test-notice" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith({
+        from: FROM_NUMBER,
+        to: WHATSAPP_NUMBER,
+        contentSid: ENROLMENT_PROMPT_CONTENT_SID.en,
+      });
+
+      const outbound = outboundMessageRepo.findByDedupeKey("SM2:enrolment-prompt");
+      expect(outbound).toMatchObject({ status: "sent", messageType: "ADVOCATE_ENROLMENT_PROMPT", conversationId });
+    });
+
     it("commits the draft and enqueues a durable outbound record even when the completion send fails, and a later retry cannot duplicate it", async () => {
       messagingClient.sendText.mockRejectedValueOnce(new Error("Twilio 500"));
 
@@ -348,6 +393,10 @@ describe("filing-workflow", () => {
         to: WHATSAPP_NUMBER,
         body: "✓ നിങ്ങളുടെ ഫയലിംഗ് ഡ്രാഫ്റ്റ് തയ്യാറായി.\n\nഅടുത്തതായി അഭിഭാഷക എൻറോൾമെന്റ് വിവരങ്ങൾ രേഖപ്പെടുത്താം.",
       });
+      // #9: entering ADVOCATE_ENROLMENT_PENDING also sends the Malayalam prompt template.
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: ENROLMENT_PROMPT_CONTENT_SID.ml }),
+      );
     });
 
     it("nav:main-menu returns to MAIN_MENU and creates no filing", async () => {
