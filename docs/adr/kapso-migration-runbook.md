@@ -8,23 +8,29 @@ for the part that *has* shipped.
 
 ## Sequence
 
-| # | Step | Status | Where |
-|---|---|---|---|
-| 1 | Generalize provider-neutral inbound/outbound interfaces, no behavior change | ✅ Done | `2462166` |
-| 2 | Generalize webhook-event persistence and identity schema, incl. BSUID support | ✅ Done | `41d83a7` |
-| 3 | Add the Kapso client and signed webhook adapter behind a feature flag | ✅ Done | `87426dd` |
-| 4 | Add native interactive buttons/lists, preserving numbered fallbacks | ✅ Done | `acebb62` |
-| 5 | Add delivery-status handling and Kapso-aware outbox reconciliation | ✅ Done | `433f4ce` |
-| 6 | Complete automated contract/integration tests | ✅ Done (248 tests, folded into 3–5) | — |
-| 7 | Run Preview/Sandbox English and Malayalam mobile verification | ⏳ Blocked — needs a real webhook secret and a phone | — |
-| 8 | Connect and verify the approved Indian production number/WABA | ❌ Not started — needs the business/legal decision this spike feeds | — |
-| 9 | Controlled canary/cutover with monitoring | ❌ Not started | — |
-| 10 | Keep Twilio rollback available for the observation period | N/A — nothing has cut over yet | — |
-| 11 | Remove Twilio code/Content SIDs/scripts only after acceptance | ❌ Not started, correctly deferred | — |
+| # | Step | Status | Where | Tracking issue |
+|---|---|---|---|---|
+| 1 | Generalize provider-neutral inbound/outbound interfaces, no behavior change | ✅ Done | `2462166` | — |
+| 2 | Generalize webhook-event persistence and identity schema, incl. BSUID support | ✅ Done | `41d83a7` | — |
+| 3 | Add the Kapso client and signed webhook adapter behind a feature flag | ✅ Done | `87426dd` | — |
+| 4 | Add native interactive buttons/lists, preserving numbered fallbacks | ✅ Done | `acebb62` | — |
+| 5 | Add delivery-status handling and Kapso-aware outbox reconciliation | ✅ Done | `433f4ce` | — |
+| 6 | Complete automated contract/integration tests | ✅ Done (248 tests, folded into 3–5) | — | — |
+| — | Send vendor due-diligence questions, record answers (Gate 1) | ⏳ Drafted, not sent | `kapso-vendor-due-diligence-questions.md` | [#19](https://github.com/DeltaXY-AI/efilling/issues/19) |
+| 7 | Run Preview/Sandbox English and Malayalam mobile verification (Gate 2) | ⏳ Blocked — needs a real webhook secret and a phone | — | [#20](https://github.com/DeltaXY-AI/efilling/issues/20) |
+| — | Resolve small open technical items this spike flagged | ❌ Not started | — | [#21](https://github.com/DeltaXY-AI/efilling/issues/21) |
+| 8 | Connect and verify the approved Indian production number/WABA | ❌ Not started — blocked on Gates 1+2 | — | [#22](https://github.com/DeltaXY-AI/efilling/issues/22) |
+| 9 | Controlled canary/cutover with monitoring | ❌ Not started — blocked on step 8 | — | [#23](https://github.com/DeltaXY-AI/efilling/issues/23) |
+| 10 | Keep Twilio rollback available for the observation period | N/A — nothing has cut over yet | — | (part of #23) |
+| 11 | Remove Twilio code/Content SIDs/scripts only after acceptance | ❌ Not started, correctly deferred | — | [#24](https://github.com/DeltaXY-AI/efilling/issues/24) |
 
 Every step 1–6 commit left Twilio's own code path byte-for-byte unchanged, verified
 by running the full suite after each one — that's what makes steps 7+ safe to
-attempt without steps 1–6 needing to be redone.
+attempt without steps 1–6 needing to be redone. Issues #19–#24 are the "sequence
+of small implementation issues/PRs" issue #16 Part D asks for, sliced so each is
+independently reviewable and explicitly ordered by its real dependencies (#22
+cannot start before #19 and #20 close; #23 cannot start before #22; #24 cannot
+start before #23's observation period passes with no rollback).
 
 ## Owners and prerequisites
 

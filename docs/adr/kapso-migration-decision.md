@@ -11,6 +11,12 @@ known today would mean pretending those gates are optional. They aren't.
 yet — that's the point of this document existing before a decision is made, not
 after.
 
+**Related documents:** `kapso-vs-twilio.md` (functional/cost comparison),
+`kapso-twilio-dependency-inventory.md` (every current Twilio-coupled surface),
+`kapso-data-flow-threat-model.md` (Meta → Kapso → Vercel → Neon data flow and
+threat walkthrough), `kapso-vendor-due-diligence-questions.md` (Gate 1),
+`kapso-migration-runbook.md` (rollout/rollback sequence).
+
 ## What's known and settled
 
 From `kapso-vs-twilio.md` and the code actually shipped on this branch:
