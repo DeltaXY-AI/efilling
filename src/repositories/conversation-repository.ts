@@ -11,7 +11,20 @@ export type ConversationState =
   | "FILING_NOTICE"
   | "ADVOCATE_ENROLMENT_PENDING"
   | "ADVOCATE_ENROLMENT_CONFIRM"
-  | "COMPLAINANT_DETAILS_START";
+  // #10 Part A. Never persisted going forward (see schema.ts) — kept only
+  // so a pre-existing row from #9 can still resume.
+  | "COMPLAINANT_DETAILS_START"
+  | "COMPLAINANT_NAME_PENDING"
+  | "COMPLAINANT_PHONE_PENDING"
+  | "COMPLAINANT_EMAIL_PENDING"
+  | "COMPLAINANT_ADDRESS_PENDING"
+  | "COMPLAINANT_CONFIRM"
+  | "COMPLAINANT_EDIT_FIELD"
+  | "COMPLAINANT_EDIT_NAME_PENDING"
+  | "COMPLAINANT_EDIT_PHONE_PENDING"
+  | "COMPLAINANT_EDIT_EMAIL_PENDING"
+  | "COMPLAINANT_EDIT_ADDRESS_PENDING"
+  | "ACCUSED_DETAILS_START";
 
 export interface ConversationRecord {
   id: string;

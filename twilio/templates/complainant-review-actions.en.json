@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_complainant_review_actions_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Are these complainant details correct?",
+      "actions": [
+        { "title": "Confirm", "id": "complainant:confirm" },
+        { "title": "Edit", "id": "complainant:edit" },
+        { "title": "Save and exit", "id": "filing:save-exit" }
+      ]
+    }
+  }
+}

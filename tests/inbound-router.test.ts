@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { routeInboundMessage, type InboundRouterDeps } from "../src/services/inbound-router";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
+import { InMemoryFilingPartyRepository } from "../src/repositories/in-memory/filing-party-repository";
 import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
@@ -14,6 +15,8 @@ const DRAFT_CHOICE_CONTENT_SID = { en: "HXdraftchoiceen00000000000000000000", ml
 const NOTICE_CONTENT_SID = { en: "HXnoticeen000000000000000000000000", ml: "HXnoticeml000000000000000000000000" };
 const ENROLMENT_PROMPT_CONTENT_SID = { en: "HXenrolpromptEn00000000000000000000", ml: "HXenrolpromptMl00000000000000000000" };
 const ENROLMENT_CONFIRM_CONTENT_SID = { en: "HXenrolconfirmEn0000000000000000000", ml: "HXenrolconfirmMl0000000000000000000" };
+const COMPLAINANT_REVIEW_CONTENT_SID = { en: "HXcreviewEn00000000000000000000000", ml: "HXcreviewMl00000000000000000000000" };
+const COMPLAINANT_EDIT_FIELDS_CONTENT_SID = { en: "HXceditEn000000000000000000000000", ml: "HXceditMl000000000000000000000000" };
 
 function baseInput(overrides: Partial<Parameters<typeof routeInboundMessage>[1]> = {}) {
   return {
@@ -27,6 +30,7 @@ function baseInput(overrides: Partial<Parameters<typeof routeInboundMessage>[1]>
 describe("routeInboundMessage", () => {
   let conversationRepo: InMemoryConversationRepository;
   let filingRepo: InMemoryFilingRepository;
+  let partyRepo: InMemoryFilingPartyRepository;
   let messagingClient: FakeMessagingClient;
   let deps: InboundRouterDeps;
 
@@ -41,7 +45,14 @@ describe("routeInboundMessage", () => {
       confirmContentSid: ENROLMENT_CONFIRM_CONTENT_SID,
     };
     filingRepo = new InMemoryFilingRepository(conversationRepo);
+    partyRepo = new InMemoryFilingPartyRepository();
     const outboundMessageRepo = new InMemoryOutboundMessageRepository();
+    const complainantSenderDeps = {
+      messagingClient,
+      fromNumber: FROM_NUMBER,
+      reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
+      editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
+    };
     deps = {
       conversationRepo,
       languageWorkflowDeps: {
@@ -55,6 +66,7 @@ describe("routeInboundMessage", () => {
       filingWorkflowDeps: {
         conversationRepo,
         filingRepo,
+        partyRepo,
         outboundMessageRepo,
         filingSenderDeps: {
           messagingClient,
@@ -64,6 +76,7 @@ describe("routeInboundMessage", () => {
         },
         mainMenuSenderDeps,
         enrolmentSenderDeps,
+        complainantSenderDeps,
         withTransaction: createInMemoryWithTransaction(),
       },
       enrolmentWorkflowDeps: {
@@ -71,6 +84,16 @@ describe("routeInboundMessage", () => {
         filingRepo,
         outboundMessageRepo,
         enrolmentSenderDeps,
+        mainMenuSenderDeps,
+        complainantSenderDeps,
+        withTransaction: createInMemoryWithTransaction(),
+      },
+      complainantWorkflowDeps: {
+        conversationRepo,
+        filingRepo,
+        partyRepo,
+        outboundMessageRepo,
+        complainantSenderDeps,
         mainMenuSenderDeps,
         withTransaction: createInMemoryWithTransaction(),
       },
@@ -209,11 +232,15 @@ describe("routeInboundMessage", () => {
     const result = await routeInboundMessage(deps, baseInput({ buttonPayload: "enrolment:confirm" }));
 
     expect(result.delivered).toBe(true);
+    // #10 Part A: confirming enrolment cascades straight into
+    // COMPLAINANT_NAME_PENDING — COMPLAINANT_DETAILS_START is never
+    // actually persisted.
     const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-    expect(after).toMatchObject({ state: "COMPLAINANT_DETAILS_START" });
+    expect(after).toMatchObject({ state: "COMPLAINANT_NAME_PENDING" });
+    expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("full name") }));
   });
 
-  it("keeps a COMPLAINANT_DETAILS_START conversation alive without sending anything (out of scope for this slice)", async () => {
+  it("keeps a legacy COMPLAINANT_DETAILS_START conversation alive without sending anything (never persisted going forward — see schema.ts)", async () => {
     await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
     await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
     await conversationRepo.setState(WHATSAPP_NUMBER, "COMPLAINANT_DETAILS_START", new Date());
@@ -225,5 +252,49 @@ describe("routeInboundMessage", () => {
     expect(result.delivered).toBe(true);
     expect(messagingClient.sendContentTemplate).not.toHaveBeenCalled();
     expect(messagingClient.sendText).not.toHaveBeenCalled();
+  });
+
+  it("routes a COMPLAINANT_NAME_PENDING conversation to the complainant workflow (#10)", async () => {
+    const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+    const filing = await filingRepo.createDraft(undefined, {
+      conversationId: conversation.id,
+      language: "en",
+      role: "COMPLAINANT_ADVOCATE",
+      testNoticeVersion: "v1",
+    });
+    await conversationRepo.setActiveFilingAndState(undefined, conversation.id, filing.id, "COMPLAINANT_NAME_PENDING");
+
+    const result = await routeInboundMessage(deps, baseInput({ body: "Anitha Joseph" }));
+
+    expect(result.delivered).toBe(true);
+    const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(after).toMatchObject({ state: "COMPLAINANT_PHONE_PENDING" });
+  });
+
+  it("routes a COMPLAINANT_CONFIRM conversation to the complainant workflow (#10)", async () => {
+    const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+    const filing = await filingRepo.createDraft(undefined, {
+      conversationId: conversation.id,
+      language: "en",
+      role: "COMPLAINANT_ADVOCATE",
+      testNoticeVersion: "v1",
+    });
+    await filingRepo.setCurrentStep(undefined, filing.id, "COMPLAINANT_CONFIRM");
+    await partyRepo.upsertFields(undefined, filing.id, "COMPLAINANT", {
+      fullName: "Anitha Joseph",
+      phoneOriginal: "9876543210",
+      phoneNormalized: "+919876543210",
+      emailNormalized: null,
+      address: "Thekkumkattil House\nKollam 691008",
+    });
+    await conversationRepo.setActiveFilingAndState(undefined, conversation.id, filing.id, "COMPLAINANT_CONFIRM");
+
+    const result = await routeInboundMessage(deps, baseInput({ buttonPayload: "complainant:confirm" }));
+
+    expect(result.delivered).toBe(true);
+    const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(after).toMatchObject({ state: "ACCUSED_DETAILS_START" });
   });
 });

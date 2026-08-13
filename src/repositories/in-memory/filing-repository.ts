@@ -7,7 +7,10 @@ let nextId = 1;
 
 const ADVOCATE_ENROLMENT_PENDING_STEP = "ADVOCATE_ENROLMENT_PENDING";
 const ADVOCATE_ENROLMENT_CONFIRM_STEP = "ADVOCATE_ENROLMENT_CONFIRM";
-const COMPLAINANT_DETAILS_START_STEP = "COMPLAINANT_DETAILS_START";
+// #10 Part A: confirming enrolment cascades straight into complainant
+// detail collection in the same transaction, rather than resting at the
+// (now-unused-going-forward) COMPLAINANT_DETAILS_START value.
+const COMPLAINANT_NAME_PENDING_STEP = "COMPLAINANT_NAME_PENDING";
 
 /**
  * In-memory FilingRepository for tests — never used in production. Takes
@@ -89,7 +92,7 @@ export class InMemoryFilingRepository implements FilingRepository {
     this.update(filingId, {
       advocateEnrolmentStatus: "RECORDED_UNVERIFIED",
       advocateEnrolmentConfirmedAt: confirmedAt,
-      currentStep: COMPLAINANT_DETAILS_START_STEP,
+      currentStep: COMPLAINANT_NAME_PENDING_STEP,
     });
   }
 
@@ -101,6 +104,10 @@ export class InMemoryFilingRepository implements FilingRepository {
       advocateEnrolmentConfirmedAt: null,
       currentStep: ADVOCATE_ENROLMENT_PENDING_STEP,
     });
+  }
+
+  async setCurrentStep(_tx: RepositoryTransaction, filingId: string, step: string): Promise<void> {
+    this.update(filingId, { currentStep: step });
   }
 
   /** Test-wiring helper (not part of the FilingRepository interface) so tests can assert a specific filing's fields directly, e.g. to prove a prior draft was left unchanged. */
