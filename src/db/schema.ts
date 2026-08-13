@@ -34,7 +34,21 @@ export const conversationStateEnum = pgEnum("conversation_state", [
   "COMPLAINANT_EDIT_PHONE_PENDING",
   "COMPLAINANT_EDIT_EMAIL_PENDING",
   "COMPLAINANT_EDIT_ADDRESS_PENDING",
+  // #11 Part A. ACCUSED_DETAILS_START itself is never persisted going
+  // forward, mirroring COMPLAINANT_DETAILS_START above — confirming the
+  // complainant now cascades straight into ACCUSED_NAME_PENDING in the
+  // same transaction (see complainant-workflow.ts's confirmComplainant).
+  // Kept only so a pre-existing row from #10 can still resume.
   "ACCUSED_DETAILS_START",
+  "ACCUSED_NAME_PENDING",
+  "ACCUSED_PHONE_PENDING",
+  "ACCUSED_ADDRESS_PENDING",
+  "ACCUSED_CONFIRM",
+  "ACCUSED_EDIT_FIELD",
+  "ACCUSED_EDIT_NAME_PENDING",
+  "ACCUSED_EDIT_PHONE_PENDING",
+  "ACCUSED_EDIT_ADDRESS_PENDING",
+  "CHEQUE_DETAILS_START",
 ]);
 export const webhookEventStatusEnum = pgEnum("webhook_event_status", ["processing", "processed", "failed"]);
 export const filingRoleEnum = pgEnum("filing_role", ["COMPLAINANT_ADVOCATE"]);
@@ -42,8 +56,8 @@ export const filingStatusEnum = pgEnum("filing_status", ["DRAFT", "SUBMITTED", "
 // Never VERIFIED — no Bar Council integration exists (#9 Part B). Nullable
 // on the filings table: no value until a candidate has been typed.
 export const advocateEnrolmentStatusEnum = pgEnum("advocate_enrolment_status", ["PENDING_CONFIRMATION", "RECORDED_UNVERIFIED"]);
-// #10 Part B. COMPLAINANT today, ACCUSED reserved for V6B — same table, no
-// second implementation needed when that slice lands.
+// #10 Part B introduced COMPLAINANT; #11 Part B reuses this exact same
+// table/enum for ACCUSED — no second implementation, no schema change.
 export const filingPartyRoleEnum = pgEnum("filing_party_role", ["COMPLAINANT", "ACCUSED"]);
 export const filingPartyStatusEnum = pgEnum("filing_party_status", ["DRAFT", "CONFIRMED"]);
 export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
@@ -64,6 +78,13 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "COMPLAINANT_REVIEW_ACTIONS",
   "COMPLAINANT_EDIT_FIELDS",
   "COMPLAINANT_RECORDED",
+  "ACCUSED_NAME_PROMPT",
+  "ACCUSED_PHONE_PROMPT",
+  "ACCUSED_ADDRESS_PROMPT",
+  "ACCUSED_SUMMARY",
+  "ACCUSED_REVIEW_ACTIONS",
+  "ACCUSED_EDIT_FIELDS",
+  "ACCUSED_RECORDED",
 ]);
 export const outboundMessageStatusEnum = pgEnum("outbound_message_status", ["pending", "sent", "failed"]);
 

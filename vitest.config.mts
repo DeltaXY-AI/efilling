@@ -22,6 +22,10 @@ export default defineConfig({
       TWILIO_COMPLAINANT_REVIEW_SID_ML: "HXtestcreviewml0000000000000000000",
       TWILIO_COMPLAINANT_EDIT_FIELDS_SID_EN: "HXtestcedite0000000000000000000000",
       TWILIO_COMPLAINANT_EDIT_FIELDS_SID_ML: "HXtestceditml0000000000000000000000",
+      TWILIO_ACCUSED_REVIEW_SID_EN: "HXtestareviewe000000000000000000000",
+      TWILIO_ACCUSED_REVIEW_SID_ML: "HXtestareviewml000000000000000000000",
+      TWILIO_ACCUSED_EDIT_FIELDS_SID_EN: "HXtestaedite00000000000000000000000",
+      TWILIO_ACCUSED_EDIT_FIELDS_SID_ML: "HXtestaeditml00000000000000000000000",
       PUBLIC_BASE_URL: "https://example.test",
       // Never actually connected to in tests — routes are exercised via
       // createApp({ twilioWebhookDeps }) with in-memory repositories, but

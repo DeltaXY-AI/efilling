@@ -126,11 +126,14 @@ export interface EmailValidationResult {
 // Exact skip commands only (#10 Part C) — "skip"/"Skip" matched case-
 // insensitively (both are just the one English word), the Malayalam
 // command matched literally (the script has no case). Never fuzzy-matched.
+// Shared with #11's optional accused phone (../domain/accused.ts) — never
+// forked into a second recognizer.
 const SKIP_COMMANDS: ReadonlySet<string> = new Set(["skip", "ഒഴിവാക്കുക"]);
 
 const emailSchema = z.string().trim().min(1).email();
 
-function isSkipCommand(trimmed: string): boolean {
+/** Recognizes an exact Skip command (English or Malayalam) on an already-trimmed value. Exported for reuse wherever another optional field needs the same Skip recognition (#11 Part C). */
+export function isSkipCommand(trimmed: string): boolean {
   return SKIP_COMMANDS.has(trimmed.toLowerCase()) || SKIP_COMMANDS.has(trimmed);
 }
 

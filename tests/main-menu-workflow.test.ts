@@ -17,6 +17,8 @@ const ENROLMENT_PROMPT_CONTENT_SID = { en: "HXenrolpromptEn00000000000000000000"
 const ENROLMENT_CONFIRM_CONTENT_SID = { en: "HXenrolconfirmEn0000000000000000000", ml: "HXenrolconfirmMl0000000000000000000" };
 const COMPLAINANT_REVIEW_CONTENT_SID = { en: "HXcreviewEn00000000000000000000000", ml: "HXcreviewMl00000000000000000000000" };
 const COMPLAINANT_EDIT_FIELDS_CONTENT_SID = { en: "HXceditEn000000000000000000000000", ml: "HXceditMl000000000000000000000000" };
+const ACCUSED_REVIEW_CONTENT_SID = { en: "HXareviewEn000000000000000000000000", ml: "HXareviewMl000000000000000000000000" };
+const ACCUSED_EDIT_FIELDS_CONTENT_SID = { en: "HXaeditEn0000000000000000000000000", ml: "HXaeditMl0000000000000000000000000" };
 
 describe("handleInboundForMainMenu", () => {
   let conversationRepo: InMemoryConversationRepository;
@@ -78,6 +80,12 @@ describe("handleInboundForMainMenu", () => {
           fromNumber: FROM_NUMBER,
           reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
           editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
+        },
+        accusedSenderDeps: {
+          messagingClient,
+          fromNumber: FROM_NUMBER,
+          reviewActionsContentSid: ACCUSED_REVIEW_CONTENT_SID,
+          editFieldsContentSid: ACCUSED_EDIT_FIELDS_CONTENT_SID,
         },
         withTransaction: createInMemoryWithTransaction(),
       },

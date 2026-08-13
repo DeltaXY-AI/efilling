@@ -50,6 +50,13 @@
       "when": 1786599812633,
       "tag": "0006_empty_red_skull",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786604737979,
+      "tag": "0007_overjoyed_harpoon",
+      "breakpoints": true
     }
   ]
 }
