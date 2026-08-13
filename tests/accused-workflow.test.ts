@@ -352,6 +352,33 @@ describe("accused-workflow", () => {
       expect(party?.status).toBe("DRAFT");
     });
 
+    it("accused:confirm is a safe no-op when a mandatory field (address) is missing from the party row (#11 Part I)", async () => {
+      // Simulate an inconsistent row (e.g. an interrupted/corrupted draft) —
+      // the normal linear flow can never reach ACCUSED_CONFIRM without an
+      // address, but Confirm must still refuse safely if it somehow did.
+      const incompleteFiling = await filingRepo.createDraft(undefined, {
+        conversationId,
+        language: "en",
+        role: "COMPLAINANT_ADVOCATE",
+        testNoticeVersion: "v1",
+      });
+      await filingRepo.setCurrentStep(undefined, incompleteFiling.id, "ACCUSED_CONFIRM");
+      await partyRepo.upsertFields(undefined, incompleteFiling.id, "ACCUSED", { fullName: "Rajesh Menon" }); // no address
+      await conversationRepo.setActiveFilingAndState(undefined, conversationId, incompleteFiling.id, "ACCUSED_CONFIRM");
+      messagingClient.sendText.mockClear();
+
+      const result = await handleAccusedConfirmInput(deps, actionInput({ selection: { buttonPayload: "accused:confirm" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).not.toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("Accused party details recorded") }),
+      );
+      const party = await partyRepo.findByFilingAndRole(undefined, incompleteFiling.id, "ACCUSED");
+      expect(party?.status).toBe("DRAFT"); // never confirmed
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "ACCUSED_CONFIRM" }); // never advanced
+    });
+
     it("accused:edit opens the edit-field list-picker without changing any party data", async () => {
       const result = await handleAccusedConfirmInput(deps, actionInput({ selection: { buttonPayload: "accused:edit" } }));
 
@@ -417,6 +444,17 @@ describe("accused-workflow", () => {
 
       expect(result.delivered).toBe(true);
       expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: EDIT_FIELDS_CONTENT_SID.en }));
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "ACCUSED_EDIT_FIELD" });
+    });
+
+    it("falls back to plain text with numbered options when the edit-fields Content Template send fails (#11 Part K)", async () => {
+      messagingClient.sendContentTemplate.mockRejectedValueOnce(new Error("Twilio 500"));
+
+      const result = await handleAccusedConfirmInput(deps, actionInput({ selection: { buttonPayload: "accused:edit" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("1. Full/legal name") }));
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       expect(conversation).toMatchObject({ state: "ACCUSED_EDIT_FIELD" });
     });
