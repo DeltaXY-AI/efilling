@@ -39,6 +39,12 @@ describe("validateAccusedPhone", () => {
     expect(validatePersonName("Rajesh Menon")).toMatchObject({ valid: true, normalized: "Rajesh Menon" });
     expect(validateAddress("32/1147, Menon Villa\nChinnakada, Kollam 691001").valid).toBe(true);
   });
+
+  it("accepts initials and business/legal names for the accused full/legal name (#11 Part C)", () => {
+    expect(validatePersonName("R.K. Menon").valid).toBe(true);
+    expect(validatePersonName("M/s Menon & Sons Pvt. Ltd.").valid).toBe(true);
+    expect(validatePersonName("Menon Traders, Kollam Branch").valid).toBe(true);
+  });
 });
 
 describe("parseAccusedConfirmAction", () => {
