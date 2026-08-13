@@ -18,7 +18,14 @@ export type OutboundMessageType =
   | "COMPLAINANT_SUMMARY"
   | "COMPLAINANT_REVIEW_ACTIONS"
   | "COMPLAINANT_EDIT_FIELDS"
-  | "COMPLAINANT_RECORDED";
+  | "COMPLAINANT_RECORDED"
+  | "ACCUSED_NAME_PROMPT"
+  | "ACCUSED_PHONE_PROMPT"
+  | "ACCUSED_ADDRESS_PROMPT"
+  | "ACCUSED_SUMMARY"
+  | "ACCUSED_REVIEW_ACTIONS"
+  | "ACCUSED_EDIT_FIELDS"
+  | "ACCUSED_RECORDED";
 export type OutboundMessageStatus = "pending" | "sent" | "failed";
 
 export interface OutboundMessageRecord {

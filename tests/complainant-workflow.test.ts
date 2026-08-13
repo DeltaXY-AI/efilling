@@ -23,6 +23,8 @@ const FROM_NUMBER = "whatsapp:+14155238886";
 const MAIN_MENU_CONTENT_SID = { en: "HXmenuen00000000000000000000000000", ml: "HXmenuml00000000000000000000000000" };
 const REVIEW_CONTENT_SID = { en: "HXreviewEn0000000000000000000000000", ml: "HXreviewMl0000000000000000000000000" };
 const EDIT_FIELDS_CONTENT_SID = { en: "HXeditFieldsEn000000000000000000000", ml: "HXeditFieldsMl000000000000000000000" };
+const ACCUSED_REVIEW_CONTENT_SID = { en: "HXareviewEn000000000000000000000000", ml: "HXareviewMl000000000000000000000000" };
+const ACCUSED_EDIT_FIELDS_CONTENT_SID = { en: "HXaeditFieldsEn00000000000000000000", ml: "HXaeditFieldsMl00000000000000000000" };
 
 describe("complainant-workflow", () => {
   let conversationRepo: InMemoryConversationRepository;
@@ -67,6 +69,12 @@ describe("complainant-workflow", () => {
         editFieldsContentSid: EDIT_FIELDS_CONTENT_SID,
       },
       mainMenuSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
+      accusedSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        reviewActionsContentSid: ACCUSED_REVIEW_CONTENT_SID,
+        editFieldsContentSid: ACCUSED_EDIT_FIELDS_CONTENT_SID,
+      },
       withTransaction: createInMemoryWithTransaction(),
     };
   });
@@ -337,17 +345,20 @@ describe("complainant-workflow", () => {
       messagingClient.sendContentTemplate.mockClear();
     });
 
-    it("complainant:confirm marks the party CONFIRMED and advances to ACCUSED_DETAILS_START", async () => {
+    it("complainant:confirm marks the party CONFIRMED and cascades straight into ACCUSED_NAME_PENDING (#11 Part A)", async () => {
       const result = await handleComplainantConfirmInput(deps, actionInput({ selection: { buttonPayload: "complainant:confirm" } }));
 
       expect(result.delivered).toBe(true);
       expect(messagingClient.sendText).toHaveBeenCalledWith(
         expect.objectContaining({ body: expect.stringContaining("Complainant details recorded") }),
       );
+      // #11 Part A: the same Confirm tap also sends the accused name
+      // prompt — ACCUSED_DETAILS_START is never actually persisted.
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("legal name") }));
 
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "ACCUSED_DETAILS_START" });
-      expect(filingRepo.findById(filingId)).toMatchObject({ currentStep: "ACCUSED_DETAILS_START" });
+      expect(conversation).toMatchObject({ state: "ACCUSED_NAME_PENDING" });
+      expect(filingRepo.findById(filingId)).toMatchObject({ currentStep: "ACCUSED_NAME_PENDING" });
 
       const party = await partyRepo.findByFilingAndRole(undefined, filingId, "COMPLAINANT");
       expect(party?.status).toBe("CONFIRMED");
@@ -378,7 +389,7 @@ describe("complainant-workflow", () => {
       expect(a.delivered).toBe(true);
       expect(b.delivered).toBe(true);
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(["ACCUSED_DETAILS_START", "COMPLAINANT_EDIT_FIELD"]).toContain(conversation?.state);
+      expect(["ACCUSED_NAME_PENDING", "COMPLAINANT_EDIT_FIELD"]).toContain(conversation?.state);
     });
 
     it("does not send a misleading success message when the transaction itself fails, and confirms nothing", async () => {

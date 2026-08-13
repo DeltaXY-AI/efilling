@@ -15,6 +15,17 @@ import {
   handleComplainantPhoneInput,
   type ComplainantWorkflowDeps,
 } from "./complainant-workflow";
+import {
+  handleAccusedAddressInput,
+  handleAccusedConfirmInput,
+  handleAccusedEditAddressInput,
+  handleAccusedEditFieldSelection,
+  handleAccusedEditNameInput,
+  handleAccusedEditPhoneInput,
+  handleAccusedNameInput,
+  handleAccusedPhoneInput,
+  type AccusedWorkflowDeps,
+} from "./accused-workflow";
 import type { ConversationRepository } from "../repositories/conversation-repository";
 
 export interface InboundRouterDeps {
@@ -24,6 +35,7 @@ export interface InboundRouterDeps {
   filingWorkflowDeps: FilingWorkflowDeps;
   enrolmentWorkflowDeps: EnrolmentWorkflowDeps;
   complainantWorkflowDeps: ComplainantWorkflowDeps;
+  accusedWorkflowDeps: AccusedWorkflowDeps;
 }
 
 export interface InboundRouterInput {
@@ -44,11 +56,12 @@ export interface InboundRouterInput {
  * conversation or one still AWAITING_LANGUAGE, main-menu-workflow at
  * MAIN_MENU, filing-workflow at FILING_DRAFT_CHOICE/FILING_NOTICE (#8),
  * enrolment-workflow at ADVOCATE_ENROLMENT_PENDING/ADVOCATE_ENROLMENT_CONFIRM
- * (#9), complainant-workflow at every COMPLAINANT_* step (#10). States
- * beyond that (FILING_START/CASE_STATUS_START/ACCUSED_DETAILS_START) are
- * owned by later issues; for now this only keeps the conversation "alive"
- * without sending anything, per "do not automatically send the menu...
- * while a future filing subflow is waiting for specific input".
+ * (#9), complainant-workflow at every COMPLAINANT_* step (#10),
+ * accused-workflow at every ACCUSED_* step (#11). States beyond that
+ * (FILING_START/CASE_STATUS_START/CHEQUE_DETAILS_START) are owned by later
+ * issues; for now this only keeps the conversation "alive" without sending
+ * anything, per "do not automatically send the menu... while a future
+ * filing subflow is waiting for specific input".
  */
 export async function routeInboundMessage(deps: InboundRouterDeps, input: InboundRouterInput): Promise<LanguageWorkflowResult> {
   const conversation = await deps.conversationRepo.findByWhatsappNumber(input.whatsappNumber);
@@ -167,7 +180,33 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
     return handleComplainantEditAddressInput(deps.complainantWorkflowDeps, fieldEvent);
   }
 
-  // FILING_START / CASE_STATUS_START / ACCUSED_DETAILS_START — owned by later issues. COMPLAINANT_DETAILS_START itself is never persisted going forward (see schema.ts).
+  // #11: the accused-details flow (Parts A/G-K).
+  if (conversation.state === "ACCUSED_NAME_PENDING") {
+    return handleAccusedNameInput(deps.accusedWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "ACCUSED_PHONE_PENDING") {
+    return handleAccusedPhoneInput(deps.accusedWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "ACCUSED_ADDRESS_PENDING") {
+    return handleAccusedAddressInput(deps.accusedWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "ACCUSED_CONFIRM") {
+    return handleAccusedConfirmInput(deps.accusedWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "ACCUSED_EDIT_FIELD") {
+    return handleAccusedEditFieldSelection(deps.accusedWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "ACCUSED_EDIT_NAME_PENDING") {
+    return handleAccusedEditNameInput(deps.accusedWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "ACCUSED_EDIT_PHONE_PENDING") {
+    return handleAccusedEditPhoneInput(deps.accusedWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "ACCUSED_EDIT_ADDRESS_PENDING") {
+    return handleAccusedEditAddressInput(deps.accusedWorkflowDeps, fieldEvent);
+  }
+
+  // FILING_START / CASE_STATUS_START / CHEQUE_DETAILS_START — owned by later issues. COMPLAINANT_DETAILS_START/ACCUSED_DETAILS_START are never persisted going forward (see schema.ts).
   await deps.conversationRepo.touchLastInboundAt(input.whatsappNumber, new Date());
   return { delivered: true };
 }

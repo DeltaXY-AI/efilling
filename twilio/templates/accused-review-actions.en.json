@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_accused_review_actions_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Are these accused party details correct?",
+      "actions": [
+        { "title": "Confirm", "id": "accused:confirm" },
+        { "title": "Edit", "id": "accused:edit" },
+        { "title": "Save and exit", "id": "filing:save-exit" }
+      ]
+    }
+  }
+}

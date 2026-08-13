@@ -21,6 +21,8 @@ const ENROLMENT_PROMPT_CONTENT_SID = { en: "HXenrolpromptEn00000000000000000000"
 const ENROLMENT_CONFIRM_CONTENT_SID = { en: "HXenrolconfirmEn0000000000000000000", ml: "HXenrolconfirmMl0000000000000000000" };
 const COMPLAINANT_REVIEW_CONTENT_SID = { en: "HXcreviewEn00000000000000000000000", ml: "HXcreviewMl00000000000000000000000" };
 const COMPLAINANT_EDIT_FIELDS_CONTENT_SID = { en: "HXceditEn000000000000000000000000", ml: "HXceditMl000000000000000000000000" };
+const ACCUSED_REVIEW_CONTENT_SID = { en: "HXareviewEn000000000000000000000000", ml: "HXareviewMl000000000000000000000000" };
+const ACCUSED_EDIT_FIELDS_CONTENT_SID = { en: "HXaeditEn0000000000000000000000000", ml: "HXaeditMl0000000000000000000000000" };
 
 describe("filing-workflow", () => {
   let conversationRepo: InMemoryConversationRepository;
@@ -65,6 +67,12 @@ describe("filing-workflow", () => {
         fromNumber: FROM_NUMBER,
         reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
         editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
+      },
+      accusedSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        reviewActionsContentSid: ACCUSED_REVIEW_CONTENT_SID,
+        editFieldsContentSid: ACCUSED_EDIT_FIELDS_CONTENT_SID,
       },
       withTransaction: createInMemoryWithTransaction(),
     };
@@ -303,6 +311,72 @@ describe("filing-workflow", () => {
       );
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       expect(conversation).toMatchObject({ state: "COMPLAINANT_CONFIRM" });
+    });
+
+    it("#11 Part A/B: resuming a legacy draft still at ACCUSED_DETAILS_START self-corrects both current_step and conversation state to ACCUSED_NAME_PENDING", async () => {
+      const filing = await filingRepo.createDraft(undefined, {
+        conversationId,
+        language: "en",
+        role: "COMPLAINANT_ADVOCATE",
+        testNoticeVersion: "v1",
+      });
+      await filingRepo.setCurrentStep(undefined, filing.id, "ACCUSED_DETAILS_START");
+      await conversationRepo.setActiveFilingAndState(undefined, conversationId, filing.id, "FILING_DRAFT_CHOICE");
+
+      const result = await handleDraftChoiceInput(deps, actionInput({ selection: { buttonPayload: "filing:resume-draft" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("legal name") }));
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "ACCUSED_NAME_PENDING" });
+      expect(filingRepo.findById(filing.id)).toMatchObject({ currentStep: "ACCUSED_NAME_PENDING" });
+    });
+
+    it("#11 Part J: resuming a draft at an accused field-pending step resends that field's own prompt", async () => {
+      const filing = await filingRepo.createDraft(undefined, {
+        conversationId,
+        language: "en",
+        role: "COMPLAINANT_ADVOCATE",
+        testNoticeVersion: "v1",
+      });
+      await filingRepo.setCurrentStep(undefined, filing.id, "ACCUSED_PHONE_PENDING");
+      await conversationRepo.setActiveFilingAndState(undefined, conversationId, filing.id, "FILING_DRAFT_CHOICE");
+
+      const result = await handleDraftChoiceInput(deps, actionInput({ selection: { buttonPayload: "filing:resume-draft" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("phone number") }),
+      );
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "ACCUSED_PHONE_PENDING" });
+    });
+
+    it("#11 Part J: resuming a draft at ACCUSED_CONFIRM restores the review screen and resends the persisted summary", async () => {
+      const filing = await filingRepo.createDraft(undefined, {
+        conversationId,
+        language: "en",
+        role: "COMPLAINANT_ADVOCATE",
+        testNoticeVersion: "v1",
+      });
+      await filingRepo.setCurrentStep(undefined, filing.id, "ACCUSED_CONFIRM");
+      await partyRepo.upsertFields(undefined, filing.id, "ACCUSED", {
+        fullName: "Rajesh Menon",
+        phoneOriginal: null,
+        phoneNormalized: null,
+        address: "32/1147, Menon Villa\nChinnakada, Kollam 691001",
+      });
+      await conversationRepo.setActiveFilingAndState(undefined, conversationId, filing.id, "FILING_DRAFT_CHOICE");
+
+      const result = await handleDraftChoiceInput(deps, actionInput({ selection: { buttonPayload: "filing:resume-draft" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("Rajesh Menon") }));
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: ACCUSED_REVIEW_CONTENT_SID.en }),
+      );
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "ACCUSED_CONFIRM" });
     });
 
     it("filing:resume-draft when the draft has disappeared routes safely to FILING_NOTICE, no user-visible error", async () => {
