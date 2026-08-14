@@ -103,13 +103,31 @@ Inventoried for completeness: a hearing-tomorrow reminder, attend/adjourn choice
 
 ## 4. Schema changes by phase (summary)
 
-| Phase | New/changed tables | Migration? |
-|---|---|---|
-| 0–2 | none | No |
-| 3 | new `filing_documents` table | **Yes** |
-| 5 | new columns on `filings`; reuses existing (unused) `ACCUSED` role on `filing_parties` | **Yes** |
-| 6–7 | possibly a `court_fee_paid_at`/`diary_number` pair on `filings` (simulated, not a real payment record) | **Yes** |
-| 8 | none — reuses existing `filings.status` (`DRAFT`/`ABANDONED`) and the `listDraftsByConversation` method already scoped in the earlier draft-list plan | No |
+Every schema change below goes through this repo's existing Drizzle workflow — see §4a for exactly how. Each is also spelled out with full SQL in that phase's own tracking issue (§3 lists the issue numbers), not just here.
+
+| Phase | Issue | New/changed tables | Migration? |
+|---|---|---|---|
+| 1 | #29 | none | No |
+| 2 | #30 | none | No |
+| 3 | #31 | new `filing_documents` table (+ `filing_document_group` enum) | **Yes** |
+| 4 | #32 | none (Option A — no OCR) | No |
+| 5 | #33 | new columns on `filings` (cheque/notice/narrative/court fields); new `filing_return_reason` enum; reuses the existing (previously unused) `ACCUSED` role on `filing_parties`; new `entity_type` column on `filing_parties`; adds a `narrative` value to `filing_document_group` | **Yes** |
+| 6 | #34 | none — confirm in the issue whether a persisted `esigned_at` audit column should be added before this ships | No (pending confirmation) |
+| 7 | #35 | new columns on `filings`: `diary_number`, `filed_at`, `court_fee_paid_at`, `court_fee_transaction_id`; likely a new `filing_status` enum value (e.g. `FILED`) | **Yes** |
+| 8 | #36 | none — pure query addition (`listByConversation`) over data already persisted by earlier phases; reuses #26/#28's existing `abandonDraft` | No |
+| 9 | #37 | new columns on `filings` for defect tracking (notified/corrected/delay/resubmitted) | **Yes** |
+| 10 | #38 | new columns on `filings` for hearing/adjournment tracking | **Yes** |
+
+### 4a. How a schema change actually gets made in this repo
+
+This project uses Drizzle ORM with a generate-then-apply workflow — nothing is ever hand-written as a migration file, and nothing is ever applied by editing the database directly:
+
+1. **Edit `src/db/schema.ts`** — add/change the TypeScript table or enum definition (this is the single source of truth; `drizzle.config.ts` diffs against it).
+2. **Run `npm run db:generate`** — this runs `drizzle-kit generate`, which diffs `schema.ts` against the migrations already committed under `drizzle/` and writes a new numbered SQL file (e.g. `drizzle/0007_<generated-name>.sql`) plus updates `drizzle/meta/`. This step never touches a real database — no `DATABASE_URL` is required for it.
+3. **Commit the generated `.sql` file** along with the code that uses it, in the same pull request — exactly like every migration already in `drizzle/0000` through `0006`.
+4. **Run `npm run db:migrate`** — this runs `src/db/migrate.ts` against the real `DATABASE_URL` (local dev DB, then Preview, then Production) to actually apply the pending migration(s). This step is what changes a live database; step 2 only generates the instructions for it.
+
+Every phase issue that needs a schema change (§ table above) includes the exact SQL shape expected, so the generated migration should closely match what's already written in that issue — if `drizzle-kit generate`'s output looks meaningfully different, that is worth double-checking against the issue before committing it.
 
 ---
 
