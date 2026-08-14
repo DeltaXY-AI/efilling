@@ -70,8 +70,8 @@ describe("filing-workflow", () => {
     };
   });
 
-  function fileOrResumeInput() {
-    return { conversationId, whatsappNumber: WHATSAPP_NUMBER, messageId: "SM1", language: "en" as const };
+  function fileOrResumeInput(overrides: Partial<Parameters<typeof handleFileOrResume>[1]> = {}) {
+    return { conversationId, whatsappNumber: WHATSAPP_NUMBER, messageId: "SM1", language: "en" as const, ...overrides };
   }
 
   function actionInput(overrides: Partial<Parameters<typeof handleDraftChoiceInput>[1]> = {}) {
@@ -137,13 +137,31 @@ describe("filing-workflow", () => {
       expect(conversation).toMatchObject({ state: "FILING_NOTICE" });
     });
 
-    it("falls back to the numbered plain-text notice when the Content Template send fails (no active draft)", async () => {
+    it("falls back to the numbered plain-text document checklist when the Content Template send fails (no active draft) (#30)", async () => {
       messagingClient.sendContentTemplate.mockRejectedValueOnce(new Error("Twilio 500"));
 
       const result = await handleFileOrResume(deps, fileOrResumeInput());
 
       expect(result.delivered).toBe(true);
-      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("1. Continue") }));
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("Cheque — front and back") }),
+      );
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("1. Start filing") }));
+    });
+
+    it("falls back to the Malayalam plain-text document checklist when the Content Template send fails (#30)", async () => {
+      await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "ml", new Date());
+      messagingClient.sendContentTemplate.mockRejectedValueOnce(new Error("Twilio 500"));
+
+      const result = await handleFileOrResume(deps, fileOrResumeInput({ language: "ml" }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("മുൻവശവും പിൻവശവും") }),
+      );
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("1. ഫയലിംഗ് ആരംഭിക്കുക") }),
+      );
     });
 
     it("falls back to the numbered plain-text draft-choice menu when the Content Template send fails (active draft)", async () => {

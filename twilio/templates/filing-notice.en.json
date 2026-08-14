@@ -1,11 +1,11 @@
 {
-  "friendly_name": "oncourts_filing_notice_v1_en",
+  "friendly_name": "oncourts_filing_notice_v2_en",
   "language": "en",
   "types": {
     "twilio/quick-reply": {
-      "body": "This is a demonstration service. Use anonymized test data only.\n\nContinuing will not file a real case with any court.",
+      "body": "⚖️ Cheque bounce complaint — S.138, NI Act\n\nBefore we start, please keep these ready as photos or PDFs:\n\n• Cheque — front and back\n• Cheque return / dishonour memo from the bank\n• Demand notice sent to the accused\n• Postal receipt and acknowledgement card\n• Reply to the notice, if you received one\n• Proof of the debt — invoice, agreement or receipt\n• Your ID proof — Aadhaar or PAN\n• Vakalatnama, if an advocate is filing for you\n\n⏱️ It takes about 7 minutes. You can stop midway — your draft is saved.\n\nTap Start filing when you're ready.",
       "actions": [
-        { "title": "Continue", "id": "filing:accept-test-notice" },
+        { "title": "Start filing", "id": "filing:accept-test-notice" },
         { "title": "Main menu", "id": "nav:main-menu" }
       ]
     }

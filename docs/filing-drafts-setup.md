@@ -69,8 +69,10 @@ WhatsApp template approval.
 > `twilio/templates/filing-draft-choice.ml.json` and
 > `filing-notice.ml.json` must be reviewed by the designated content/legal
 > reviewer before production use. Until that review happens, treat the
-> current copy as test-only — the test-data notice in particular sets
-> advocate expectations about what the demo service does and doesn't do.
+> current copy as test-only. Note (#30): the notice's content is now the
+> pre-filing document checklist rather than a "this is a demo, no real
+> filing happens" disclaimer — confirm whether a separate, explicit demo
+> disclaimer is still wanted elsewhere in the flow before production use.
 
 ## 3. Configure environment variables
 
@@ -91,11 +93,12 @@ Redeploy after changing any environment variable.
 
 1. Use a test advocate with no active filing.
 2. Reach the main menu, select **File or resume case**.
-3. Confirm the test-data notice appears.
+3. Confirm the document checklist appears (#30 — not the old demo
+   disclaimer).
 4. Select **Main menu** — confirm no filing was created (check the
    `filings` table, or that `conversations.active_filing_id` is still
    null for this conversation).
-5. Repeat and select **Continue**.
+5. Repeat and select **Start filing**.
 6. Confirm exactly one filing now exists with `role = COMPLAINANT_ADVOCATE`,
    `status = DRAFT`, `current_step = ADVOCATE_ENROLMENT_PENDING`, and that
    `conversations.active_filing_id` points to it.
@@ -106,7 +109,8 @@ Redeploy after changing any environment variable.
 2. Confirm the draft-choice template appears (not the notice).
 3. Select **Resume draft** — confirm no second filing is created and the
    conversation reaches the draft's `current_step`.
-4. Repeat and select **Start new filing**, then accept the notice.
+4. Repeat and select **Start new filing**, then tap **Start filing** on
+   the document checklist.
 5. Confirm a new filing is now active and the previous filing still exists,
    unchanged, in the `filings` table.
 
@@ -116,7 +120,7 @@ Redeploy after changing any environment variable.
   localized numbered fallback is sent.
 - Replay the same signed webhook request (same `MessageSid`) for any
   filing action — confirm no duplicate draft or reply.
-- Tap **Continue** twice in quick succession (or send two concurrent
+- Tap **Start filing** twice in quick succession (or send two concurrent
   signed requests) — confirm only one draft is ever created. This is
   enforced by locking the conversation row for the duration of the
   transaction, not just by the `MessageSid` idempotency check — see the
