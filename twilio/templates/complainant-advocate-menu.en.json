@@ -1,5 +1,5 @@
 {
-  "friendly_name": "oncourts_complainant_advocate_menu_v1_en",
+  "friendly_name": "oncourts_complainant_advocate_menu_v2_en",
   "language": "en",
   "types": {
     "twilio/list-picker": {
@@ -28,6 +28,12 @@
           "item": "Help",
           "description": "Get help using the Complainant Advocate service",
           "id": "menu:help",
+          "media_url": null
+        },
+        {
+          "item": "My cases",
+          "description": "Your filed cases and saved drafts",
+          "id": "menu:my-cases",
           "media_url": null
         }
       ],

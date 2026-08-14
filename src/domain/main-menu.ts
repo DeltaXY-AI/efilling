@@ -1,6 +1,6 @@
 import { isLanguageChangeRequest, type SelectionInput } from "./language-selection";
 
-export type MenuAction = "menu:file-case" | "menu:case-status" | "menu:change-language" | "menu:help";
+export type MenuAction = "menu:file-case" | "menu:case-status" | "menu:change-language" | "menu:help" | "menu:my-cases";
 export type MenuTargetState = "FILING_START" | "CASE_STATUS_START" | "AWAITING_LANGUAGE" | "MAIN_MENU";
 
 export const MENU_ACTION_TARGET_STATE: Record<MenuAction, MenuTargetState> = {
@@ -8,6 +8,9 @@ export const MENU_ACTION_TARGET_STATE: Record<MenuAction, MenuTargetState> = {
   "menu:case-status": "CASE_STATUS_START",
   "menu:change-language": "AWAITING_LANGUAGE",
   "menu:help": "MAIN_MENU",
+  // Never actually consulted at runtime — special-cased in main-menu-workflow.ts
+  // exactly like menu:help, before this map would ever be read (#29).
+  "menu:my-cases": "MAIN_MENU",
 };
 
 const STABLE_MENU_ACTIONS: ReadonlySet<string> = new Set(Object.keys(MENU_ACTION_TARGET_STATE));
@@ -28,6 +31,9 @@ const TEXT_TO_ACTION: Record<string, MenuAction> = {
   "4": "menu:help",
   help: "menu:help",
   "സഹായം": "menu:help",
+  "5": "menu:my-cases",
+  "my cases": "menu:my-cases",
+  "എന്റെ കേസുകൾ": "menu:my-cases",
 };
 
 const MENU_REDISPLAY_TRIGGERS = new Set(["menu", "മെനു"]);

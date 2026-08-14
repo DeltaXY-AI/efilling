@@ -25,8 +25,9 @@ const PLAIN_TEXT_MENU: Record<SupportedLanguage, string> = {
     "2. Check case status",
     "3. Change language",
     "4. Help",
+    "5. My cases",
     "",
-    "Reply with 1, 2, 3, or 4.",
+    "Reply with 1, 2, 3, 4, or 5.",
   ].join("\n"),
   ml: [
     "ഇന്ന് എന്താണ് ചെയ്യേണ്ടത്?",
@@ -35,8 +36,9 @@ const PLAIN_TEXT_MENU: Record<SupportedLanguage, string> = {
     "2. കേസ് സ്ഥിതി പരിശോധിക്കുക",
     "3. ഭാഷ മാറ്റുക",
     "4. സഹായം",
+    "5. എന്റെ കേസുകൾ",
     "",
-    "1, 2, 3, അല്ലെങ്കിൽ 4 എന്ന് മറുപടി നൽകുക.",
+    "1, 2, 3, 4, അല്ലെങ്കിൽ 5 എന്ന് മറുപടി നൽകുക.",
   ].join("\n"),
 };
 

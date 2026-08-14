@@ -1,5 +1,5 @@
 {
-  "friendly_name": "oncourts_complainant_advocate_menu_v1_ml",
+  "friendly_name": "oncourts_complainant_advocate_menu_v2_ml",
   "language": "ml",
   "types": {
     "twilio/list-picker": {
@@ -28,6 +28,12 @@
           "item": "സഹായം",
           "description": "പരാതിക്കാരന്റെ അഭിഭാഷക സേവനത്തിനുള്ള സഹായം",
           "id": "menu:help",
+          "media_url": null
+        },
+        {
+          "item": "എന്റെ കേസുകൾ",
+          "description": "ഫയൽ ചെയ്ത കേസുകളും ഡ്രാഫ്റ്റുകളും",
+          "id": "menu:my-cases",
           "media_url": null
         }
       ],

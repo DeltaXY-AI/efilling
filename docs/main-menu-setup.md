@@ -80,6 +80,9 @@ From a phone joined to the Sandbox (see
      picker, not a second one.
    - **Help** → conversation stays at `MAIN_MENU`, the help text is sent,
      and the menu is redisplayed.
+   - **My cases** → conversation stays at `MAIN_MENU`; a "not built yet"
+     stub is sent (Prototype parity — Phase 8, #36 builds the real screen),
+     and the menu is redisplayed.
 3. While at `MAIN_MENU`, send `menu` — confirm the menu redisplays without
    changing state.
 4. Send something unrecognized while at `MAIN_MENU` (e.g. a random word) —
