@@ -1,4 +1,9 @@
-import { handleInboundForLanguageSelection, type LanguageWorkflowDeps, type LanguageWorkflowResult } from "./language-workflow";
+import {
+  handleInboundForLanguageSelection,
+  reopenLanguagePicker,
+  type LanguageWorkflowDeps,
+  type LanguageWorkflowResult,
+} from "./language-workflow";
 import { handleInboundForMainMenu, type MainMenuWorkflowDeps } from "./main-menu-workflow";
 import { handleDraftChoiceInput, handleFilingNoticeInput, type FilingWorkflowDeps } from "./filing-workflow";
 import { handleEnrolmentConfirmInput, handleEnrolmentInput, type EnrolmentWorkflowDeps } from "./enrolment-workflow";
@@ -16,6 +21,7 @@ import {
   type ComplainantWorkflowDeps,
 } from "./complainant-workflow";
 import type { ConversationRepository } from "../repositories/conversation-repository";
+import { logWorkflowError } from "../lib/logger";
 
 export interface InboundRouterDeps {
   conversationRepo: ConversationRepository;
@@ -39,16 +45,74 @@ export interface InboundRouterInput {
 }
 
 /**
+ * Persisted states this deployment recognizes but doesn't yet implement a
+ * workflow for (FILING_START/CASE_STATUS_START/ACCUSED_DETAILS_START are
+ * owned by later issues; COMPLAINANT_DETAILS_START is legacy-only, see
+ * schema.ts; NEW is the schema column default, never actually persisted by
+ * app code). These intentionally keep the conversation "alive" without
+ * sending anything, per "do not automatically send the menu... while a
+ * future filing subflow is waiting for specific input" — unlike a state
+ * outside this set, which this deployment has never heard of at all (#26).
+ */
+const KNOWN_UNIMPLEMENTED_STATES: ReadonlySet<string> = new Set([
+  "NEW",
+  "FILING_START",
+  "CASE_STATUS_START",
+  "COMPLAINANT_DETAILS_START",
+  "ACCUSED_DETAILS_START",
+]);
+
+const UNSUPPORTED_STATE_RECOVERY_MESSAGE =
+  "Your previous flow is no longer available. Please choose an option to continue.";
+
+/**
+ * #26: recovers a conversation persisted in a state this deployment doesn't
+ * recognize at all — e.g. left behind by a different/newer deployment's
+ * migration — instead of silently doing nothing (a real incident: a
+ * Sandbox sender got stuck in CHEQUE_DETAILS_START, which isn't in this
+ * branch's ConversationState union). Sends a plain-text explanation, then
+ * resets the conversation to AWAITING_LANGUAGE and resends the language
+ * picker, the same supported entry point every brand-new conversation
+ * starts at.
+ */
+async function recoverFromUnsupportedState(
+  deps: InboundRouterDeps,
+  input: { whatsappNumber: string; messageId: string; state: string },
+): Promise<LanguageWorkflowResult> {
+  // Safe to log: a state name is not user data or message content, and no
+  // phone number is included — messageId alone correlates with Twilio's logs.
+  logWorkflowError({ code: "unsupported_conversation_state", correlationId: input.messageId, state: input.state });
+
+  let recoveryTextDelivered = true;
+  try {
+    await deps.languageWorkflowDeps.messagingClient.sendText({
+      from: deps.languageWorkflowDeps.fromNumber,
+      to: input.whatsappNumber,
+      body: UNSUPPORTED_STATE_RECOVERY_MESSAGE,
+    });
+  } catch {
+    logWorkflowError({ code: "unsupported_state_recovery_send_failed", correlationId: input.messageId });
+    recoveryTextDelivered = false;
+  }
+
+  const pickerResult = await reopenLanguagePicker(deps.languageWorkflowDeps, {
+    whatsappNumber: input.whatsappNumber,
+    messageId: input.messageId,
+  });
+
+  return { delivered: recoveryTextDelivered && pickerResult.delivered };
+}
+
+/**
  * Dispatches an inbound message to the workflow that owns the
  * conversation's current state: language-workflow for a brand-new
  * conversation or one still AWAITING_LANGUAGE, main-menu-workflow at
  * MAIN_MENU, filing-workflow at FILING_DRAFT_CHOICE/FILING_NOTICE (#8),
  * enrolment-workflow at ADVOCATE_ENROLMENT_PENDING/ADVOCATE_ENROLMENT_CONFIRM
- * (#9), complainant-workflow at every COMPLAINANT_* step (#10). States
- * beyond that (FILING_START/CASE_STATUS_START/ACCUSED_DETAILS_START) are
- * owned by later issues; for now this only keeps the conversation "alive"
- * without sending anything, per "do not automatically send the menu...
- * while a future filing subflow is waiting for specific input".
+ * (#9), complainant-workflow at every COMPLAINANT_* step (#10). Any other
+ * known-but-unimplemented state (see KNOWN_UNIMPLEMENTED_STATES) keeps the
+ * conversation alive without sending anything; any state outside even that
+ * set is recovered instead of stranding the user silently (#26).
  */
 export async function routeInboundMessage(deps: InboundRouterDeps, input: InboundRouterInput): Promise<LanguageWorkflowResult> {
   const conversation = await deps.conversationRepo.findByWhatsappNumber(input.whatsappNumber);
@@ -167,7 +231,16 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
     return handleComplainantEditAddressInput(deps.complainantWorkflowDeps, fieldEvent);
   }
 
-  // FILING_START / CASE_STATUS_START / ACCUSED_DETAILS_START — owned by later issues. COMPLAINANT_DETAILS_START itself is never persisted going forward (see schema.ts).
-  await deps.conversationRepo.touchLastInboundAt(input.whatsappNumber, new Date());
-  return { delivered: true };
+  if (KNOWN_UNIMPLEMENTED_STATES.has(conversation.state)) {
+    await deps.conversationRepo.touchLastInboundAt(input.whatsappNumber, new Date());
+    return { delivered: true };
+  }
+
+  // A persisted state this deployment has never heard of (#26) — recover
+  // instead of silently doing nothing.
+  return recoverFromUnsupportedState(deps, {
+    whatsappNumber: input.whatsappNumber,
+    messageId: input.messageId,
+    state: conversation.state,
+  });
 }

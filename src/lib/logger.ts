@@ -48,15 +48,18 @@ interface WorkflowLogErrorEvent {
   code: string;
   /** Twilio MessageSid, for correlating with Twilio's own logs. */
   correlationId?: string;
+  /** A conversation state name — safe to log, never user data or message content. */
+  state?: string;
 }
 
-/** Logs a workflow failure using only a safe error code and correlation id. */
+/** Logs a workflow failure using only a safe error code, correlation id, and (optionally) a state name. */
 export function logWorkflowError(event: WorkflowLogErrorEvent): void {
   console.error(
     JSON.stringify({
       timestamp: new Date().toISOString(),
       code: event.code,
       correlationId: event.correlationId,
+      state: event.state,
     }),
   );
 }
