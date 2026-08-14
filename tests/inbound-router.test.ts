@@ -4,9 +4,11 @@ import type { ConversationState } from "../src/repositories/conversation-reposit
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
 import { InMemoryFilingPartyRepository } from "../src/repositories/in-memory/filing-party-repository";
+import { InMemoryFilingDocumentRepository } from "../src/repositories/in-memory/filing-document-repository";
 import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
+import { createFakeDocumentStorageDeps } from "./helpers/fake-document-storage";
 
 const WHATSAPP_NUMBER = "whatsapp:+15005550006";
 const FROM_NUMBER = "whatsapp:+14155238886";
@@ -47,6 +49,7 @@ describe("routeInboundMessage", () => {
     };
     filingRepo = new InMemoryFilingRepository(conversationRepo);
     partyRepo = new InMemoryFilingPartyRepository();
+    const filingDocumentRepo = new InMemoryFilingDocumentRepository();
     const outboundMessageRepo = new InMemoryOutboundMessageRepository();
     const complainantSenderDeps = {
       messagingClient,
@@ -86,6 +89,17 @@ describe("routeInboundMessage", () => {
         outboundMessageRepo,
         enrolmentSenderDeps,
         mainMenuSenderDeps,
+        complainantSenderDeps,
+        withTransaction: createInMemoryWithTransaction(),
+      },
+      filingDocumentWorkflowDeps: {
+        conversationRepo,
+        filingRepo,
+        filingDocumentRepo,
+        outboundMessageRepo,
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        documentStorageDeps: createFakeDocumentStorageDeps(),
         complainantSenderDeps,
         withTransaction: createInMemoryWithTransaction(),
       },
@@ -233,12 +247,12 @@ describe("routeInboundMessage", () => {
     const result = await routeInboundMessage(deps, baseInput({ buttonPayload: "enrolment:confirm" }));
 
     expect(result.delivered).toBe(true);
-    // #10 Part A: confirming enrolment cascades straight into
-    // COMPLAINANT_NAME_PENDING — COMPLAINANT_DETAILS_START is never
-    // actually persisted.
+    // #31: confirming enrolment now cascades straight into FILING_DOC_CHEQUE,
+    // the first of 5 document-upload groups — replaces #10 Part A's original
+    // COMPLAINANT_NAME_PENDING cascade target.
     const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-    expect(after).toMatchObject({ state: "COMPLAINANT_NAME_PENDING" });
-    expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("full name") }));
+    expect(after).toMatchObject({ state: "FILING_DOC_CHEQUE" });
+    expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("The cheque") }));
   });
 
   it("keeps a legacy COMPLAINANT_DETAILS_START conversation alive without sending anything (never persisted going forward — see schema.ts)", async () => {

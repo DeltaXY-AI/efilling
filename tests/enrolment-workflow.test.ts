@@ -198,24 +198,25 @@ describe("enrolment-workflow", () => {
       await conversationRepo.setState(WHATSAPP_NUMBER, "ADVOCATE_ENROLMENT_CONFIRM", new Date());
     });
 
-    it("enrolment:confirm records RECORDED_UNVERIFIED with a confirmation timestamp and cascades straight into COMPLAINANT_NAME_PENDING (#10 Part A)", async () => {
+    it("enrolment:confirm records RECORDED_UNVERIFIED with a confirmation timestamp and cascades straight into FILING_DOC_CHEQUE (#31)", async () => {
       const result = await handleEnrolmentConfirmInput(deps, actionInput({ selection: { buttonPayload: "enrolment:confirm" } }));
 
       expect(result.delivered).toBe(true);
       expect(messagingClient.sendText).toHaveBeenCalledWith(
         expect.objectContaining({ body: expect.stringContaining("Advocate enrolment number recorded") }),
       );
-      // #10 Part A: the same Confirm tap also sends the complainant name
-      // prompt — COMPLAINANT_DETAILS_START is never actually persisted.
-      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("full name") }));
+      // #31: the same Confirm tap also sends the first document-upload
+      // group's prompt — replaces #10 Part A's original complainant name
+      // prompt, which is now reached only after all 5 groups are done.
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("The cheque") }));
 
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "COMPLAINANT_NAME_PENDING" });
+      expect(conversation).toMatchObject({ state: "FILING_DOC_CHEQUE" });
 
       const filing = filingRepo.findById(filingId);
       expect(filing?.advocateEnrolmentStatus).toBe("RECORDED_UNVERIFIED");
       expect(filing?.advocateEnrolmentConfirmedAt).toBeInstanceOf(Date);
-      expect(filing?.currentStep).toBe("COMPLAINANT_NAME_PENDING");
+      expect(filing?.currentStep).toBe("FILING_DOC_CHEQUE");
       // Never "VERIFIED" — no Bar Council integration exists.
       expect(filing?.advocateEnrolmentStatus).not.toBe("VERIFIED");
     });
@@ -245,7 +246,7 @@ describe("enrolment-workflow", () => {
       expect(b.delivered).toBe(true);
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       // Exactly one of the two transitions won — never both.
-      expect(["COMPLAINANT_NAME_PENDING", "ADVOCATE_ENROLMENT_PENDING"]).toContain(conversation?.state);
+      expect(["FILING_DOC_CHEQUE", "ADVOCATE_ENROLMENT_PENDING"]).toContain(conversation?.state);
     });
 
     it("enrolment:edit clears the candidate and returns to ADVOCATE_ENROLMENT_PENDING with the prompt resent", async () => {

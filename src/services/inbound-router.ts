@@ -10,6 +10,14 @@ import { handleInboundForMainMenu, type MainMenuWorkflowDeps } from "./main-menu
 import { handleDraftChoiceInput, handleFilingNoticeInput, type FilingWorkflowDeps } from "./filing-workflow";
 import { handleEnrolmentConfirmInput, handleEnrolmentInput, type EnrolmentWorkflowDeps } from "./enrolment-workflow";
 import {
+  handleFilingDocChequeInput,
+  handleFilingDocIdInput,
+  handleFilingDocMemoInput,
+  handleFilingDocNoticeInput,
+  handleFilingDocSupportInput,
+  type FilingDocumentWorkflowDeps,
+} from "./filing-document-workflow";
+import {
   handleComplainantAddressInput,
   handleComplainantConfirmInput,
   handleComplainantEditAddressInput,
@@ -24,6 +32,7 @@ import {
 } from "./complainant-workflow";
 import type { ConversationRepository } from "../repositories/conversation-repository";
 import { logWorkflowError } from "../lib/logger";
+import type { InboundMedia } from "../types/inbound-message";
 
 export interface InboundRouterDeps {
   conversationRepo: ConversationRepository;
@@ -31,6 +40,7 @@ export interface InboundRouterDeps {
   mainMenuSenderDeps: MainMenuWorkflowDeps["mainMenuSenderDeps"];
   filingWorkflowDeps: FilingWorkflowDeps;
   enrolmentWorkflowDeps: EnrolmentWorkflowDeps;
+  filingDocumentWorkflowDeps: FilingDocumentWorkflowDeps;
   complainantWorkflowDeps: ComplainantWorkflowDeps;
 }
 
@@ -44,6 +54,8 @@ export interface InboundRouterInput {
   body: string;
   /** Number of media attachments on the inbound message — media-only enrolment input is rejected the same as any other invalid input (#9 Part F). Defaults to 0 when omitted (states that never read it). */
   mediaCount?: number;
+  /** The actual media attachments — only #31's document-upload states consume these; every other state only reads mediaCount. Defaults to an empty array when omitted. */
+  media?: InboundMedia[];
 }
 
 const RESTART_CONFIRMATION_MESSAGE = "🔄 Starting over — your previous session has been cleared.";
@@ -158,7 +170,8 @@ async function recoverFromUnsupportedState(
  * conversation or one still AWAITING_LANGUAGE, main-menu-workflow at
  * MAIN_MENU, filing-workflow at FILING_DRAFT_CHOICE/FILING_NOTICE (#8),
  * enrolment-workflow at ADVOCATE_ENROLMENT_PENDING/ADVOCATE_ENROLMENT_CONFIRM
- * (#9), complainant-workflow at every COMPLAINANT_* step (#10). Any other
+ * (#9), filing-document-workflow at every FILING_DOC_* step (#31),
+ * complainant-workflow at every COMPLAINANT_* step (#10). Any other
  * known-but-unimplemented state (see KNOWN_UNIMPLEMENTED_STATES) keeps the
  * conversation alive without sending anything; any state outside even that
  * set is recovered instead of stranding the user silently (#26). Before any
@@ -255,6 +268,34 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
       language,
       selection,
     });
+  }
+
+  // #31: the 5 document-upload groups, between enrolment confirmation and
+  // complainant details.
+  const documentEvent = {
+    conversationId: conversation.id,
+    whatsappNumber: input.whatsappNumber,
+    messageId: input.messageId,
+    language,
+    text: input.body,
+    buttonPayload: input.buttonPayload,
+    buttonText: input.buttonText,
+    media: input.media ?? [],
+  };
+  if (conversation.state === "FILING_DOC_CHEQUE") {
+    return handleFilingDocChequeInput(deps.filingDocumentWorkflowDeps, documentEvent);
+  }
+  if (conversation.state === "FILING_DOC_MEMO") {
+    return handleFilingDocMemoInput(deps.filingDocumentWorkflowDeps, documentEvent);
+  }
+  if (conversation.state === "FILING_DOC_NOTICE") {
+    return handleFilingDocNoticeInput(deps.filingDocumentWorkflowDeps, documentEvent);
+  }
+  if (conversation.state === "FILING_DOC_ID") {
+    return handleFilingDocIdInput(deps.filingDocumentWorkflowDeps, documentEvent);
+  }
+  if (conversation.state === "FILING_DOC_SUPPORT") {
+    return handleFilingDocSupportInput(deps.filingDocumentWorkflowDeps, documentEvent);
   }
 
   const fieldEvent = {

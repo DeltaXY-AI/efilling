@@ -4,7 +4,7 @@ import type { FilingRepository } from "../repositories/filing-repository";
 import type { OutboundMessageRepository } from "../repositories/outbound-message-repository";
 import type { RepositoryTransaction } from "../repositories/transaction";
 import type { ComplainantSenderDeps } from "./complainant-sender";
-import { sendComplainantNamePrompt } from "./complainant-workflow";
+import { sendFilingDocChequePrompt } from "./filing-document-workflow";
 import { sendEnrolmentConfirmation, sendEnrolmentPrompt, type EnrolmentSenderDeps } from "./enrolment-sender";
 import type { FilingWorkflowResult } from "./filing-workflow";
 import { sendFilingPlainText } from "./filing-sender";
@@ -19,7 +19,7 @@ export interface EnrolmentWorkflowDeps {
   enrolmentSenderDeps: EnrolmentSenderDeps;
   /** Reused as-is for "back to main menu" after save-and-exit — never a second implementation. */
   mainMenuSenderDeps: MainMenuSenderDeps;
-  /** Reused as-is for the complainant name prompt sent right after Confirm cascades into COMPLAINANT_NAME_PENDING (#10 Part A) — never a second implementation. */
+  /** No longer read directly by this file since #31 (Confirm now cascades into FILING_DOC_CHEQUE, not COMPLAINANT_NAME_PENDING) — kept in this deps shape so every existing call site (twilio-webhook.route.ts, tests) that already constructs it does not need to change. */
   complainantSenderDeps: ComplainantSenderDeps;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
@@ -55,9 +55,12 @@ const VALIDATION_ERROR_TEXT: Record<SupportedLanguage, string> = {
   ].join("\n"),
 };
 
+// #31: the cascade now leads into document collection, not straight into
+// complainant details — updated to match (was "...collect the
+// complainant's details.").
 const RECORDED_TEXT: Record<SupportedLanguage, string> = {
-  en: "✓ Advocate enrolment number recorded.\n\nThis number has not been externally verified.\n\nNext, we will collect the complainant's details.",
-  ml: "✓ അഭിഭാഷക എൻറോൾമെന്റ് നമ്പർ രേഖപ്പെടുത്തി.\n\nഈ നമ്പർ പുറത്തുനിന്ന് പരിശോധിച്ചിട്ടില്ല.\n\nഅടുത്തതായി പരാതിക്കാരന്റെ വിവരങ്ങൾ ശേഖരിക്കും.",
+  en: "✓ Advocate enrolment number recorded.\n\nThis number has not been externally verified.\n\nNext, we will collect the case documents.",
+  ml: "✓ അഭിഭാഷക എൻറോൾമെന്റ് നമ്പർ രേഖപ്പെടുത്തി.\n\nഈ നമ്പർ പുറത്തുനിന്ന് പരിശോധിച്ചിട്ടില്ല.\n\nഅടുത്തതായി കേസ് രേഖകൾ ശേഖരിക്കും.",
 };
 
 const SAVED_TEXT: Record<SupportedLanguage, string> = {
@@ -132,8 +135,9 @@ export async function handleEnrolmentInput(deps: EnrolmentWorkflowDeps, input: E
 /**
  * Dispatches input while at ADVOCATE_ENROLMENT_CONFIRM (#9 Parts G/H/I):
  * Confirm records the candidate as unverified and cascades straight into
- * COMPLAINANT_NAME_PENDING, sending the complainant name prompt in the same
- * transaction (#10 Part A); Edit clears the candidate and returns to
+ * FILING_DOC_CHEQUE, sending the first document-upload prompt in the same
+ * transaction (#31, replacing #10 Part A's original COMPLAINANT_NAME_PENDING
+ * target); Edit clears the candidate and returns to
  * ADVOCATE_ENROLMENT_PENDING; Save and exit preserves everything and
  * returns to MAIN_MENU. Unrecognized input redisplays the confirmation
  * with the current candidate, without changing state.
@@ -182,16 +186,17 @@ async function confirmEnrolment(deps: EnrolmentWorkflowDeps, input: EnrolmentAct
     }
 
     await deps.filingRepo.confirmEnrolment(tx, lockedFiling.id, new Date());
-    // #10 Part A: COMPLAINANT_DETAILS_START's "state entry" transition to
-    // COMPLAINANT_NAME_PENDING happens right here, in the same transaction
+    // #31: the "state entry" transition now goes to FILING_DOC_CHEQUE, the
+    // first of 5 document-upload groups, right here in the same transaction
     // — never left resting at an intermediate state waiting for another
-    // inbound message.
-    await deps.conversationRepo.setStateInTx(tx, locked.id, "COMPLAINANT_NAME_PENDING");
+    // inbound message. Complainant details (#10) are collected only after
+    // all 5 groups are done (see filing-document-workflow.ts).
+    await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_DOC_CHEQUE");
     return {
       committed: true,
       sends: [
         { messageType: "ADVOCATE_ENROLMENT_RECORDED" as const, dedupeSuffix: "enrolment-recorded" },
-        { messageType: "COMPLAINANT_NAME_PROMPT" as const, dedupeSuffix: "complainant-name-prompt" },
+        { messageType: "FILING_DOC_CHEQUE_PROMPT" as const, dedupeSuffix: "filing-doc-cheque-prompt" },
       ],
     };
   });
@@ -209,10 +214,10 @@ async function confirmEnrolment(deps: EnrolmentWorkflowDeps, input: EnrolmentAct
   );
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
 
-  const namePromptDelivered = await sendComplainantNamePrompt(deps.complainantSenderDeps, sendInput);
-  await finalizeOutbound(deps, commit.outboundIds[1], namePromptDelivered);
+  const chequePromptDelivered = await sendFilingDocChequePrompt(deps.enrolmentSenderDeps, sendInput);
+  await finalizeOutbound(deps, commit.outboundIds[1], chequePromptDelivered);
 
-  return { delivered: delivered && namePromptDelivered };
+  return { delivered: delivered && chequePromptDelivered };
 }
 
 async function editEnrolment(deps: EnrolmentWorkflowDeps, input: EnrolmentActionInput): Promise<FilingWorkflowResult> {

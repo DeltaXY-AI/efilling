@@ -27,6 +27,9 @@ export default defineConfig({
       // createApp({ twilioWebhookDeps }) with in-memory repositories, but
       // env.ts validates this eagerly on import regardless.
       DATABASE_URL: "postgres://test:test@localhost:5432/test",
+      // Never actually uploaded to in tests — filing-document tests inject
+      // a fake BlobStorage, but env.ts validates this eagerly on import.
+      BLOB_READ_WRITE_TOKEN: "test-blob-token",
     },
   },
 });

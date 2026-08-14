@@ -8,10 +8,12 @@ import type { ConversationState } from "../src/repositories/conversation-reposit
 import { InMemoryProcessedWebhookRepository } from "../src/repositories/in-memory/processed-webhook-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
 import { InMemoryFilingPartyRepository } from "../src/repositories/in-memory/filing-party-repository";
+import { InMemoryFilingDocumentRepository } from "../src/repositories/in-memory/filing-document-repository";
 import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import type { ProcessedWebhookRepository } from "../src/repositories/processed-webhook-repository";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
+import { createFakeDocumentStorageDeps } from "./helpers/fake-document-storage";
 
 const ROUTE_PATH = "/webhooks/twilio/whatsapp";
 const WEBHOOK_URL = `${env.PUBLIC_BASE_URL}${ROUTE_PATH}`;
@@ -56,6 +58,7 @@ function buildDeps(
   };
   const filingRepo = new InMemoryFilingRepository(conversationRepo);
   const partyRepo = new InMemoryFilingPartyRepository();
+  const filingDocumentRepo = new InMemoryFilingDocumentRepository();
   const outboundMessageRepo = new InMemoryOutboundMessageRepository();
   return {
     conversationRepo,
@@ -90,6 +93,17 @@ function buildDeps(
       outboundMessageRepo,
       enrolmentSenderDeps,
       mainMenuSenderDeps,
+      complainantSenderDeps,
+      withTransaction: createInMemoryWithTransaction(),
+    },
+    filingDocumentWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      filingDocumentRepo,
+      outboundMessageRepo,
+      messagingClient,
+      fromNumber: env.TWILIO_WHATSAPP_FROM,
+      documentStorageDeps: createFakeDocumentStorageDeps(),
       complainantSenderDeps,
       withTransaction: createInMemoryWithTransaction(),
     },
@@ -419,9 +433,49 @@ describe("POST /webhooks/twilio/whatsapp", () => {
       NumMedia: "0",
     });
 
-    // #10 Part A: confirming enrolment cascades straight into the
-    // complainant name prompt — no separate "state entry" message needed.
+    // #31: confirming enrolment now cascades into the document-collection
+    // steps (cheque, memo, notice, id, support) before the complainant name
+    // prompt — not straight into it as it did pre-#31.
     expect(enrolmentConfirmResponse.status).toBe(200);
+    expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("The cheque") }));
+
+    // Walk all 5 document groups: one photo + "done" for each required group
+    // (cheque, memo, notice, id), then "done" alone for the optional support
+    // group (min 0 — "done" with zero files satisfies it).
+    const documentGroupSids: Array<{ label: string; withMedia: boolean }> = [
+      { label: "cheque", withMedia: true },
+      { label: "memo", withMedia: true },
+      { label: "notice", withMedia: true },
+      { label: "id", withMedia: true },
+      { label: "support", withMedia: false },
+    ];
+    let docSeq = 100;
+    for (const group of documentGroupSids) {
+      if (group.withMedia) {
+        const mediaResponse = await send({
+          MessageSid: `SMflowb0000000000000000000000${docSeq++}`,
+          From: from,
+          To: "whatsapp:+14155238886",
+          Body: "",
+          NumMedia: "1",
+          MediaUrl0: `https://api.twilio.com/media/${group.label}.jpg`,
+          MediaContentType0: "image/jpeg",
+        });
+        expect(mediaResponse.status).toBe(200);
+      }
+
+      const doneResponse = await send({
+        MessageSid: `SMflowb0000000000000000000000${docSeq++}`,
+        From: from,
+        To: "whatsapp:+14155238886",
+        Body: "done",
+        NumMedia: "0",
+      });
+      expect(doneResponse.status).toBe(200);
+    }
+
+    // Only after the optional support group's "done" does the flow reach
+    // the complainant name prompt.
     expect(messagingClient.sendText).toHaveBeenCalledWith(
       expect.objectContaining({ body: expect.stringContaining("Enter the complainant's full name") }),
     );

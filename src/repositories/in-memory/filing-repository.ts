@@ -7,10 +7,10 @@ let nextId = 1;
 
 const ADVOCATE_ENROLMENT_PENDING_STEP = "ADVOCATE_ENROLMENT_PENDING";
 const ADVOCATE_ENROLMENT_CONFIRM_STEP = "ADVOCATE_ENROLMENT_CONFIRM";
-// #10 Part A: confirming enrolment cascades straight into complainant
-// detail collection in the same transaction, rather than resting at the
-// (now-unused-going-forward) COMPLAINANT_DETAILS_START value.
-const COMPLAINANT_NAME_PENDING_STEP = "COMPLAINANT_NAME_PENDING";
+// #31: confirming enrolment cascades straight into the first document-upload
+// group (FILING_DOC_CHEQUE) — see the matching comment in
+// drizzle-filing-repository.ts.
+const FILING_DOC_CHEQUE_STEP = "FILING_DOC_CHEQUE";
 
 /**
  * In-memory FilingRepository for tests — never used in production. Takes
@@ -92,7 +92,7 @@ export class InMemoryFilingRepository implements FilingRepository {
     this.update(filingId, {
       advocateEnrolmentStatus: "RECORDED_UNVERIFIED",
       advocateEnrolmentConfirmedAt: confirmedAt,
-      currentStep: COMPLAINANT_NAME_PENDING_STEP,
+      currentStep: FILING_DOC_CHEQUE_STEP,
     });
   }
 

@@ -79,10 +79,11 @@ export interface FilingRepository {
 
   /**
    * Marks the pending candidate RECORDED_UNVERIFIED with a confirmation
-   * timestamp and advances `current_step` to COMPLAINANT_NAME_PENDING —
-   * cascading straight into complainant detail collection in the same
-   * transaction (#9 Part G; #10 Part A's "state entry" transition out of
-   * COMPLAINANT_DETAILS_START, which is never actually persisted).
+   * timestamp and advances `current_step` to FILING_DOC_CHEQUE — cascading
+   * straight into document collection in the same transaction (#9 Part G;
+   * #31's cascade target, replacing #10 Part A's original
+   * COMPLAINANT_NAME_PENDING, which is now reached only after all 5
+   * document groups are done).
    */
   confirmEnrolment(tx: RepositoryTransaction, filingId: string, confirmedAt: Date): Promise<void>;
 
