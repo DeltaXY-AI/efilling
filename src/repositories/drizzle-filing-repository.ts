@@ -118,4 +118,11 @@ export class DrizzleFilingRepository implements FilingRepository {
       .set({ currentStep: step, updatedAt: new Date() })
       .where(eq(filings.id, filingId));
   }
+
+  async abandonDraft(tx: RepositoryTransaction, filingId: string): Promise<void> {
+    await (tx as Transaction)
+      .update(filings)
+      .set({ status: "ABANDONED", updatedAt: new Date() })
+      .where(and(eq(filings.id, filingId), eq(filings.status, "DRAFT")));
+  }
 }

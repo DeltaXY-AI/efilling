@@ -45,7 +45,13 @@ export interface LanguageWorkflowResult {
  * back to the numbered plain-text menu if that send fails. Never surfaces
  * Twilio's internal error to the advocate.
  */
-async function sendLanguagePicker(deps: LanguageWorkflowDeps, input: LanguageWorkflowInput): Promise<boolean> {
+/**
+ * Exported (not just internal to this file) so the restart feature — which
+ * needs its own DB reset transaction combined with abandoning any active
+ * filing draft — can resend the same picker without duplicating this send
+ * logic (see inbound-router.ts's handleRestartRequest).
+ */
+export async function sendLanguagePicker(deps: LanguageWorkflowDeps, input: LanguageWorkflowInput): Promise<boolean> {
   try {
     await deps.messagingClient.sendContentTemplate({
       from: deps.fromNumber,

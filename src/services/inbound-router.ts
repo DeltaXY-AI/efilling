@@ -1,9 +1,11 @@
 import {
   handleInboundForLanguageSelection,
   reopenLanguagePicker,
+  sendLanguagePicker,
   type LanguageWorkflowDeps,
   type LanguageWorkflowResult,
 } from "./language-workflow";
+import { isRestartRequest } from "../domain/restart";
 import { handleInboundForMainMenu, type MainMenuWorkflowDeps } from "./main-menu-workflow";
 import { handleDraftChoiceInput, handleFilingNoticeInput, type FilingWorkflowDeps } from "./filing-workflow";
 import { handleEnrolmentConfirmInput, handleEnrolmentInput, type EnrolmentWorkflowDeps } from "./enrolment-workflow";
@@ -42,6 +44,53 @@ export interface InboundRouterInput {
   body: string;
   /** Number of media attachments on the inbound message — media-only enrolment input is rejected the same as any other invalid input (#9 Part F). Defaults to 0 when omitted (states that never read it). */
   mediaCount?: number;
+}
+
+const RESTART_CONFIRMATION_MESSAGE = "🔄 Starting over — your previous session has been cleared.";
+
+/**
+ * Handles the "restart"/"start over" keyword. Unlike every other action in
+ * this codebase, it is recognized from *any* state (checked before
+ * per-state dispatch below), not gated behind the main menu — a user stuck
+ * mid-enrolment or mid-complainant-details never sees that menu again, so
+ * a menu-only "start over" button would not actually help them.
+ *
+ * Abandons any in-progress filing draft (so `active_filing_id` never keeps
+ * pointing at an ABANDONED filing), then resets the conversation the same
+ * way "change language" does: back to AWAITING_LANGUAGE with the language
+ * picker resent.
+ */
+async function handleRestartRequest(
+  deps: InboundRouterDeps,
+  input: { whatsappNumber: string; messageId: string; conversationId: string },
+): Promise<LanguageWorkflowResult> {
+  await deps.filingWorkflowDeps.withTransaction(async (tx) => {
+    const locked = await deps.conversationRepo.lockById(tx, input.conversationId);
+    if (locked.activeFilingId) {
+      await deps.filingWorkflowDeps.filingRepo.abandonDraft(tx, locked.activeFilingId);
+    }
+    await deps.conversationRepo.resetForRestartInTx(tx, input.conversationId);
+  });
+
+  let confirmationDelivered = true;
+  try {
+    await deps.languageWorkflowDeps.messagingClient.sendText({
+      from: deps.languageWorkflowDeps.fromNumber,
+      to: input.whatsappNumber,
+      body: RESTART_CONFIRMATION_MESSAGE,
+    });
+  } catch {
+    logWorkflowError({ code: "restart_confirmation_send_failed", correlationId: input.messageId });
+    confirmationDelivered = false;
+  }
+
+  const pickerDelivered = await sendLanguagePicker(deps.languageWorkflowDeps, {
+    whatsappNumber: input.whatsappNumber,
+    messageId: input.messageId,
+    selection: {},
+  });
+
+  return { delivered: confirmationDelivered && pickerDelivered };
 }
 
 /**
@@ -112,10 +161,29 @@ async function recoverFromUnsupportedState(
  * (#9), complainant-workflow at every COMPLAINANT_* step (#10). Any other
  * known-but-unimplemented state (see KNOWN_UNIMPLEMENTED_STATES) keeps the
  * conversation alive without sending anything; any state outside even that
- * set is recovered instead of stranding the user silently (#26).
+ * set is recovered instead of stranding the user silently (#26). Before any
+ * of that, an existing conversation's "restart" keyword is checked first —
+ * it applies regardless of state (see handleRestartRequest).
  */
 export async function routeInboundMessage(deps: InboundRouterDeps, input: InboundRouterInput): Promise<LanguageWorkflowResult> {
   const conversation = await deps.conversationRepo.findByWhatsappNumber(input.whatsappNumber);
+
+  // Checked ahead of per-state dispatch: a brand-new conversation has
+  // nothing to restart, and one already AWAITING_LANGUAGE is already at the
+  // destination a restart would send it to, so both are left to the normal
+  // language-selection handling below (which safely no-ops/resends the
+  // picker for unrecognized input, e.g. "restart" not being a language).
+  if (
+    conversation &&
+    conversation.state !== "AWAITING_LANGUAGE" &&
+    isRestartRequest({ buttonPayload: input.buttonPayload, buttonText: input.buttonText, body: input.body })
+  ) {
+    return handleRestartRequest(deps, {
+      whatsappNumber: input.whatsappNumber,
+      messageId: input.messageId,
+      conversationId: conversation.id,
+    });
+  }
 
   if (!conversation || conversation.state === "AWAITING_LANGUAGE") {
     return handleInboundForLanguageSelection(deps.languageWorkflowDeps, {

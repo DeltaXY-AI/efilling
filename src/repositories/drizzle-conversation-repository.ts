@@ -108,4 +108,17 @@ export class DrizzleConversationRepository implements ConversationRepository {
       .set({ activeFilingId, state, updatedAt: new Date(), version: sql`${conversations.version} + 1` })
       .where(eq(conversations.id, conversationId));
   }
+
+  async resetForRestartInTx(tx: RepositoryTransaction, conversationId: string): Promise<void> {
+    await (tx as Transaction)
+      .update(conversations)
+      .set({
+        language: null,
+        state: "AWAITING_LANGUAGE",
+        activeFilingId: null,
+        updatedAt: new Date(),
+        version: sql`${conversations.version} + 1`,
+      })
+      .where(eq(conversations.id, conversationId));
+  }
 }

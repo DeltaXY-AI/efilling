@@ -93,4 +93,13 @@ export interface ConversationRepository {
     activeFilingId: string,
     state: ConversationState,
   ): Promise<void>;
+
+  /**
+   * Clears language and the active-draft pointer and moves the conversation
+   * back to AWAITING_LANGUAGE, atomically with the filing draft's own
+   * ABANDONED write (see FilingRepository.abandonDraft) — used by the
+   * "restart" keyword so a full restart never leaves active_filing_id
+   * pointing at a filing that was just abandoned.
+   */
+  resetForRestartInTx(tx: RepositoryTransaction, conversationId: string): Promise<void>;
 }

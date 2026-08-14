@@ -299,6 +299,86 @@ describe("routeInboundMessage", () => {
     expect(after).toMatchObject({ state: "ACCUSED_DETAILS_START" });
   });
 
+  describe("restart request", () => {
+    it("resets a MAIN_MENU conversation to AWAITING_LANGUAGE and resends the picker", async () => {
+      await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+      await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+      messagingClient.sendContentTemplate.mockClear();
+      messagingClient.sendText.mockClear();
+
+      const result = await routeInboundMessage(deps, baseInput({ body: "restart" }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("Starting over") }),
+      );
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: LANGUAGE_CONTENT_SID }),
+      );
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "AWAITING_LANGUAGE", language: null });
+    });
+
+    it("abandons the active filing draft and clears active_filing_id when restarting mid-flow", async () => {
+      const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+      await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+      const filing = await filingRepo.createDraft(undefined, {
+        conversationId: conversation.id,
+        language: "en",
+        role: "COMPLAINANT_ADVOCATE",
+        testNoticeVersion: "v1",
+      });
+      await conversationRepo.setActiveFilingAndState(undefined, conversation.id, filing.id, "COMPLAINANT_NAME_PENDING");
+
+      const result = await routeInboundMessage(deps, baseInput({ body: "start over" }));
+
+      expect(result.delivered).toBe(true);
+      const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(after).toMatchObject({ state: "AWAITING_LANGUAGE", language: null, activeFilingId: null });
+      expect(filingRepo.findById(filing.id)).toMatchObject({ status: "ABANDONED" });
+    });
+
+    it("still resets and abandons the draft even if the confirmation text send fails", async () => {
+      const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+      await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+      const filing = await filingRepo.createDraft(undefined, {
+        conversationId: conversation.id,
+        language: "en",
+        role: "COMPLAINANT_ADVOCATE",
+        testNoticeVersion: "v1",
+      });
+      await conversationRepo.setActiveFilingAndState(undefined, conversation.id, filing.id, "COMPLAINANT_NAME_PENDING");
+      messagingClient.sendText.mockRejectedValueOnce(new Error("boom"));
+
+      const result = await routeInboundMessage(deps, baseInput({ body: "restart" }));
+
+      expect(result.delivered).toBe(false);
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: LANGUAGE_CONTENT_SID }),
+      );
+      const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(after).toMatchObject({ state: "AWAITING_LANGUAGE", activeFilingId: null });
+      expect(filingRepo.findById(filing.id)).toMatchObject({ status: "ABANDONED" });
+    });
+
+    it("does not treat 'restart' as a restart for a brand-new conversation or one still AWAITING_LANGUAGE", async () => {
+      messagingClient.sendContentTemplate.mockClear();
+
+      // Brand-new: nothing to restart — falls through to the language picker.
+      await routeInboundMessage(deps, baseInput({ body: "restart" }));
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: LANGUAGE_CONTENT_SID }),
+      );
+
+      // Already AWAITING_LANGUAGE: unrecognized language input just resends the picker (same outcome either way).
+      messagingClient.sendContentTemplate.mockClear();
+      await routeInboundMessage(deps, baseInput({ body: "restart" }));
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: LANGUAGE_CONTENT_SID }),
+      );
+    });
+  });
+
   describe("unsupported persisted state recovery (#26)", () => {
     // Simulates the incident: a conversation persisted in a state (e.g. by a
     // different/newer deployment's migration) that isn't in this branch's

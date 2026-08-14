@@ -83,6 +83,10 @@ export class InMemoryConversationRepository implements ConversationRepository {
     this.updateById(conversationId, { activeFilingId, state });
   }
 
+  async resetForRestartInTx(_tx: RepositoryTransaction, conversationId: string): Promise<void> {
+    this.updateById(conversationId, { language: null, state: "AWAITING_LANGUAGE", activeFilingId: null });
+  }
+
   /** Test-wiring helper (not part of the ConversationRepository interface) so in-memory FilingRepository can resolve the authoritative active-draft pointer, mirroring how the real DB joins through conversations.active_filing_id. */
   findById(conversationId: string): ConversationRecord | null {
     for (const record of this.byWhatsappNumber.values()) {
