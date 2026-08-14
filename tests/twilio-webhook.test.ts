@@ -545,4 +545,47 @@ describe("POST /webhooks/twilio/whatsapp", () => {
 
     errorLogSpy.mockRestore();
   });
+
+  it("restarts a conversation stuck mid-flow, abandoning its active filing draft (restart feature)", async () => {
+    const conversationRepo = new InMemoryConversationRepository();
+    const from = "whatsapp:+15005550014";
+    const conversation = await conversationRepo.createAwaitingLanguage(from, new Date());
+    await conversationRepo.setLanguageAndMainMenu(from, "en", new Date());
+    const restartDeps = buildDeps(conversationRepo, new InMemoryProcessedWebhookRepository(), messagingClient);
+    const filingRepo = restartDeps.filingWorkflowDeps.filingRepo as InMemoryFilingRepository;
+    const filing = await filingRepo.createDraft(undefined, {
+      conversationId: conversation.id,
+      language: "en",
+      role: "COMPLAINANT_ADVOCATE",
+      testNoticeVersion: "v1",
+    });
+    await conversationRepo.setActiveFilingAndState(undefined, conversation.id, filing.id, "COMPLAINANT_NAME_PENDING");
+    const restartApp = createApp({ twilioWebhookDeps: restartDeps });
+
+    const params = {
+      MessageSid: "SM0000000000000000000000000000003",
+      From: from,
+      To: "whatsapp:+14155238886",
+      Body: "restart",
+      NumMedia: "0",
+    };
+
+    const response = await request(restartApp)
+      .post(ROUTE_PATH)
+      .type("form")
+      .set("X-Twilio-Signature", sign(params))
+      .send(params);
+
+    expect(response.status).toBe(200);
+    expect(messagingClient.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ to: from, body: expect.stringContaining("Starting over") }),
+    );
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ to: from, contentSid: env.TWILIO_LANGUAGE_CONTENT_SID }),
+    );
+
+    const conversationAfter = await conversationRepo.findByWhatsappNumber(from);
+    expect(conversationAfter).toMatchObject({ state: "AWAITING_LANGUAGE", language: null, activeFilingId: null });
+    expect(filingRepo.findById(filing.id)).toMatchObject({ status: "ABANDONED" });
+  });
 });

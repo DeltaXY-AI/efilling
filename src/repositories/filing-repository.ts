@@ -102,4 +102,11 @@ export interface FilingRepository {
    * enrolment column write.
    */
   setCurrentStep(tx: RepositoryTransaction, filingId: string, step: string): Promise<void>;
+
+  /**
+   * Marks a DRAFT filing ABANDONED (restart feature) — a no-op if the
+   * filing is no longer DRAFT (e.g. already SUBMITTED), so a stale restart
+   * can never downgrade a filing past submission.
+   */
+  abandonDraft(tx: RepositoryTransaction, filingId: string): Promise<void>;
 }
