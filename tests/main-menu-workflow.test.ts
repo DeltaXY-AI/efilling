@@ -172,6 +172,35 @@ describe("handleInboundForMainMenu", () => {
     expect(conversation).toMatchObject({ state: "MAIN_MENU" });
   });
 
+  it("keeps MAIN_MENU and redisplays after menu:my-cases, sending the stub text first (#29)", async () => {
+    const result = await handleInboundForMainMenu(deps, baseInput({ selection: { buttonPayload: "menu:my-cases" } }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ body: expect.stringContaining("isn't ready yet") }),
+    );
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ contentSid: MAIN_MENU_CONTENT_SID.en }),
+    );
+
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "MAIN_MENU" });
+  });
+
+  it("sends the Malayalam stub for menu:my-cases when the advocate is on the Malayalam menu (#29)", async () => {
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "ml", new Date());
+
+    const result = await handleInboundForMainMenu(deps, baseInput({ language: "ml", selection: { buttonPayload: "menu:my-cases" } }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ body: expect.stringContaining("ലഭ്യമല്ല") }),
+    );
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ contentSid: MAIN_MENU_CONTENT_SID.ml }),
+    );
+  });
+
   it("does not change state for unrecognized input, and redisplays the menu with a clarification", async () => {
     const result = await handleInboundForMainMenu(deps, baseInput({ selection: { body: "asdf" } }));
 

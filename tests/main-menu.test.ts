@@ -17,6 +17,9 @@ describe("parseMenuAction", () => {
     ["4", "menu:help"],
     ["Help", "menu:help"],
     ["സഹായം", "menu:help"],
+    ["5", "menu:my-cases"],
+    ["My cases", "menu:my-cases"],
+    ["എന്റെ കേസുകൾ", "menu:my-cases"],
   ])("recognizes typed %s as %s", (value, expected) => {
     expect(parseMenuAction({ body: value })).toBe(expected);
   });
@@ -26,6 +29,7 @@ describe("parseMenuAction", () => {
     "menu:case-status",
     "menu:change-language",
     "menu:help",
+    "menu:my-cases",
   ])("recognizes the stable ButtonPayload %s", (stableId) => {
     expect(parseMenuAction({ buttonPayload: stableId })).toBe(stableId);
   });

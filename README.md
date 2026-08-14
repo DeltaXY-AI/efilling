@@ -118,8 +118,9 @@ recognized selection is persisted, moves the conversation to `MAIN_MENU`,
 and immediately sends the localized main menu. From `MAIN_MENU`, `menu:file-case`
 checks for an active filing draft (`FILING_DRAFT_CHOICE` if one exists,
 otherwise `FILING_NOTICE`); `menu:case-status` moves to `CASE_STATUS_START`;
-`menu:change-language` returns to `AWAITING_LANGUAGE`; `menu`/`മെനു` redisplays
-the current menu. `restart`/`start over`/`വീണ്ടും തുടങ്ങുക` is recognized from
+`menu:change-language` returns to `AWAITING_LANGUAGE`; `menu:my-cases` stays at
+`MAIN_MENU` and sends a "not built yet" stub (the real screen is a later
+slice); `menu`/`മെനു` redisplays the current menu. `restart`/`start over`/`വീണ്ടും തുടങ്ങുക` is recognized from
 *any* state (not menu-gated) — it abandons any in-progress filing draft and
 returns to `AWAITING_LANGUAGE` with the language picker resent, so a user
 stuck mid-flow always has a way back to the start. Accepting the test-data notice creates exactly one filing
