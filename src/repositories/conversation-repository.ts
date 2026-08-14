@@ -11,6 +11,12 @@ export type ConversationState =
   | "FILING_NOTICE"
   | "ADVOCATE_ENROLMENT_PENDING"
   | "ADVOCATE_ENROLMENT_CONFIRM"
+  // #31: sequential document-upload states, one per group.
+  | "FILING_DOC_CHEQUE"
+  | "FILING_DOC_MEMO"
+  | "FILING_DOC_NOTICE"
+  | "FILING_DOC_ID"
+  | "FILING_DOC_SUPPORT"
   // #10 Part A. Never persisted going forward (see schema.ts) — kept only
   // so a pre-existing row from #9 can still resume.
   | "COMPLAINANT_DETAILS_START"

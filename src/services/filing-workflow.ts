@@ -6,6 +6,7 @@ import type { OutboundMessageRepository } from "../repositories/outbound-message
 import type { RepositoryTransaction } from "../repositories/transaction";
 import type { ComplainantSenderDeps } from "./complainant-sender";
 import { COMPLAINANT_SUPPORTED_FILING_STEPS, resendComplainantPromptForResume } from "./complainant-workflow";
+import { FILING_DOCUMENT_SUPPORTED_STEPS, resendFilingDocumentPromptForResume } from "./filing-document-workflow";
 import { sendEnrolmentConfirmation, sendEnrolmentPrompt, type EnrolmentSenderDeps } from "./enrolment-sender";
 import { sendDraftChoice, sendFilingNotice, sendFilingPlainText, type FilingSenderDeps } from "./filing-sender";
 import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from "./main-menu-sender";
@@ -49,10 +50,11 @@ export interface FilingWorkflowResult {
 
 const TEST_NOTICE_VERSION = "v1";
 
-/** Only ever set by this issue's own createDraft, #9's saveEnrolmentCandidate, or #10's complainant-details steps — real, deployed, resumable steps. */
+/** Only ever set by this issue's own createDraft, #9's saveEnrolmentCandidate, #31's document-upload steps, or #10's complainant-details steps — real, deployed, resumable steps. */
 const SUPPORTED_FILING_STEPS: ReadonlySet<string> = new Set([
   "ADVOCATE_ENROLMENT_PENDING",
   "ADVOCATE_ENROLMENT_CONFIRM",
+  ...FILING_DOCUMENT_SUPPORTED_STEPS,
   ...COMPLAINANT_SUPPORTED_FILING_STEPS,
 ]);
 
@@ -240,12 +242,16 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
   // kind === "resumed". #9 Part I: resuming into ADVOCATE_ENROLMENT_CONFIRM
   // must resend the confirmation template with the saved candidate, not the
   // generic resumed text — the advocate needs to see the number again to
-  // act on Confirm/Edit/Save and exit. #10 Part K: resuming into any of the
-  // complainant-details steps must likewise resend the exact pending field
-  // prompt or the review screen, not the generic resumed text.
+  // act on Confirm/Edit/Save and exit. #31: resuming into any of the 5
+  // document-upload groups must likewise resend that group's own prompt.
+  // #10 Part K: resuming into any of the complainant-details steps must
+  // likewise resend the exact pending field prompt or the review screen,
+  // not the generic resumed text.
   let delivered: boolean;
   if (resumedStep === "ADVOCATE_ENROLMENT_CONFIRM" && resumedNormalizedEnrolment) {
     delivered = await sendEnrolmentConfirmation(deps.enrolmentSenderDeps, sendInput, resumedNormalizedEnrolment);
+  } else if (resumedStep && FILING_DOCUMENT_SUPPORTED_STEPS.has(resumedStep)) {
+    delivered = await resendFilingDocumentPromptForResume(deps.filingSenderDeps, resumedStep, sendInput);
   } else if (resumedStep && resumedFiling && COMPLAINANT_SUPPORTED_FILING_STEPS.has(resumedStep)) {
     delivered = await resendComplainantPromptForResume(
       {

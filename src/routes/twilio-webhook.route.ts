@@ -10,8 +10,11 @@ import { DrizzleConversationRepository } from "../repositories/drizzle-conversat
 import { DrizzleProcessedWebhookRepository } from "../repositories/drizzle-processed-webhook-repository";
 import { DrizzleFilingRepository } from "../repositories/drizzle-filing-repository";
 import { DrizzleFilingPartyRepository } from "../repositories/drizzle-filing-party-repository";
+import { DrizzleFilingDocumentRepository } from "../repositories/drizzle-filing-document-repository";
 import { DrizzleOutboundMessageRepository } from "../repositories/drizzle-outbound-message-repository";
 import type { ProcessedWebhookRepository } from "../repositories/processed-webhook-repository";
+import { createTwilioMediaDownloader } from "../adapters/twilio/media-downloader";
+import { createVercelBlobStorage } from "../adapters/blob-storage";
 import { withTransaction } from "../db/client";
 
 const ROUTE_PATH = "/webhooks/twilio/whatsapp";
@@ -34,7 +37,12 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
 
   const filingRepo = new DrizzleFilingRepository();
   const partyRepo = new DrizzleFilingPartyRepository();
+  const filingDocumentRepo = new DrizzleFilingDocumentRepository();
   const outboundMessageRepo = new DrizzleOutboundMessageRepository();
+  const documentStorageDeps = {
+    mediaDownloader: createTwilioMediaDownloader(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN),
+    blobStorage: createVercelBlobStorage(env.BLOB_READ_WRITE_TOKEN),
+  };
   const enrolmentSenderDeps = {
     messagingClient,
     fromNumber: env.TWILIO_WHATSAPP_FROM,
@@ -81,6 +89,17 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       outboundMessageRepo,
       enrolmentSenderDeps,
       mainMenuSenderDeps,
+      complainantSenderDeps,
+      withTransaction,
+    },
+    filingDocumentWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      filingDocumentRepo,
+      outboundMessageRepo,
+      messagingClient,
+      fromNumber: env.TWILIO_WHATSAPP_FROM,
+      documentStorageDeps,
       complainantSenderDeps,
       withTransaction,
     },
@@ -169,6 +188,7 @@ export function createTwilioWebhookRouter(deps: TwilioWebhookRouterDeps): Router
         listTitle: body.ListTitle,
         body: inboundMessage.text,
         mediaCount: inboundMessage.media.length,
+        media: inboundMessage.media,
       });
       await deps.processedWebhookRepo.markOutcome(inboundMessage.messageId, result.delivered ? "processed" : "failed");
     } catch {

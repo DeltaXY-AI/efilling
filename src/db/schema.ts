@@ -17,12 +17,21 @@ export const conversationStateEnum = pgEnum("conversation_state", [
   "FILING_NOTICE",
   "ADVOCATE_ENROLMENT_PENDING",
   "ADVOCATE_ENROLMENT_CONFIRM",
+  // #31 (Prototype parity - Phase 3): confirming enrolment now cascades
+  // into FILING_DOC_CHEQUE, the first of 5 sequential document-upload
+  // states, in the same transaction (see enrolment-workflow.ts's
+  // confirmEnrolment). One state per document group, each accepting 1+
+  // media messages before advancing — see filing-document-workflow.ts.
+  "FILING_DOC_CHEQUE",
+  "FILING_DOC_MEMO",
+  "FILING_DOC_NOTICE",
+  "FILING_DOC_ID",
+  "FILING_DOC_SUPPORT",
   // #10 Part A. COMPLAINANT_DETAILS_START itself is never persisted going
-  // forward — confirming enrolment now cascades straight into
-  // COMPLAINANT_NAME_PENDING in the same transaction (see
-  // enrolment-workflow.ts's confirmEnrolment). The value is kept in the
-  // enum only so any pre-existing row already sitting at it (from #9) can
-  // still be resumed — see filing-workflow.ts's SUPPORTED_FILING_STEPS.
+  // forward — the document-upload states above (#31) now cascade into
+  // COMPLAINANT_NAME_PENDING once the last group is done. The value is kept
+  // in the enum only so any pre-existing row already sitting at it (from
+  // #9) can still be resumed — see filing-workflow.ts's SUPPORTED_FILING_STEPS.
   "COMPLAINANT_DETAILS_START",
   "COMPLAINANT_NAME_PENDING",
   "COMPLAINANT_PHONE_PENDING",
@@ -46,6 +55,10 @@ export const advocateEnrolmentStatusEnum = pgEnum("advocate_enrolment_status", [
 // second implementation needed when that slice lands.
 export const filingPartyRoleEnum = pgEnum("filing_party_role", ["COMPLAINANT", "ACCUSED"]);
 export const filingPartyStatusEnum = pgEnum("filing_party_status", ["DRAFT", "CONFIRMED"]);
+// #31: one value per document-upload state (FILING_DOC_CHEQUE etc.) —
+// unlike filing_party_role, a filing can have many rows per group (up to
+// each group's max file count), never just one.
+export const filingDocumentGroupEnum = pgEnum("filing_document_group", ["cheque", "memo", "notice", "id", "support"]);
 export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "FILING_NOTICE",
   "FILING_DRAFT_CHOICE",
@@ -56,6 +69,13 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "ADVOCATE_ENROLMENT_CONFIRM",
   "ADVOCATE_ENROLMENT_RECORDED",
   "FILING_SAVED",
+  // #31: the 5 document-group prompts, sent when advancing into each state.
+  "FILING_DOC_CHEQUE_PROMPT",
+  "FILING_DOC_MEMO_PROMPT",
+  "FILING_DOC_NOTICE_PROMPT",
+  "FILING_DOC_ID_PROMPT",
+  "FILING_DOC_SUPPORT_PROMPT",
+  "FILING_DOC_ALL_RECEIVED",
   "COMPLAINANT_NAME_PROMPT",
   "COMPLAINANT_PHONE_PROMPT",
   "COMPLAINANT_EMAIL_PROMPT",
@@ -145,6 +165,30 @@ export const filingParties = pgTable(
     uniqueIndex("filing_parties_filing_role_unique").on(table.filingId, table.partyRole),
     index("filing_parties_filing_id_idx").on(table.filingId),
   ],
+);
+
+/**
+ * One row per uploaded document (#31, Prototype parity — Phase 3) — unlike
+ * `filing_parties`, there is no uniqueness on `(filing_id, document_group)`,
+ * since a group can hold up to its own max file count (e.g. up to 5 for
+ * `notice`). `storage_url` is the durable copy (Vercel Blob); Twilio's own
+ * `MediaUrl` is never relied on for retrieval after upload — it is kept
+ * only as an audit trail, and is expected to expire.
+ */
+export const filingDocuments = pgTable(
+  "filing_documents",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    filingId: uuid("filing_id")
+      .notNull()
+      .references(() => filings.id),
+    documentGroup: filingDocumentGroupEnum("document_group").notNull(),
+    storageUrl: text("storage_url").notNull(),
+    contentType: text("content_type").notNull(),
+    originalTwilioMediaUrl: text("original_twilio_media_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("filing_documents_filing_id_idx").on(table.filingId)],
 );
 
 /**

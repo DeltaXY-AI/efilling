@@ -12,10 +12,13 @@ import type { RepositoryTransaction } from "./transaction";
 
 const ADVOCATE_ENROLMENT_PENDING_STEP = "ADVOCATE_ENROLMENT_PENDING";
 const ADVOCATE_ENROLMENT_CONFIRM_STEP = "ADVOCATE_ENROLMENT_CONFIRM";
-// #10 Part A: confirming enrolment cascades straight into complainant
-// detail collection in the same transaction, rather than resting at the
-// (now-unused-going-forward) COMPLAINANT_DETAILS_START value.
-const COMPLAINANT_NAME_PENDING_STEP = "COMPLAINANT_NAME_PENDING";
+// #31: confirming enrolment cascades straight into the first document-upload
+// group (FILING_DOC_CHEQUE) in the same transaction, rather than resting at
+// an intermediate state waiting for another inbound message. This replaces
+// #10 Part A's original cascade target (COMPLAINANT_NAME_PENDING), which is
+// now reached only after all 5 document groups are done (see
+// filing-document-workflow.ts).
+const FILING_DOC_CHEQUE_STEP = "FILING_DOC_CHEQUE";
 
 export class DrizzleFilingRepository implements FilingRepository {
   async findActiveDraft(tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord | null> {
@@ -92,7 +95,7 @@ export class DrizzleFilingRepository implements FilingRepository {
       .set({
         advocateEnrolmentStatus: "RECORDED_UNVERIFIED",
         advocateEnrolmentConfirmedAt: confirmedAt,
-        currentStep: COMPLAINANT_NAME_PENDING_STEP,
+        currentStep: FILING_DOC_CHEQUE_STEP,
         updatedAt: new Date(),
       })
       .where(eq(filings.id, filingId));
