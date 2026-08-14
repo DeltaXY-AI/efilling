@@ -31,21 +31,46 @@ const PLAIN_TEXT_DRAFT_CHOICE: Record<SupportedLanguage, string> = {
   ].join("\n"),
 };
 
+// #30: replaces the old generic demo disclaimer with the prototype's
+// pre-filing document checklist (PR.md Appendix A.3) — content only, the
+// state machine/payloads below are unchanged from #8.
 const PLAIN_TEXT_NOTICE: Record<SupportedLanguage, string> = {
   en: [
-    "This is a demonstration service. Use anonymized test data only.",
+    "⚖️ Cheque bounce complaint — S.138, NI Act",
     "",
-    "Continuing will not file a real case with any court.",
+    "Before we start, please keep these ready as photos or PDFs:",
     "",
-    "1. Continue",
+    "• Cheque — front and back",
+    "• Cheque return / dishonour memo from the bank",
+    "• Demand notice sent to the accused",
+    "• Postal receipt and acknowledgement card",
+    "• Reply to the notice, if you received one",
+    "• Proof of the debt — invoice, agreement or receipt",
+    "• Your ID proof — Aadhaar or PAN",
+    "• Vakalatnama, if an advocate is filing for you",
+    "",
+    "⏱️ It takes about 7 minutes. You can stop midway — your draft is saved.",
+    "",
+    "1. Start filing",
     "2. Main menu",
   ].join("\n"),
   ml: [
-    "ഇത് ഒരു ഡെമോൺസ്ട്രേഷൻ സേവനമാണ്. അജ്ഞാതമാക്കിയ ടെസ്റ്റ് ഡാറ്റ മാത്രം ഉപയോഗിക്കുക.",
+    "⚖️ ചെക്ക് മടങ്ങിയ കേസ് — NI ആക്ട് വകുപ്പ് 138",
     "",
-    "തുടരുന്നത് ഏതെങ്കിലും കോടതിയിൽ യഥാർത്ഥ കേസ് ഫയൽ ചെയ്യില്ല.",
+    "ആരംഭിക്കുന്നതിന് മുൻപ് താഴെ പറയുന്ന രേഖകൾ ഫോട്ടോ അല്ലെങ്കിൽ PDF ആയി തയ്യാറാക്കി വെക്കുക:",
     "",
-    "1. തുടരുക",
+    "• ചെക്ക് — മുൻവശവും പിൻവശവും",
+    "• ബാങ്കിൽ നിന്നുള്ള ചെക്ക് മടക്ക മെമ്മോ",
+    "• എതിർകക്ഷിക്ക് അയച്ച ഡിമാൻഡ് നോട്ടീസ്",
+    "• തപാൽ രസീതും അക്നോളജ്‌മെന്റ് കാർഡും",
+    "• നോട്ടീസിന് മറുപടി ലഭിച്ചിട്ടുണ്ടെങ്കിൽ അത്",
+    "• കടം തെളിയിക്കുന്ന രേഖ — ഇൻവോയ്സ്, കരാർ, രസീത്",
+    "• നിങ്ങളുടെ തിരിച്ചറിയൽ രേഖ — ആധാർ അല്ലെങ്കിൽ പാൻ",
+    "• അഭിഭാഷകൻ മുഖേനയാണെങ്കിൽ വക്കാലത്ത്",
+    "",
+    "⏱️ ഏകദേശം 7 മിനിറ്റ് മതി. ഇടയ്ക്ക് നിർത്തിയാലും ഡ്രാഫ്റ്റ് സേവ് ചെയ്യപ്പെടും.",
+    "",
+    "1. ഫയലിംഗ് ആരംഭിക്കുക",
     "2. പ്രധാന മെനു",
   ].join("\n"),
 };

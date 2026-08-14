@@ -1,6 +1,6 @@
 # PR.md — Prototype Content-Parity Plan: Complainant Advocate / File a Case
 
-**Status:** Draft for review. Phase 1 (#29) has an implementation PR open — see the Phase 1 section below for what was actually decided and built, which supersedes this document's original "decision needed" framing for that phase. Phases 2–10 are still planning-only.
+**Status:** Draft for review. Phases 1 (#29) and 2 (#30) have implementation PRs open — see their sections below for what was actually decided and built, which supersedes this document's original "decision needed" framing for those phases. Phases 3–10 are still planning-only.
 **Reference:** https://dristiwa.netlify.app/ (client-supplied clickable prototype), extracted directly from its source (a self-contained HTML/JS build — every scenario's exact bilingual script is embedded as data, not guessed from screenshots).
 **Scope of this document:** Role = **Complainant Advocate** only, Scenario = **"File a case"** (the prototype's `filing` scenario), plus the cross-cutting **draft / "My cases" list** feature, per your instruction to focus there first. The prototype's other two Complainant Advocate scenarios (`defects` — scrutiny corrections, `updates` — hearing reminder/adjournment) are inventoried here for completeness but sequenced as later phases, matching `PRD.md`'s own P0/P1 split.
 **Rule followed while writing this:** zero application code touched. This is planning only.
@@ -19,7 +19,7 @@ The prototype is a single ~286 KB HTML file with all UI chrome, and — critical
 |---|---|---|---|
 | Language picker wording | Generic "🙏 നമസ്കാരം \| Welcome / Please choose your preferred language" | Names the service explicitly: *"This is the official WhatsApp service of the 24x7 ON Courts, Kollam. File cases, track them and get your cause list — right here in this chat."* | **Different copy** — needs a text swap (Phase 0) |
 | Main menu | 5 options: File/resume, Case status, Change language, Help, **My cases** (stub — #29, PR #40) | 6 options: Cause list, Submissions, Case status, **File a case**, Change language, **My cases** | **"My cases" row added, real screen still pending (Phase 8, #36)**; Cause list/Submissions remain out of current focus |
-| Filing entry | Straight to a generic "demo disclaimer" | A **document checklist screen** first (what to keep ready, ~7 min estimate, explicit "your draft is saved if you stop") | **Missing entirely** |
+| Filing entry | Document checklist screen (#30, PR #41) | A **document checklist screen** first (what to keep ready, ~7 min estimate, explicit "your draft is saved if you stop") | **Implemented**; the actual document *upload* it references is still missing (Phase 3, #31) |
 | Document upload | Not implemented at all | 5 structured document groups (cheque, bank memo, notice+proof of service, ID proof, optional supporting docs), each with its own prompt, min/max file counts | **Missing entirely** |
 | Simulated OCR / extraction | Not implemented | A "reading your documents" wait message, then a structured "here's what I read" confirmation screen (cheque no., amount, bank, dates, computed limitation window) | **Missing entirely** |
 | Case details collected | Only: complainant name, phone, email, address | Complainant (+ litigant-vs-advocate + enrolment number), **Accused** (name, address, phone, entity type), **Cheque & notice** (number, date, amount, bank, return reason, memo date, notice date, service date, part-payment), **Narrative** (story, witness, optional written account), **Court selection**, **Review + declaration checkbox** | **Large gap** — today's flow is a small fraction of the prototype's field set |
@@ -33,7 +33,7 @@ The prototype is a single ~286 KB HTML file with all UI chrome, and — critical
 
 ## 3. Phased plan
 
-**Tracking issues:** #29 (Phase 1 — ✅ implemented, PR #40 pending merge) · #30 (Phase 2) · #31 (Phase 3) · #32 (Phase 4) · #33 (Phase 5) · #34 (Phase 6) · #35 (Phase 7) · #36 (Phase 8) · #37 (Phase 9, deferred) · #38 (Phase 10, deferred). Phases 2–10 are created but not yet started. Each issue follows this repo's existing detailed-spec format (see #8/#10/#11) — Goal, Scope decisions, User flow, lettered Parts, Developer verification guide, Automated tests, Acceptance criteria, Definition of Done, Out of scope, Demo.
+**Tracking issues:** #29 (Phase 1 — ✅ implemented, PR #40 pending merge) · #30 (Phase 2 — ✅ implemented, PR #41 pending merge) · #31 (Phase 3) · #32 (Phase 4) · #33 (Phase 5) · #34 (Phase 6) · #35 (Phase 7) · #36 (Phase 8) · #37 (Phase 9, deferred) · #38 (Phase 10, deferred). Phases 3–10 are created but not yet started. Each issue follows this repo's existing detailed-spec format (see #8/#10/#11) — Goal, Scope decisions, User flow, lettered Parts, Developer verification guide, Automated tests, Acceptance criteria, Definition of Done, Out of scope, Demo.
 
 Each phase lists: **what to build**, **where it slots into today's architecture** (file/module names, following this repo's existing conventions — one domain file + one workflow file + sender file per concern, exactly like `language-selection.ts`/`language-workflow.ts` or `complainant-workflow.ts`/`complainant-sender.ts` today), and **exact source content** (see Appendix A for the full text blocks, referenced by key name so this plan doesn't repeat 40 KB of bilingual copy twice).
 
@@ -48,10 +48,11 @@ No new states. Pure copy replacement so the parts we've already shipped stop div
 - `menu:my-cases` action added to `src/domain/main-menu.ts`'s `TEXT_TO_ACTION`, and — as implemented — also to `MENU_ACTION_TARGET_STATE` (required by that map's `Record<MenuAction, MenuTargetState>` type; every `MenuAction` needs an entry). It is never actually read at runtime for this action, since `main-menu-workflow.ts` special-cases `menu:my-cases` before that map's one real fallthrough use — exactly the same shape as `menu:help` today. (Issue #29's original text said this map "does not get an entry" for `menu:my-cases` — that was imprecise; corrected in the issue.)
 - Routes to an honest "not built yet" stub message (not directly to a Phase 8 screen, since Phase 8 doesn't exist yet) — the widened template and row ship independently of Phase 8, per the decision above.
 
-### Phase 2 — Document checklist screen (new state: `FILING_DOCS_CHECKLIST`)
-- Replaces today's generic demo disclaimer as the first screen after `menu:file-case`.
-- Exact content: `docsReady` (Appendix A.3) — lists the 8 documents/things to keep ready, the "~7 minutes, draft is saved if you stop" reassurance, and a single `startFiling` CTA.
-- New workflow file: `filing-docs-workflow.ts` (or extend `filing-workflow.ts`'s existing `FILING_NOTICE` handling) — this content *replaces* the current `FILING_NOTICE` demo-disclaimer text and CTA, it doesn't add a new screen on top of it.
+### Phase 2 — Document checklist at the existing `FILING_NOTICE` state — ✅ implemented, PR #41 (pending merge)
+- **Decision made (see #30):** this is a content-only change to the existing `FILING_NOTICE` state from #8 — **no new state**. This document's original framing ("new state: `FILING_DOCS_CHECKLIST`") was never reconciled after that scoping decision was made in issue #30; corrected here. `FILING_NOTICE`'s state machine, transitions, and payloads (`filing:accept-test-notice`, `nav:main-menu`) are untouched.
+- Exact content: `docsReady` (Appendix A.3) — lists the 8 documents/things to keep ready, the "~7 minutes, draft is saved if you stop" reassurance, and a single **Start filing** CTA (replaces the old **Continue** button label, same payload).
+- Implemented directly in the existing `filing-sender.ts`/`filing-workflow.ts` (the "new workflow file vs. extend the existing one" question this document originally posed is resolved: extend the existing one — no new file was needed).
+- **Also found and fixed while implementing:** the prototype's checklist content (used verbatim per #30) drops the old "this is a demonstration service, no real filing happens" disclaimer sentence entirely — flagged in `docs/filing-drafts-setup.md` and PR #41 as worth a product/legal look, not silently dropped.
 
 ### Phase 3 — Document collection (new states, one per document group)
 This is the first genuinely new subsystem — nothing like it exists today.
