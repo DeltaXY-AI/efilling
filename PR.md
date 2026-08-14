@@ -1,6 +1,6 @@
 # PR.md — Prototype Content-Parity Plan: Complainant Advocate / File a Case
 
-**Status:** Draft for review — no code changes made against this document.
+**Status:** Draft for review. Phase 1 (#29) has an implementation PR open — see the Phase 1 section below for what was actually decided and built, which supersedes this document's original "decision needed" framing for that phase. Phases 2–10 are still planning-only.
 **Reference:** https://dristiwa.netlify.app/ (client-supplied clickable prototype), extracted directly from its source (a self-contained HTML/JS build — every scenario's exact bilingual script is embedded as data, not guessed from screenshots).
 **Scope of this document:** Role = **Complainant Advocate** only, Scenario = **"File a case"** (the prototype's `filing` scenario), plus the cross-cutting **draft / "My cases" list** feature, per your instruction to focus there first. The prototype's other two Complainant Advocate scenarios (`defects` — scrutiny corrections, `updates` — hearing reminder/adjournment) are inventoried here for completeness but sequenced as later phases, matching `PRD.md`'s own P0/P1 split.
 **Rule followed while writing this:** zero application code touched. This is planning only.
@@ -18,7 +18,7 @@ The prototype is a single ~286 KB HTML file with all UI chrome, and — critical
 | Area | Current `main` branch | Prototype (`dristiwa`) | Verdict |
 |---|---|---|---|
 | Language picker wording | Generic "🙏 നമസ്കാരം \| Welcome / Please choose your preferred language" | Names the service explicitly: *"This is the official WhatsApp service of the 24x7 ON Courts, Kollam. File cases, track them and get your cause list — right here in this chat."* | **Different copy** — needs a text swap (Phase 0) |
-| Main menu | 4 options: File/resume, Case status, Change language, Help | 6 options: Cause list, Submissions, Case status, **File a case**, Change language, **My cases** | **Missing "My cases"**; Cause list/Submissions are out of current focus |
+| Main menu | 5 options: File/resume, Case status, Change language, Help, **My cases** (stub — #29, PR #40) | 6 options: Cause list, Submissions, Case status, **File a case**, Change language, **My cases** | **"My cases" row added, real screen still pending (Phase 8, #36)**; Cause list/Submissions remain out of current focus |
 | Filing entry | Straight to a generic "demo disclaimer" | A **document checklist screen** first (what to keep ready, ~7 min estimate, explicit "your draft is saved if you stop") | **Missing entirely** |
 | Document upload | Not implemented at all | 5 structured document groups (cheque, bank memo, notice+proof of service, ID proof, optional supporting docs), each with its own prompt, min/max file counts | **Missing entirely** |
 | Simulated OCR / extraction | Not implemented | A "reading your documents" wait message, then a structured "here's what I read" confirmation screen (cheque no., amount, bank, dates, computed limitation window) | **Missing entirely** |
@@ -33,7 +33,7 @@ The prototype is a single ~286 KB HTML file with all UI chrome, and — critical
 
 ## 3. Phased plan
 
-**Tracking issues (created, not yet started):** #29 (Phase 1) · #30 (Phase 2) · #31 (Phase 3) · #32 (Phase 4) · #33 (Phase 5) · #34 (Phase 6) · #35 (Phase 7) · #36 (Phase 8) · #37 (Phase 9, deferred) · #38 (Phase 10, deferred). Each issue follows this repo's existing detailed-spec format (see #8/#10/#11) — Goal, Scope decisions, User flow, lettered Parts, Developer verification guide, Automated tests, Acceptance criteria, Definition of Done, Out of scope, Demo.
+**Tracking issues:** #29 (Phase 1 — ✅ implemented, PR #40 pending merge) · #30 (Phase 2) · #31 (Phase 3) · #32 (Phase 4) · #33 (Phase 5) · #34 (Phase 6) · #35 (Phase 7) · #36 (Phase 8) · #37 (Phase 9, deferred) · #38 (Phase 10, deferred). Phases 2–10 are created but not yet started. Each issue follows this repo's existing detailed-spec format (see #8/#10/#11) — Goal, Scope decisions, User flow, lettered Parts, Developer verification guide, Automated tests, Acceptance criteria, Definition of Done, Out of scope, Demo.
 
 Each phase lists: **what to build**, **where it slots into today's architecture** (file/module names, following this repo's existing conventions — one domain file + one workflow file + sender file per concern, exactly like `language-selection.ts`/`language-workflow.ts` or `complainant-workflow.ts`/`complainant-sender.ts` today), and **exact source content** (see Appendix A for the full text blocks, referenced by key name so this plan doesn't repeat 40 KB of bilingual copy twice).
 
@@ -41,11 +41,12 @@ Each phase lists: **what to build**, **where it slots into today's architecture*
 No new states. Pure copy replacement so the parts we've already shipped stop diverging from the reference wording.
 - Replace `PLAIN_TEXT_LANGUAGE_MENU` (`language-workflow.ts`) with the prototype's `langPrompt.both` (Appendix A.1).
 - Replace `CONFIRMATIONS` with `menuIntro` (Appendix A.1) — note the prototype's confirmation *includes* the "what would you like to do today" lead-in, so this folds our separate confirmation + menu-intro into one message, matching the reference's single bubble.
-- **Decision needed from you:** the prototype's main-menu Content Template would need 6 rows, not today's 4 — do we widen the existing menu now (Phase 1) or keep 4 rows until the "File a case" and "My cases" work lands, then widen once? Recommend the latter, to avoid touching the Twilio Content Template twice.
+- **Decision made (see Phase 1 below, #29):** the menu is widened **now**, independent of Phase 8 — the opposite of this document's original recommendation to wait. Rationale recorded in #29: the widened template (with a stub behind the new row) ships once; Phase 8 later fills in the row's real behavior without touching the Content Template a second time. This document's original "wait and widen once" framing is superseded by that decision — left here only as a record of the reasoning that was reconsidered, not as current guidance.
 
-### Phase 1 — Main menu: add "My cases" as an entry point (content only, feature in Phase 8)
-- Add a 5th row *My cases* (Appendix A.2, `menuRows` — reusing only the `file` and `mine` rows, leaving `cause`/`other`/`status` for a later phase since those aren't part of "file a case").
-- `menu:my-cases` action added to `src/domain/main-menu.ts`'s `TEXT_TO_ACTION` — routes to the Phase 8 draft-list screen. Until Phase 8 ships, this can point at a "coming soon" stub, or Phase 1 can simply be deferred until Phase 8 is ready to ship together — your call.
+### Phase 1 — Main menu: add "My cases" as an entry point (content only, feature in Phase 8) — ✅ implemented, PR #40 (pending merge)
+- Adds a 5th row **My cases** only (Appendix A.2 — just the `mine` row; `cause`/`other`/`status` remain out of scope, not part of "file a case").
+- `menu:my-cases` action added to `src/domain/main-menu.ts`'s `TEXT_TO_ACTION`, and — as implemented — also to `MENU_ACTION_TARGET_STATE` (required by that map's `Record<MenuAction, MenuTargetState>` type; every `MenuAction` needs an entry). It is never actually read at runtime for this action, since `main-menu-workflow.ts` special-cases `menu:my-cases` before that map's one real fallthrough use — exactly the same shape as `menu:help` today. (Issue #29's original text said this map "does not get an entry" for `menu:my-cases` — that was imprecise; corrected in the issue.)
+- Routes to an honest "not built yet" stub message (not directly to a Phase 8 screen, since Phase 8 doesn't exist yet) — the widened template and row ship independently of Phase 8, per the decision above.
 
 ### Phase 2 — Document checklist screen (new state: `FILING_DOCS_CHECKLIST`)
 - Replaces today's generic demo disclaimer as the first screen after `menu:file-case`.
