@@ -4,6 +4,7 @@ import { getExpectedTwilioSignature } from "twilio";
 import { createApp } from "../src/app";
 import { env } from "../src/config/env";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
+import type { ConversationState } from "../src/repositories/conversation-repository";
 import { InMemoryProcessedWebhookRepository } from "../src/repositories/in-memory/processed-webhook-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
 import { InMemoryFilingPartyRepository } from "../src/repositories/in-memory/filing-party-repository";
@@ -491,6 +492,56 @@ describe("POST /webhooks/twilio/whatsapp", () => {
     const errorOutput = errorLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
     expect(errorOutput).toContain("processed_webhook_claim_failed");
     expect(errorOutput).not.toContain("connection refused");
+
+    errorLogSpy.mockRestore();
+  });
+
+  it("recovers a conversation stuck in a legacy state unknown to this deployment instead of a silent 200/no-op (#26)", async () => {
+    const errorLogSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const conversationRepo = new InMemoryConversationRepository();
+    const from = "whatsapp:+15005550013";
+    await conversationRepo.createAwaitingLanguage(from, new Date());
+    await conversationRepo.setLanguageAndMainMenu(from, "en", new Date());
+    // Simulates the incident: a conversation persisted (e.g. by a
+    // different/newer deployment's migration) in a state that isn't in this
+    // branch's ConversationState union at all — CHEQUE_DETAILS_START never
+    // appears in src/repositories/conversation-repository.ts or schema.ts.
+    await conversationRepo.setState(from, "CHEQUE_DETAILS_START" as ConversationState, new Date());
+    const recoveryApp = createApp({
+      twilioWebhookDeps: buildDeps(conversationRepo, new InMemoryProcessedWebhookRepository(), messagingClient),
+    });
+
+    const params = {
+      MessageSid: "SM0000000000000000000000000000002",
+      From: from,
+      To: "whatsapp:+14155238886",
+      Body: "some private filing detail",
+      NumMedia: "0",
+    };
+
+    const response = await request(recoveryApp)
+      .post(ROUTE_PATH)
+      .type("form")
+      .set("X-Twilio-Signature", sign(params))
+      .send(params);
+
+    expect(response.status).toBe(200);
+    expect(response.text).toBe('<?xml version="1.0" encoding="UTF-8"?><Response></Response>');
+    expect(messagingClient.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ to: from, body: expect.stringContaining("no longer available") }),
+    );
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ to: from, contentSid: env.TWILIO_LANGUAGE_CONTENT_SID }),
+    );
+
+    const conversation = await conversationRepo.findByWhatsappNumber(from);
+    expect(conversation).toMatchObject({ state: "AWAITING_LANGUAGE", language: null });
+
+    const errorOutput = errorLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+    expect(errorOutput).toContain("unsupported_conversation_state");
+    expect(errorOutput).toContain("CHEQUE_DETAILS_START");
+    expect(errorOutput).not.toContain("15005550013");
+    expect(errorOutput).not.toContain(params.Body);
 
     errorLogSpy.mockRestore();
   });

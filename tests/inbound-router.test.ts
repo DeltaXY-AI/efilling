@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { routeInboundMessage, type InboundRouterDeps } from "../src/services/inbound-router";
+import type { ConversationState } from "../src/repositories/conversation-repository";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
 import { InMemoryFilingPartyRepository } from "../src/repositories/in-memory/filing-party-repository";
@@ -296,5 +297,72 @@ describe("routeInboundMessage", () => {
     expect(result.delivered).toBe(true);
     const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
     expect(after).toMatchObject({ state: "ACCUSED_DETAILS_START" });
+  });
+
+  describe("unsupported persisted state recovery (#26)", () => {
+    // Simulates the incident: a conversation persisted in a state (e.g. by a
+    // different/newer deployment's migration) that isn't in this branch's
+    // ConversationState union at all — CHEQUE_DETAILS_START never appears in
+    // src/repositories/conversation-repository.ts or schema.ts.
+    const UNSUPPORTED_STATE = "CHEQUE_DETAILS_START" as ConversationState;
+
+    it("sends a recovery response and resets to AWAITING_LANGUAGE instead of a silent no-op", async () => {
+      await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+      await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+      await conversationRepo.setState(WHATSAPP_NUMBER, UNSUPPORTED_STATE, new Date());
+      messagingClient.sendContentTemplate.mockClear();
+      messagingClient.sendText.mockClear();
+
+      const result = await routeInboundMessage(deps, baseInput({ body: "Hi" }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("no longer available") }),
+      );
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: LANGUAGE_CONTENT_SID }),
+      );
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "AWAITING_LANGUAGE", language: null });
+    });
+
+    it("still resets to AWAITING_LANGUAGE and resends the picker even if the recovery text send fails", async () => {
+      await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+      await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+      await conversationRepo.setState(WHATSAPP_NUMBER, UNSUPPORTED_STATE, new Date());
+      messagingClient.sendText.mockRejectedValueOnce(new Error("boom"));
+
+      const result = await routeInboundMessage(deps, baseInput({ body: "Hi" }));
+
+      expect(result.delivered).toBe(false);
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: LANGUAGE_CONTENT_SID }),
+      );
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "AWAITING_LANGUAGE" });
+    });
+
+    it("logs the unsupported state with a correlation id and safe state name — never the phone number or message body", async () => {
+      await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+      await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+      await conversationRepo.setState(WHATSAPP_NUMBER, UNSUPPORTED_STATE, new Date());
+
+      const originalError = console.error;
+      const lines: string[] = [];
+      console.error = (...args: unknown[]) => lines.push(args.join(" "));
+
+      try {
+        await routeInboundMessage(deps, baseInput({ body: "some private filing detail" }));
+      } finally {
+        console.error = originalError;
+      }
+
+      const logged = lines.join("\n");
+      expect(logged).toContain("unsupported_conversation_state");
+      expect(logged).toContain("CHEQUE_DETAILS_START");
+      expect(logged).toContain("SM0000000000000000000000000000000"); // correlation id (messageId)
+      expect(logged).not.toContain("15005550006");
+      expect(logged).not.toContain("some private filing detail");
+    });
   });
 });
