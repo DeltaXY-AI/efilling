@@ -392,6 +392,20 @@ describe("routeInboundMessage", () => {
     expect(after).toMatchObject({ state: "CHEQUE_DETAILS_START" });
   });
 
+  it("keeps a CHEQUE_DETAILS_START conversation alive without sending anything (owned by Prototype parity Phase 5 / #33)", async () => {
+    await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+    await conversationRepo.setState(WHATSAPP_NUMBER, "CHEQUE_DETAILS_START", new Date());
+    messagingClient.sendContentTemplate.mockClear();
+    messagingClient.sendText.mockClear();
+
+    const result = await routeInboundMessage(deps, baseInput({ body: "some cheque detail" }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendContentTemplate).not.toHaveBeenCalled();
+    expect(messagingClient.sendText).not.toHaveBeenCalled();
+  });
+
   describe("restart request", () => {
     it("resets a MAIN_MENU conversation to AWAITING_LANGUAGE and resends the picker", async () => {
       await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
@@ -473,11 +487,13 @@ describe("routeInboundMessage", () => {
   });
 
   describe("unsupported persisted state recovery (#26)", () => {
-    // Simulates the incident: a conversation persisted in a state (e.g. by a
-    // different/newer deployment's migration) that isn't in this branch's
-    // ConversationState union at all — CHEQUE_DETAILS_START never appears in
-    // src/repositories/conversation-repository.ts or schema.ts.
-    const UNSUPPORTED_STATE = "CHEQUE_DETAILS_START" as ConversationState;
+    // Simulates the incident that originally motivated #26: a conversation
+    // persisted in a state (e.g. by a different/newer deployment's
+    // migration) that isn't in this branch's ConversationState union at all.
+    // The real incident's example was CHEQUE_DETAILS_START — since #33/#11
+    // that value is a known (if still-unimplemented) state, so this fixture
+    // uses a value that will never legitimately exist instead.
+    const UNSUPPORTED_STATE = "SOME_FUTURE_STATE_NOT_YET_KNOWN" as ConversationState;
 
     it("sends a recovery response and resets to AWAITING_LANGUAGE instead of a silent no-op", async () => {
       await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
@@ -532,7 +548,7 @@ describe("routeInboundMessage", () => {
 
       const logged = lines.join("\n");
       expect(logged).toContain("unsupported_conversation_state");
-      expect(logged).toContain("CHEQUE_DETAILS_START");
+      expect(logged).toContain("SOME_FUTURE_STATE_NOT_YET_KNOWN");
       expect(logged).toContain("SM0000000000000000000000000000000"); // correlation id (messageId)
       expect(logged).not.toContain("15005550006");
       expect(logged).not.toContain("some private filing detail");

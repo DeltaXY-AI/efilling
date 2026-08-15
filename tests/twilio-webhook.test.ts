@@ -615,11 +615,13 @@ describe("POST /webhooks/twilio/whatsapp", () => {
     const from = "whatsapp:+15005550013";
     await conversationRepo.createAwaitingLanguage(from, new Date());
     await conversationRepo.setLanguageAndMainMenu(from, "en", new Date());
-    // Simulates the incident: a conversation persisted (e.g. by a
-    // different/newer deployment's migration) in a state that isn't in this
-    // branch's ConversationState union at all — CHEQUE_DETAILS_START never
-    // appears in src/repositories/conversation-repository.ts or schema.ts.
-    await conversationRepo.setState(from, "CHEQUE_DETAILS_START" as ConversationState, new Date());
+    // Simulates the incident that originally motivated #26: a conversation
+    // persisted (e.g. by a different/newer deployment's migration) in a
+    // state that isn't in this branch's ConversationState union at all. The
+    // real incident's example was CHEQUE_DETAILS_START — since #33/#11 that
+    // value is a known (if still-unimplemented) state, so this fixture uses
+    // a value that will never legitimately exist instead.
+    await conversationRepo.setState(from, "SOME_FUTURE_STATE_NOT_YET_KNOWN" as ConversationState, new Date());
     const recoveryApp = createApp({
       twilioWebhookDeps: buildDeps(conversationRepo, new InMemoryProcessedWebhookRepository(), messagingClient),
     });
@@ -652,7 +654,7 @@ describe("POST /webhooks/twilio/whatsapp", () => {
 
     const errorOutput = errorLogSpy.mock.calls.map((call) => call.join(" ")).join("\n");
     expect(errorOutput).toContain("unsupported_conversation_state");
-    expect(errorOutput).toContain("CHEQUE_DETAILS_START");
+    expect(errorOutput).toContain("SOME_FUTURE_STATE_NOT_YET_KNOWN");
     expect(errorOutput).not.toContain("15005550013");
     expect(errorOutput).not.toContain(params.Body);
 

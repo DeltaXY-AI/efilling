@@ -119,13 +119,18 @@ async function handleRestartRequest(
 
 /**
  * Persisted states this deployment recognizes but doesn't yet implement a
- * workflow for (FILING_START/CASE_STATUS_START/ACCUSED_DETAILS_START are
- * owned by later issues; COMPLAINANT_DETAILS_START is legacy-only, see
- * schema.ts; NEW is the schema column default, never actually persisted by
- * app code). These intentionally keep the conversation "alive" without
- * sending anything, per "do not automatically send the menu... while a
- * future filing subflow is waiting for specific input" — unlike a state
- * outside this set, which this deployment has never heard of at all (#26).
+ * workflow for (FILING_START/CASE_STATUS_START/CHEQUE_DETAILS_START are
+ * owned by later issues — CHEQUE_DETAILS_START by Prototype parity Phase 5
+ * (#33), the next issue after this one; COMPLAINANT_DETAILS_START and
+ * ACCUSED_DETAILS_START are legacy-only, see schema.ts; NEW is the schema
+ * column default, never actually persisted by app code). These
+ * intentionally keep the conversation "alive" without sending anything, per
+ * "do not automatically send the menu... while a future filing subflow is
+ * waiting for specific input" — unlike a state outside this set, which this
+ * deployment has never heard of at all (#26, added specifically after a
+ * real Sandbox conversation got stuck at this exact CHEQUE_DETAILS_START
+ * value on a deployment that didn't yet recognize it — never repeat that by
+ * leaving a cascade target off this list).
  */
 const KNOWN_UNIMPLEMENTED_STATES: ReadonlySet<string> = new Set([
   "NEW",
@@ -133,6 +138,7 @@ const KNOWN_UNIMPLEMENTED_STATES: ReadonlySet<string> = new Set([
   "CASE_STATUS_START",
   "COMPLAINANT_DETAILS_START",
   "ACCUSED_DETAILS_START",
+  "CHEQUE_DETAILS_START",
 ]);
 
 const UNSUPPORTED_STATE_RECOVERY_MESSAGE =
