@@ -12,8 +12,9 @@ import { FILING_DOCUMENT_SUPPORTED_STEPS, resendFilingDocumentPromptForResume } 
 import type { FilingDetailsSenderDeps } from "./filing-details-sender";
 import { FILING_DETAILS_SUPPORTED_FILING_STEPS, resendFilingDetailsPromptForResume } from "./filing-details-workflow";
 import { FILING_REVIEW_SUPPORTED_FILING_STEPS, resendFilingReviewPromptForResume } from "./filing-review-workflow";
-import { FILING_SIGN_SUPPORTED_FILING_STEPS, resendFilingSignPromptForResume } from "./filing-sign-workflow";
+import { FILING_SIGN_SUPPORTED_FILING_STEPS, recordFilingAsFiled, resendFilingSignPromptForResume } from "./filing-sign-workflow";
 import type { FilingSignSenderDeps } from "./filing-sign-sender";
+import { sendFiledActions, sendFiledSummary, type FilingCompletionSenderDeps } from "./filing-completion-sender";
 import type { FilingDocumentRepository } from "../repositories/filing-document-repository";
 import { sendEnrolmentConfirmation, sendEnrolmentPrompt, type EnrolmentSenderDeps } from "./enrolment-sender";
 import { sendDraftChoice, sendFilingNotice, sendFilingPlainText, type FilingSenderDeps } from "./filing-sender";
@@ -42,6 +43,8 @@ export interface FilingWorkflowDeps {
   filingDocumentRepo: FilingDocumentRepository;
   /** Reused as-is for resuming into any of #34's draft-ready/OTP steps — never a second implementation. */
   filingSignSenderDeps: FilingSignSenderDeps;
+  /** #35 — used only for the legacy FILING_FILED_START resume-translation below (a pre-existing row from #34 is actually filed on resume); never a second implementation of that copy. */
+  filingCompletionSenderDeps: FilingCompletionSenderDeps;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -76,6 +79,12 @@ const SUPPORTED_FILING_STEPS: ReadonlySet<string> = new Set([
   ...FILING_DETAILS_SUPPORTED_FILING_STEPS,
   ...FILING_REVIEW_SUPPORTED_FILING_STEPS,
   ...FILING_SIGN_SUPPORTED_FILING_STEPS,
+  // #35: FILING_FILED_START is a legacy-only sentinel from #34 (see
+  // schema.ts) — a pre-existing row still at this value must still
+  // resume, unlike FILING_FILED/FILING_DONE themselves, which (once a
+  // filing is actually FILED) are never reachable through this
+  // DRAFT-only findActiveDraft path in the first place.
+  "FILING_FILED_START",
 ]);
 
 const RESUMED_TEXT: Record<SupportedLanguage, string> = {
@@ -219,6 +228,21 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
       return { committed: false };
     }
 
+    if (draft.currentStep === "FILING_FILED_START") {
+      // #35: unlike the pure step/state renames below, resuming a
+      // pre-existing FILING_FILED_START row actually files it now (diary
+      // number generated, status flipped to FILED) — the exact same
+      // recordFilingAsFiled helper the real OTP-valid cascade in
+      // filing-sign-workflow.ts uses, never a second, potentially-
+      // diverging implementation.
+      const filedFiling = await recordFilingAsFiled(deps.filingRepo, tx, draft);
+      await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_FILED");
+      kind = "resumed";
+      resumedStep = "FILING_FILED";
+      resumedFiling = filedFiling;
+      return { committed: true, sends: [{ messageType: "FILING_RESUMED" as const, dedupeSuffix: "resumed-filed" }] };
+    }
+
     // #10/#11 Part A: neither COMPLAINANT_DETAILS_START nor
     // ACCUSED_DETAILS_START is ever persisted going forward (see
     // schema.ts) — any pre-existing row still at either value resumes as
@@ -339,6 +363,13 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
       resumedFiling,
       sendInput,
     );
+  } else if (resumedStep === "FILING_FILED" && resumedFiling) {
+    // #35: the legacy FILING_FILED_START branch above just filed this
+    // draft for the first time — send the same filed-acknowledgement +
+    // pay-fee actions the real cascade sends, not the generic resumed text.
+    const summaryDelivered = await sendFiledSummary(deps.filingCompletionSenderDeps, sendInput, resumedFiling);
+    const actionsDelivered = await sendFiledActions(deps.filingCompletionSenderDeps, sendInput);
+    delivered = summaryDelivered && actionsDelivered;
   } else {
     delivered = await sendFilingPlainText(deps.filingSenderDeps, sendInput, RESUMED_TEXT[input.language], "filing_resume_confirmation_send_failed");
   }

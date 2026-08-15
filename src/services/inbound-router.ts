@@ -84,6 +84,7 @@ import {
   type FilingReviewWorkflowDeps,
 } from "./filing-review-workflow";
 import { handleFilingDraftReadyInput, handleFilingOtpInput, type FilingSignWorkflowDeps } from "./filing-sign-workflow";
+import { handleFilingDoneInput, handleFilingFiledInput, type FilingCompletionWorkflowDeps } from "./filing-completion-workflow";
 import type { ConversationRepository } from "../repositories/conversation-repository";
 import { logWorkflowError } from "../lib/logger";
 import type { InboundMedia } from "../types/inbound-message";
@@ -100,6 +101,7 @@ export interface InboundRouterDeps {
   filingDetailsWorkflowDeps: FilingDetailsWorkflowDeps;
   filingReviewWorkflowDeps: FilingReviewWorkflowDeps;
   filingSignWorkflowDeps: FilingSignWorkflowDeps;
+  filingCompletionWorkflowDeps: FilingCompletionWorkflowDeps;
 }
 
 export interface InboundRouterInput {
@@ -165,13 +167,15 @@ async function handleRestartRequest(
 
 /**
  * Persisted states this deployment recognizes but doesn't yet implement a
- * workflow for (FILING_START/CASE_STATUS_START are owned by later issues;
- * FILING_FILED_START is owned by Prototype parity Phase 7 (#35), the next
- * issue after this one — exactly the same placeholder role
- * DRAFT_READY_START played for #34; COMPLAINANT_DETAILS_START,
- * ACCUSED_DETAILS_START, CHEQUE_DETAILS_START, and (as of #34)
- * DRAFT_READY_START are all legacy-only, see schema.ts; NEW is the schema
- * column default, never actually persisted by app code). These intentionally keep the
+ * direct-dispatch workflow for (FILING_START/CASE_STATUS_START are owned
+ * by later issues; COMPLAINANT_DETAILS_START, ACCUSED_DETAILS_START,
+ * CHEQUE_DETAILS_START, DRAFT_READY_START, and (as of #35)
+ * FILING_FILED_START are all legacy-only sentinels, never persisted going
+ * forward — a pre-existing row still at one of these only ever resolves
+ * via filing-workflow.ts's resumeDraft (the "resume this draft" action
+ * from FILING_DRAFT_CHOICE), not by being dispatched here directly; see
+ * schema.ts. NEW is the schema column default, never actually persisted
+ * by app code. These intentionally keep the
  * conversation "alive" without sending anything, per "do not automatically
  * send the menu... while a future filing subflow is waiting for specific
  * input" — unlike a state outside this set, which this deployment has never
@@ -241,7 +245,8 @@ async function recoverFromUnsupportedState(
  * (#9), filing-document-workflow at every FILING_DOC_* step (#31),
  * complainant-workflow at every COMPLAINANT_* step (#10), accused-workflow
  * at every ACCUSED_* step (#11), filing-sign-workflow at
- * FILING_DRAFT_READY/FILING_OTP_PENDING (#34). Any other known-but-unimplemented state
+ * FILING_DRAFT_READY/FILING_OTP_PENDING (#34), filing-completion-workflow
+ * at FILING_FILED/FILING_DONE (#35). Any other known-but-unimplemented state
  * (see KNOWN_UNIMPLEMENTED_STATES) keeps the conversation alive without
  * sending anything; any state outside even that set is recovered instead of
  * stranding the user silently (#26). Before any of that, an existing
@@ -560,6 +565,20 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
   }
   if (conversation.state === "FILING_OTP_PENDING") {
     return handleFilingOtpInput(deps.filingSignWorkflowDeps, fieldEvent);
+  }
+
+  // #35 (Prototype parity - Phase 7): filed acknowledgement, simulated
+  // court-fee payment, completion.
+  if (conversation.state === "FILING_FILED") {
+    return handleFilingFiledInput(deps.filingCompletionWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_DONE") {
+    return handleFilingDoneInput(deps.filingCompletionWorkflowDeps, {
+      conversationId: conversation.id,
+      whatsappNumber: input.whatsappNumber,
+      messageId: input.messageId,
+      language,
+    });
   }
 
   if (KNOWN_UNIMPLEMENTED_STATES.has(conversation.state)) {

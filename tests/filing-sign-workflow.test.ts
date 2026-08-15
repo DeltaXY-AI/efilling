@@ -28,6 +28,7 @@ const FILING_DETAILS_CONTENT_SIDS = {
   declareContentSid: { en: "HXfdeclareEn00000000000000000000000", ml: "HXfdeclareMl00000000000000000000000" },
 };
 const MAIN_MENU_CONTENT_SID = { en: "HXmenuen00000000000000000000000000", ml: "HXmenuml00000000000000000000000000" };
+const FILED_ACTIONS_CONTENT_SID = { en: "HXffiledEn00000000000000000000000", ml: "HXffiledMl00000000000000000000000" };
 
 /** Covers #34 (Prototype parity — Phase 6): the draft-ready summary, e-Sign/Edit-details dispatch, and the simulated OTP check. */
 describe("filing-sign-workflow", () => {
@@ -64,6 +65,7 @@ describe("filing-sign-workflow", () => {
     await filingRepo.setCurrentStep(undefined, filingId, "FILING_DRAFT_READY");
 
     const filingSignSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, draftReadyActionsContentSid: DRAFT_READY_ACTIONS_CONTENT_SID };
+    const filingCompletionSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, payFeeActionsContentSid: FILED_ACTIONS_CONTENT_SID };
 
     deps = {
       conversationRepo,
@@ -72,6 +74,7 @@ describe("filing-sign-workflow", () => {
       messagingClient,
       fromNumber: FROM_NUMBER,
       filingSignSenderDeps,
+      filingCompletionSenderDeps,
       filingReviewWorkflowDeps: {
         conversationRepo,
         filingRepo,
@@ -151,13 +154,19 @@ describe("filing-sign-workflow", () => {
       await filingRepo.setCurrentStep(undefined, filingId, "FILING_OTP_PENDING");
     });
 
-    it("a valid 6-digit OTP cascades into FILING_FILED_START (Phase 7 placeholder)", async () => {
+    it("a valid 6-digit OTP cascades into the real FILING_FILED (#35), generating a diary number and sending the filed summary + pay-fee actions", async () => {
       const result = await handleFilingOtpInput(deps, fieldInput({ text: "123456" }));
 
       expect(result.delivered).toBe(true);
-      expect(filingRepo.findById(filingId)).toMatchObject({ currentStep: "FILING_FILED_START" });
+      const filing = filingRepo.findById(filingId);
+      expect(filing).toMatchObject({ currentStep: "FILING_FILED", status: "FILED" });
+      expect(filing?.diaryNumber).toMatch(/^TEST-\d{6}-\d{4}$/);
+      expect(filing?.filedAt).toBeInstanceOf(Date);
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "FILING_FILED_START" });
+      expect(conversation).toMatchObject({ state: "FILING_FILED" });
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("ON Court - I, Kollam") }));
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining(filing!.diaryNumber!) }));
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: FILED_ACTIONS_CONTENT_SID.en }));
     });
 
     it("an invalid OTP format is rejected with no state change", async () => {

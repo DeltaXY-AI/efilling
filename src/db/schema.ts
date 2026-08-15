@@ -1,4 +1,4 @@
-import { boolean, date, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { boolean, date, index, integer, pgEnum, pgSequence, pgTable, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 /**
  * Conversation + filing + processed-webhook persistence for the
@@ -128,14 +128,36 @@ export const conversationStateEnum = pgEnum("conversation_state", [
   "DRAFT_READY_START",
   "FILING_DRAFT_READY",
   "FILING_OTP_PENDING",
-  // Owned by Prototype parity - Phase 7 (filed acknowledgement), the next
-  // issue after this one — kept-alive placeholder, exactly mirroring how
-  // DRAFT_READY_START above was this issue's own placeholder.
+  // #35 (Prototype parity - Phase 7): FILING_FILED_START itself is never
+  // persisted going forward — a valid OTP now cascades straight into the
+  // real FILING_FILED (diary number generated, filed-summary + pay-fee
+  // actions sent) in the same transaction (see filing-sign-workflow.ts's
+  // handleFilingOtpInput). Kept only so a pre-existing row from #34 can
+  // still resume (see filing-workflow.ts's resumeDraft).
   "FILING_FILED_START",
+  "FILING_FILED",
+  // FILING_FEE_PAID (part of #35's own FilingCompletionState type) is
+  // intentionally never persisted — paying the fee cascades straight to
+  // FILING_DONE in the same transaction (see filing-completion-
+  // workflow.ts's handleFilingFiledInput), the same "no dead intermediate
+  // state" cascade used everywhere else in this codebase. Not added here
+  // since a value that can never appear on a row would only invite
+  // confusion.
+  "FILING_DONE",
 ]);
 export const webhookEventStatusEnum = pgEnum("webhook_event_status", ["processing", "processed", "failed"]);
 export const filingRoleEnum = pgEnum("filing_role", ["COMPLAINANT_ADVOCATE"]);
-export const filingStatusEnum = pgEnum("filing_status", ["DRAFT", "SUBMITTED", "ABANDONED"]);
+// #35: FILED means the diary number has been allotted (recordFiled) — the
+// court fee may or may not be paid yet; that progress is tracked by
+// courtFeePaidAt below, not a further status value (Part A only asks for
+// one new status). Once a filing is FILED, findActiveDraft (which only
+// ever returns DRAFT filings) naturally stops treating it as an active
+// draft to resume — the same mechanism abandonDraft already relies on.
+export const filingStatusEnum = pgEnum("filing_status", ["DRAFT", "SUBMITTED", "ABANDONED", "FILED"]);
+// #35 Part A: a single global counter behind the generated diary numbers
+// (TEST-000001-2026 etc.) — atomic via Postgres' own nextval(), so two
+// concurrent filings can never be allotted the same number.
+export const diaryNumberSeq = pgSequence("diary_number_seq", { startWith: 1, increment: 1 });
 // Never VERIFIED — no Bar Council integration exists (#9 Part B). Nullable
 // on the filings table: no value until a candidate has been typed.
 export const advocateEnrolmentStatusEnum = pgEnum("advocate_enrolment_status", ["PENDING_CONFIRMATION", "RECORDED_UNVERIFIED"]);
@@ -225,6 +247,13 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "FILING_DRAFT_READY_SUMMARY",
   "FILING_DRAFT_READY_ACTIONS",
   "FILING_OTP_PROMPT",
+  // #35 (Prototype parity - Phase 7): the filed acknowledgement + its
+  // pay-fee action, the simulated fee-paid receipt, and the final
+  // completion message.
+  "FILING_FILED_SUMMARY",
+  "FILING_FILED_ACTIONS",
+  "FILING_FEE_PAID_MESSAGE",
+  "FILING_DONE_MESSAGE",
 ]);
 export const outboundMessageStatusEnum = pgEnum("outbound_message_status", ["pending", "sent", "failed"]);
 
@@ -294,6 +323,17 @@ export const filings = pgTable(
     // testNoticeAcceptedAt/advocateEnrolmentConfirmedAt above: an auditable
     // timestamp for a one-time acceptance, nullable until it happens.
     declarationAcceptedAt: timestamp("declaration_accepted_at", { withTimezone: true }),
+    // #35 Part B — set together with status "FILED" (see recordFiled).
+    // diaryNumber is generated from diaryNumberSeq above, never hardcoded
+    // and never reused across filings.
+    diaryNumber: text("diary_number"),
+    filedAt: timestamp("filed_at", { withTimezone: true }),
+    // #35 Part B — set together when the simulated fee payment is
+    // recorded (see recordFeePaid). courtFeeTransactionId is a fabricated
+    // demo value (see filing-completion-sender.ts), clearly never a real
+    // payment gateway reference — no real payment gateway is ever called.
+    courtFeePaidAt: timestamp("court_fee_paid_at", { withTimezone: true }),
+    courtFeeTransactionId: text("court_fee_transaction_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

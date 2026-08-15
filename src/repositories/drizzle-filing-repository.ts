@@ -1,8 +1,9 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Transaction } from "../db/client";
 import { conversations, filings } from "../db/schema";
 import {
   FilingNotFoundError,
+  formatDiaryNumber,
   type CreateDraftInput,
   type FilingRecord,
   type FilingRepository,
@@ -141,6 +142,48 @@ export class DrizzleFilingRepository implements FilingRepository {
     await (tx as Transaction)
       .update(filings)
       .set({ declarationAcceptedAt: acceptedAt, updatedAt: new Date() })
+      .where(eq(filings.id, filingId));
+  }
+
+  async findByActiveFilingId(tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord | null> {
+    const t = tx as Transaction;
+
+    const [conversationRow] = await t
+      .select({ activeFilingId: conversations.activeFilingId })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .limit(1);
+
+    if (!conversationRow?.activeFilingId) {
+      return null;
+    }
+
+    const [filing] = await t.select().from(filings).where(eq(filings.id, conversationRow.activeFilingId)).limit(1);
+    return filing ?? null;
+  }
+
+  async nextDiaryNumber(tx: RepositoryTransaction, filedAt: Date): Promise<string> {
+    const result = await (tx as Transaction).execute(sql`select nextval('diary_number_seq') as val`);
+    const sequence = Number((result.rows[0] as { val: string }).val);
+    return formatDiaryNumber(sequence, filedAt);
+  }
+
+  async recordFiled(tx: RepositoryTransaction, filingId: string, input: { diaryNumber: string; filedAt: Date }): Promise<void> {
+    await (tx as Transaction)
+      .update(filings)
+      .set({ status: "FILED", diaryNumber: input.diaryNumber, filedAt: input.filedAt, currentStep: "FILING_FILED", updatedAt: new Date() })
+      .where(eq(filings.id, filingId));
+  }
+
+  async recordFeePaid(tx: RepositoryTransaction, filingId: string, input: { transactionId: string; paidAt: Date }): Promise<void> {
+    await (tx as Transaction)
+      .update(filings)
+      .set({
+        courtFeePaidAt: input.paidAt,
+        courtFeeTransactionId: input.transactionId,
+        currentStep: "FILING_DONE",
+        updatedAt: new Date(),
+      })
       .where(eq(filings.id, filingId));
   }
 }

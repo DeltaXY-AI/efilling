@@ -90,7 +90,12 @@ export type ConversationState =
   | "DRAFT_READY_START"
   | "FILING_DRAFT_READY"
   | "FILING_OTP_PENDING"
-  | "FILING_FILED_START";
+  // Owned by Prototype parity - Phase 7 (#35). FILING_FEE_PAID from that
+  // issue's own state-machine type is intentionally omitted — it is never
+  // persisted (see schema.ts's conversation_state comment).
+  | "FILING_FILED_START"
+  | "FILING_FILED"
+  | "FILING_DONE";
 
 export interface ConversationRecord {
   id: string;

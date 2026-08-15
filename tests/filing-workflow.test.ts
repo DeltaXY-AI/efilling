@@ -40,6 +40,9 @@ const FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS = {
 const FILING_SIGN_SENDER_DEPS_CONTENT_SIDS = {
   draftReadyActionsContentSid: { en: "HXfdraftreadyEn0000000000000000000", ml: "HXfdraftreadyMl0000000000000000000" },
 };
+const FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS = {
+  payFeeActionsContentSid: { en: "HXffiledEn00000000000000000000000", ml: "HXffiledMl00000000000000000000000" },
+};
 
 describe("filing-workflow", () => {
   let conversationRepo: InMemoryConversationRepository;
@@ -96,6 +99,7 @@ describe("filing-workflow", () => {
       filingDetailsSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS },
       filingDocumentRepo: new InMemoryFilingDocumentRepository(),
       filingSignSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_SIGN_SENDER_DEPS_CONTENT_SIDS },
+      filingCompletionSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS },
       withTransaction: createInMemoryWithTransaction(),
     };
   });
@@ -417,6 +421,31 @@ describe("filing-workflow", () => {
       );
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       expect(conversation).toMatchObject({ state: "ACCUSED_CONFIRM" });
+    });
+
+    it("#35: resuming a legacy draft still at FILING_FILED_START actually files it now — diary number generated, status flipped to FILED, filed summary + pay-fee actions sent", async () => {
+      const filing = await filingRepo.createDraft(undefined, {
+        conversationId,
+        language: "en",
+        role: "COMPLAINANT_ADVOCATE",
+        testNoticeVersion: "v1",
+      });
+      await filingRepo.upsertFilingFields(undefined, filing.id, { selectedCourt: "ON Court - I, Kollam" });
+      await filingRepo.setCurrentStep(undefined, filing.id, "FILING_FILED_START");
+      await conversationRepo.setActiveFilingAndState(undefined, conversationId, filing.id, "FILING_DRAFT_CHOICE");
+
+      const result = await handleDraftChoiceInput(deps, actionInput({ selection: { buttonPayload: "filing:resume-draft" } }));
+
+      expect(result.delivered).toBe(true);
+      const updated = filingRepo.findById(filing.id);
+      expect(updated).toMatchObject({ currentStep: "FILING_FILED", status: "FILED" });
+      expect(updated?.diaryNumber).toMatch(/^TEST-\d{6}-\d{4}$/);
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "FILING_FILED" });
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining(updated!.diaryNumber!) }));
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS.payFeeActionsContentSid.en }),
+      );
     });
 
     it("filing:resume-draft when the draft has disappeared routes safely to FILING_NOTICE, no user-visible error", async () => {

@@ -36,6 +36,9 @@ const FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS = {
 const FILING_SIGN_SENDER_DEPS_CONTENT_SIDS = {
   draftReadyActionsContentSid: { en: "HXfdraftreadyEn0000000000000000000", ml: "HXfdraftreadyMl0000000000000000000" },
 };
+const FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS = {
+  payFeeActionsContentSid: { en: "HXffiledEn00000000000000000000000", ml: "HXffiledMl00000000000000000000000" },
+};
 
 describe("handleInboundForMainMenu", () => {
   let conversationRepo: InMemoryConversationRepository;
@@ -109,6 +112,7 @@ describe("handleInboundForMainMenu", () => {
         filingDetailsSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS },
         filingDocumentRepo: new InMemoryFilingDocumentRepository(),
         filingSignSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_SIGN_SENDER_DEPS_CONTENT_SIDS },
+        filingCompletionSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS },
         withTransaction: createInMemoryWithTransaction(),
       },
     };
