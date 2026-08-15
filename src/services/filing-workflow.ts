@@ -4,6 +4,8 @@ import type { FilingPartyRepository } from "../repositories/filing-party-reposit
 import type { FilingRecord, FilingRepository } from "../repositories/filing-repository";
 import type { OutboundMessageRepository } from "../repositories/outbound-message-repository";
 import type { RepositoryTransaction } from "../repositories/transaction";
+import type { AccusedSenderDeps } from "./accused-sender";
+import { ACCUSED_SUPPORTED_FILING_STEPS, resendAccusedPromptForResume } from "./accused-workflow";
 import type { ComplainantSenderDeps } from "./complainant-sender";
 import { COMPLAINANT_SUPPORTED_FILING_STEPS, resendComplainantPromptForResume } from "./complainant-workflow";
 import { FILING_DOCUMENT_SUPPORTED_STEPS, resendFilingDocumentPromptForResume } from "./filing-document-workflow";
@@ -15,7 +17,7 @@ import { commitWithOutbound, finalizeOutbound } from "./transactional-outbound";
 export interface FilingWorkflowDeps {
   conversationRepo: ConversationRepository;
   filingRepo: FilingRepository;
-  /** #10's normalized complainant-details store — needed here only to resend the persisted summary when a draft resumes into COMPLAINANT_CONFIRM. */
+  /** #10's normalized party-details store — needed here only to resend the persisted summary when a draft resumes into COMPLAINANT_CONFIRM/ACCUSED_CONFIRM. */
   partyRepo: FilingPartyRepository;
   /** Durable outbound intent, enqueued inside the same transaction as each committed state change — see commitWithOutbound in transactional-outbound.ts. */
   outboundMessageRepo: OutboundMessageRepository;
@@ -26,6 +28,8 @@ export interface FilingWorkflowDeps {
   enrolmentSenderDeps: EnrolmentSenderDeps;
   /** Reused as-is for resuming into any of #10's complainant-details steps — never a second implementation. */
   complainantSenderDeps: ComplainantSenderDeps;
+  /** Reused as-is for resuming into any of #11's accused-details steps — never a second implementation. */
+  accusedSenderDeps: AccusedSenderDeps;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -50,12 +54,13 @@ export interface FilingWorkflowResult {
 
 const TEST_NOTICE_VERSION = "v1";
 
-/** Only ever set by this issue's own createDraft, #9's saveEnrolmentCandidate, #31's document-upload steps, or #10's complainant-details steps — real, deployed, resumable steps. */
+/** Only ever set by this issue's own createDraft, #9's saveEnrolmentCandidate, #31's document-upload steps, #10's complainant-details steps, or #11's accused-details steps — real, deployed, resumable steps. */
 const SUPPORTED_FILING_STEPS: ReadonlySet<string> = new Set([
   "ADVOCATE_ENROLMENT_PENDING",
   "ADVOCATE_ENROLMENT_CONFIRM",
   ...FILING_DOCUMENT_SUPPORTED_STEPS,
   ...COMPLAINANT_SUPPORTED_FILING_STEPS,
+  ...ACCUSED_SUPPORTED_FILING_STEPS,
 ]);
 
 const RESUMED_TEXT: Record<SupportedLanguage, string> = {
@@ -199,14 +204,20 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
       return { committed: false };
     }
 
-    // #10 Part A: COMPLAINANT_DETAILS_START is never persisted going
-    // forward (see schema.ts) — any pre-existing row still at that value
-    // resumes as COMPLAINANT_NAME_PENDING, its effective equivalent. Both
-    // the filing's current_step and the conversation's state are corrected
-    // together here (Part B: "must move together in the same transaction")
-    // rather than leaving current_step stale until the next valid answer.
-    const isLegacyDetailsStart = draft.currentStep === "COMPLAINANT_DETAILS_START";
-    const resumeState: ConversationState = isLegacyDetailsStart ? "COMPLAINANT_NAME_PENDING" : (draft.currentStep as ConversationState);
+    // #10/#11 Part A: neither COMPLAINANT_DETAILS_START nor
+    // ACCUSED_DETAILS_START is ever persisted going forward (see
+    // schema.ts) — any pre-existing row still at either value resumes as
+    // its effective *_NAME_PENDING equivalent. Both the filing's
+    // current_step and the conversation's state are corrected together
+    // here (Part B: "must move together in the same transaction") rather
+    // than leaving current_step stale until the next valid answer.
+    const LEGACY_DETAILS_START_TO_NAME_PENDING: Partial<Record<string, ConversationState>> = {
+      COMPLAINANT_DETAILS_START: "COMPLAINANT_NAME_PENDING",
+      ACCUSED_DETAILS_START: "ACCUSED_NAME_PENDING",
+    };
+    const legacyTranslation = LEGACY_DETAILS_START_TO_NAME_PENDING[draft.currentStep];
+    const isLegacyDetailsStart = legacyTranslation !== undefined;
+    const resumeState: ConversationState = legacyTranslation ?? (draft.currentStep as ConversationState);
     if (isLegacyDetailsStart) {
       await deps.filingRepo.setCurrentStep(tx, draft.id, resumeState);
     }
@@ -244,9 +255,9 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
   // generic resumed text — the advocate needs to see the number again to
   // act on Confirm/Edit/Save and exit. #31: resuming into any of the 5
   // document-upload groups must likewise resend that group's own prompt.
-  // #10 Part K: resuming into any of the complainant-details steps must
-  // likewise resend the exact pending field prompt or the review screen,
-  // not the generic resumed text.
+  // #10/#11: resuming into any of the complainant- or accused-details steps
+  // must likewise resend the exact pending field prompt or the review
+  // screen, not the generic resumed text.
   let delivered: boolean;
   if (resumedStep === "ADVOCATE_ENROLMENT_CONFIRM" && resumedNormalizedEnrolment) {
     delivered = await sendEnrolmentConfirmation(deps.enrolmentSenderDeps, sendInput, resumedNormalizedEnrolment);
@@ -260,6 +271,21 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
         partyRepo: deps.partyRepo,
         outboundMessageRepo: deps.outboundMessageRepo,
         complainantSenderDeps: deps.complainantSenderDeps,
+        mainMenuSenderDeps: deps.mainMenuSenderDeps,
+        accusedSenderDeps: deps.accusedSenderDeps,
+        withTransaction: deps.withTransaction,
+      },
+      resumedFiling,
+      sendInput,
+    );
+  } else if (resumedStep && resumedFiling && ACCUSED_SUPPORTED_FILING_STEPS.has(resumedStep)) {
+    delivered = await resendAccusedPromptForResume(
+      {
+        conversationRepo: deps.conversationRepo,
+        filingRepo: deps.filingRepo,
+        partyRepo: deps.partyRepo,
+        outboundMessageRepo: deps.outboundMessageRepo,
+        accusedSenderDeps: deps.accusedSenderDeps,
         mainMenuSenderDeps: deps.mainMenuSenderDeps,
         withTransaction: deps.withTransaction,
       },

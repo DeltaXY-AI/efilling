@@ -20,6 +20,8 @@ const ENROLMENT_PROMPT_CONTENT_SID = { en: "HXenrolpromptEn00000000000000000000"
 const ENROLMENT_CONFIRM_CONTENT_SID = { en: "HXenrolconfirmEn0000000000000000000", ml: "HXenrolconfirmMl0000000000000000000" };
 const COMPLAINANT_REVIEW_CONTENT_SID = { en: "HXcreviewEn00000000000000000000000", ml: "HXcreviewMl00000000000000000000000" };
 const COMPLAINANT_EDIT_FIELDS_CONTENT_SID = { en: "HXceditEn000000000000000000000000", ml: "HXceditMl000000000000000000000000" };
+const ACCUSED_REVIEW_CONTENT_SID = { en: "HXareviewEn000000000000000000000000", ml: "HXareviewMl000000000000000000000000" };
+const ACCUSED_EDIT_FIELDS_CONTENT_SID = { en: "HXaeditEn0000000000000000000000000", ml: "HXaeditMl0000000000000000000000000" };
 
 function baseInput(overrides: Partial<Parameters<typeof routeInboundMessage>[1]> = {}) {
   return {
@@ -57,6 +59,12 @@ describe("routeInboundMessage", () => {
       reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
       editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
     };
+    const accusedSenderDeps = {
+      messagingClient,
+      fromNumber: FROM_NUMBER,
+      reviewActionsContentSid: ACCUSED_REVIEW_CONTENT_SID,
+      editFieldsContentSid: ACCUSED_EDIT_FIELDS_CONTENT_SID,
+    };
     deps = {
       conversationRepo,
       languageWorkflowDeps: {
@@ -81,6 +89,7 @@ describe("routeInboundMessage", () => {
         mainMenuSenderDeps,
         enrolmentSenderDeps,
         complainantSenderDeps,
+        accusedSenderDeps,
         withTransaction: createInMemoryWithTransaction(),
       },
       enrolmentWorkflowDeps: {
@@ -109,6 +118,16 @@ describe("routeInboundMessage", () => {
         partyRepo,
         outboundMessageRepo,
         complainantSenderDeps,
+        mainMenuSenderDeps,
+        accusedSenderDeps,
+        withTransaction: createInMemoryWithTransaction(),
+      },
+      accusedWorkflowDeps: {
+        conversationRepo,
+        filingRepo,
+        partyRepo,
+        outboundMessageRepo,
+        accusedSenderDeps,
         mainMenuSenderDeps,
         withTransaction: createInMemoryWithTransaction(),
       },
@@ -309,8 +328,82 @@ describe("routeInboundMessage", () => {
     const result = await routeInboundMessage(deps, baseInput({ buttonPayload: "complainant:confirm" }));
 
     expect(result.delivered).toBe(true);
+    // #11 Part A: confirming the complainant cascades straight into
+    // ACCUSED_NAME_PENDING — ACCUSED_DETAILS_START is never persisted.
     const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-    expect(after).toMatchObject({ state: "ACCUSED_DETAILS_START" });
+    expect(after).toMatchObject({ state: "ACCUSED_NAME_PENDING" });
+    expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("legal name") }));
+  });
+
+  it("keeps a legacy ACCUSED_DETAILS_START conversation alive without sending anything (never persisted going forward — see schema.ts)", async () => {
+    await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+    await conversationRepo.setState(WHATSAPP_NUMBER, "ACCUSED_DETAILS_START", new Date());
+    messagingClient.sendContentTemplate.mockClear();
+    messagingClient.sendText.mockClear();
+
+    const result = await routeInboundMessage(deps, baseInput({ body: "some accused detail" }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendContentTemplate).not.toHaveBeenCalled();
+    expect(messagingClient.sendText).not.toHaveBeenCalled();
+  });
+
+  it("routes an ACCUSED_NAME_PENDING conversation to the accused workflow (#11)", async () => {
+    const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+    const filing = await filingRepo.createDraft(undefined, {
+      conversationId: conversation.id,
+      language: "en",
+      role: "COMPLAINANT_ADVOCATE",
+      testNoticeVersion: "v1",
+    });
+    await conversationRepo.setActiveFilingAndState(undefined, conversation.id, filing.id, "ACCUSED_NAME_PENDING");
+
+    const result = await routeInboundMessage(deps, baseInput({ body: "Rajesh Menon" }));
+
+    expect(result.delivered).toBe(true);
+    const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(after).toMatchObject({ state: "ACCUSED_PHONE_PENDING" });
+  });
+
+  it("routes an ACCUSED_CONFIRM conversation to the accused workflow (#11)", async () => {
+    const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+    const filing = await filingRepo.createDraft(undefined, {
+      conversationId: conversation.id,
+      language: "en",
+      role: "COMPLAINANT_ADVOCATE",
+      testNoticeVersion: "v1",
+    });
+    await filingRepo.setCurrentStep(undefined, filing.id, "ACCUSED_CONFIRM");
+    await partyRepo.upsertFields(undefined, filing.id, "ACCUSED", {
+      fullName: "Rajesh Menon",
+      phoneOriginal: null,
+      phoneNormalized: null,
+      address: "32/1147, Menon Villa\nChinnakada, Kollam 691001",
+    });
+    await conversationRepo.setActiveFilingAndState(undefined, conversation.id, filing.id, "ACCUSED_CONFIRM");
+
+    const result = await routeInboundMessage(deps, baseInput({ buttonPayload: "accused:confirm" }));
+
+    expect(result.delivered).toBe(true);
+    const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(after).toMatchObject({ state: "CHEQUE_DETAILS_START" });
+  });
+
+  it("keeps a CHEQUE_DETAILS_START conversation alive without sending anything (owned by Prototype parity Phase 5 / #33)", async () => {
+    await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+    await conversationRepo.setState(WHATSAPP_NUMBER, "CHEQUE_DETAILS_START", new Date());
+    messagingClient.sendContentTemplate.mockClear();
+    messagingClient.sendText.mockClear();
+
+    const result = await routeInboundMessage(deps, baseInput({ body: "some cheque detail" }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendContentTemplate).not.toHaveBeenCalled();
+    expect(messagingClient.sendText).not.toHaveBeenCalled();
   });
 
   describe("restart request", () => {
@@ -394,11 +487,13 @@ describe("routeInboundMessage", () => {
   });
 
   describe("unsupported persisted state recovery (#26)", () => {
-    // Simulates the incident: a conversation persisted in a state (e.g. by a
-    // different/newer deployment's migration) that isn't in this branch's
-    // ConversationState union at all — CHEQUE_DETAILS_START never appears in
-    // src/repositories/conversation-repository.ts or schema.ts.
-    const UNSUPPORTED_STATE = "CHEQUE_DETAILS_START" as ConversationState;
+    // Simulates the incident that originally motivated #26: a conversation
+    // persisted in a state (e.g. by a different/newer deployment's
+    // migration) that isn't in this branch's ConversationState union at all.
+    // The real incident's example was CHEQUE_DETAILS_START — since #33/#11
+    // that value is a known (if still-unimplemented) state, so this fixture
+    // uses a value that will never legitimately exist instead.
+    const UNSUPPORTED_STATE = "SOME_FUTURE_STATE_NOT_YET_KNOWN" as ConversationState;
 
     it("sends a recovery response and resets to AWAITING_LANGUAGE instead of a silent no-op", async () => {
       await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
@@ -453,7 +548,7 @@ describe("routeInboundMessage", () => {
 
       const logged = lines.join("\n");
       expect(logged).toContain("unsupported_conversation_state");
-      expect(logged).toContain("CHEQUE_DETAILS_START");
+      expect(logged).toContain("SOME_FUTURE_STATE_NOT_YET_KNOWN");
       expect(logged).toContain("SM0000000000000000000000000000000"); // correlation id (messageId)
       expect(logged).not.toContain("15005550006");
       expect(logged).not.toContain("some private filing detail");

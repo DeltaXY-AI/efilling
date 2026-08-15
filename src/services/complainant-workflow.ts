@@ -13,6 +13,8 @@ import type { FilingRecord, FilingRepository } from "../repositories/filing-repo
 import type { FilingPartyRecord, FilingPartyRepository, UpsertFilingPartyFieldsInput } from "../repositories/filing-party-repository";
 import type { OutboundMessageRepository, OutboundMessageType } from "../repositories/outbound-message-repository";
 import type { RepositoryTransaction } from "../repositories/transaction";
+import type { AccusedSenderDeps } from "./accused-sender";
+import { sendAccusedNamePrompt } from "./accused-workflow";
 import {
   sendComplainantEditFields,
   sendComplainantReviewActions,
@@ -33,7 +35,9 @@ import { commitWithOutbound, finalizeOutbound } from "./transactional-outbound";
  *
  * This file must never import from filing-workflow.ts — filing-workflow.ts
  * imports `resendComplainantPromptForResume` from here (for #8's draft
- * resume), so the dependency only ever runs one way.
+ * resume), so the dependency only ever runs one way. It may import from
+ * accused-workflow.ts (for the #11 cascade below), but accused-workflow.ts
+ * must never import back from here.
  */
 
 export interface ComplainantWorkflowDeps {
@@ -45,6 +49,8 @@ export interface ComplainantWorkflowDeps {
   complainantSenderDeps: ComplainantSenderDeps;
   /** Reused as-is for "back to main menu" after save-and-exit — never a second implementation. */
   mainMenuSenderDeps: MainMenuSenderDeps;
+  /** Reused as-is for the accused name prompt sent right after Confirm cascades into ACCUSED_NAME_PENDING (#11 Part A) — never a second implementation. */
+  accusedSenderDeps: AccusedSenderDeps;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -613,23 +619,38 @@ async function confirmComplainant(deps: ComplainantWorkflowDeps, input: Complain
     }
 
     await deps.partyRepo.confirm(tx, lockedFiling.id, "COMPLAINANT", new Date());
-    await deps.filingRepo.setCurrentStep(tx, lockedFiling.id, "ACCUSED_DETAILS_START");
-    await deps.conversationRepo.setStateInTx(tx, locked.id, "ACCUSED_DETAILS_START");
-    return { committed: true, sends: [{ messageType: "COMPLAINANT_RECORDED" as const, dedupeSuffix: "complainant-recorded" }] };
+    // #11 Part A: ACCUSED_DETAILS_START's "state entry" transition to
+    // ACCUSED_NAME_PENDING happens right here, in the same transaction —
+    // never left resting at an intermediate state waiting for another
+    // inbound message (mirrors #10 Part A's enrolment->complainant cascade).
+    await deps.filingRepo.setCurrentStep(tx, lockedFiling.id, "ACCUSED_NAME_PENDING");
+    await deps.conversationRepo.setStateInTx(tx, locked.id, "ACCUSED_NAME_PENDING");
+    return {
+      committed: true,
+      sends: [
+        { messageType: "COMPLAINANT_RECORDED" as const, dedupeSuffix: "complainant-recorded" },
+        { messageType: "ACCUSED_NAME_PROMPT" as const, dedupeSuffix: "accused-name-prompt" },
+      ],
+    };
   });
 
   if (!commit.committed) {
     return { delivered: true };
   }
 
+  const sendInput = sendInputFor(input);
   const delivered = await sendFilingPlainText(
     deps.complainantSenderDeps,
-    sendInputFor(input),
+    sendInput,
     RECORDED_TEXT[input.language],
     "complainant_recorded_send_failed",
   );
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
-  return { delivered };
+
+  const namePromptDelivered = await sendAccusedNamePrompt(deps.accusedSenderDeps, sendInput);
+  await finalizeOutbound(deps, commit.outboundIds[1], namePromptDelivered);
+
+  return { delivered: delivered && namePromptDelivered };
 }
 
 async function openEditFieldPicker(deps: ComplainantWorkflowDeps, input: ComplainantActionInput): Promise<ComplainantWorkflowResult> {

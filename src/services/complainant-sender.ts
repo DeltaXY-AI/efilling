@@ -1,6 +1,6 @@
-import { parsePhoneNumberFromString } from "libphonenumber-js";
 import type { TwilioMessagingClient } from "../adapters/twilio/messaging-client";
 import type { FilingPartyRecord } from "../repositories/filing-party-repository";
+import { formatPhoneForDisplay } from "../lib/format-phone-for-display";
 import { logWorkflowError } from "../lib/logger";
 import type { SupportedLanguage } from "./main-menu-sender";
 
@@ -39,19 +39,6 @@ const SUMMARY_LABELS: Record<SupportedLanguage, { title: string; name: string; p
     notProvided: "നൽകിയിട്ടില്ല",
   },
 };
-
-/**
- * Formats the stored E.164 value (e.g. "+919876543210") for human display
- * (e.g. "+91 98765 43210"), matching #10 Part F's example. Storage stays
- * strict E.164 (Part C) — this is a display-only reformat, re-derived from
- * it every time rather than stored as a separate column. Falls back to the
- * raw stored value if it somehow doesn't parse (defensive only — every
- * stored value already passed `validatePhoneNumber`).
- */
-function formatPhoneForDisplay(phoneNormalized: string): string {
-  const parsed = parsePhoneNumberFromString(phoneNormalized);
-  return parsed ? parsed.formatInternational() : phoneNormalized;
-}
 
 /**
  * Renders the localized complainant summary from persisted party data only
