@@ -12,6 +12,8 @@ import { FILING_DOCUMENT_SUPPORTED_STEPS, resendFilingDocumentPromptForResume } 
 import type { FilingDetailsSenderDeps } from "./filing-details-sender";
 import { FILING_DETAILS_SUPPORTED_FILING_STEPS, resendFilingDetailsPromptForResume } from "./filing-details-workflow";
 import { FILING_REVIEW_SUPPORTED_FILING_STEPS, resendFilingReviewPromptForResume } from "./filing-review-workflow";
+import { FILING_SIGN_SUPPORTED_FILING_STEPS, resendFilingSignPromptForResume } from "./filing-sign-workflow";
+import type { FilingSignSenderDeps } from "./filing-sign-sender";
 import type { FilingDocumentRepository } from "../repositories/filing-document-repository";
 import { sendEnrolmentConfirmation, sendEnrolmentPrompt, type EnrolmentSenderDeps } from "./enrolment-sender";
 import { sendDraftChoice, sendFilingNotice, sendFilingPlainText, type FilingSenderDeps } from "./filing-sender";
@@ -38,6 +40,8 @@ export interface FilingWorkflowDeps {
   filingDetailsSenderDeps: FilingDetailsSenderDeps;
   /** #33 Part F's review needs this only to check whether Part E's optional written-account group has any files when resending the review on resume. */
   filingDocumentRepo: FilingDocumentRepository;
+  /** Reused as-is for resuming into any of #34's draft-ready/OTP steps — never a second implementation. */
+  filingSignSenderDeps: FilingSignSenderDeps;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -71,6 +75,7 @@ const SUPPORTED_FILING_STEPS: ReadonlySet<string> = new Set([
   ...ACCUSED_SUPPORTED_FILING_STEPS,
   ...FILING_DETAILS_SUPPORTED_FILING_STEPS,
   ...FILING_REVIEW_SUPPORTED_FILING_STEPS,
+  ...FILING_SIGN_SUPPORTED_FILING_STEPS,
 ]);
 
 const RESUMED_TEXT: Record<SupportedLanguage, string> = {
@@ -224,6 +229,10 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
     const LEGACY_DETAILS_START_TO_NAME_PENDING: Partial<Record<string, ConversationState>> = {
       COMPLAINANT_DETAILS_START: "COMPLAINANT_NAME_PENDING",
       ACCUSED_DETAILS_START: "ACCUSED_NAME_PENDING",
+      // #34: DRAFT_READY_START is never persisted going forward (see
+      // schema.ts) — a pre-existing row still at that value resumes as
+      // FILING_DRAFT_READY.
+      DRAFT_READY_START: "FILING_DRAFT_READY",
     };
     const legacyTranslation = LEGACY_DETAILS_START_TO_NAME_PENDING[draft.currentStep];
     const isLegacyDetailsStart = legacyTranslation !== undefined;
@@ -318,8 +327,15 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
         outboundMessageRepo: deps.outboundMessageRepo,
         filingDetailsSenderDeps: deps.filingDetailsSenderDeps,
         mainMenuSenderDeps: deps.mainMenuSenderDeps,
+        filingSignSenderDeps: deps.filingSignSenderDeps,
         withTransaction: deps.withTransaction,
       },
+      resumedFiling,
+      sendInput,
+    );
+  } else if (resumedStep && resumedFiling && FILING_SIGN_SUPPORTED_FILING_STEPS.has(resumedStep)) {
+    delivered = await resendFilingSignPromptForResume(
+      { messagingClient: deps.filingSenderDeps.messagingClient, fromNumber: deps.filingSenderDeps.fromNumber, filingSignSenderDeps: deps.filingSignSenderDeps },
       resumedFiling,
       sendInput,
     );

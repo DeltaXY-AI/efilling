@@ -83,6 +83,7 @@ import {
   handleFilingReviewInput,
   type FilingReviewWorkflowDeps,
 } from "./filing-review-workflow";
+import { handleFilingDraftReadyInput, handleFilingOtpInput, type FilingSignWorkflowDeps } from "./filing-sign-workflow";
 import type { ConversationRepository } from "../repositories/conversation-repository";
 import { logWorkflowError } from "../lib/logger";
 import type { InboundMedia } from "../types/inbound-message";
@@ -98,6 +99,7 @@ export interface InboundRouterDeps {
   accusedWorkflowDeps: AccusedWorkflowDeps;
   filingDetailsWorkflowDeps: FilingDetailsWorkflowDeps;
   filingReviewWorkflowDeps: FilingReviewWorkflowDeps;
+  filingSignWorkflowDeps: FilingSignWorkflowDeps;
 }
 
 export interface InboundRouterInput {
@@ -164,12 +166,12 @@ async function handleRestartRequest(
 /**
  * Persisted states this deployment recognizes but doesn't yet implement a
  * workflow for (FILING_START/CASE_STATUS_START are owned by later issues;
- * DRAFT_READY_START is owned by Prototype parity Phase 6 (#34), the next
+ * FILING_FILED_START is owned by Prototype parity Phase 7 (#35), the next
  * issue after this one — exactly the same placeholder role
- * CHEQUE_DETAILS_START played for #33; COMPLAINANT_DETAILS_START,
- * ACCUSED_DETAILS_START, and (as of #33) CHEQUE_DETAILS_START are all
- * legacy-only, see schema.ts; NEW is the schema column default, never
- * actually persisted by app code). These intentionally keep the
+ * DRAFT_READY_START played for #34; COMPLAINANT_DETAILS_START,
+ * ACCUSED_DETAILS_START, CHEQUE_DETAILS_START, and (as of #34)
+ * DRAFT_READY_START are all legacy-only, see schema.ts; NEW is the schema
+ * column default, never actually persisted by app code). These intentionally keep the
  * conversation "alive" without sending anything, per "do not automatically
  * send the menu... while a future filing subflow is waiting for specific
  * input" — unlike a state outside this set, which this deployment has never
@@ -186,6 +188,7 @@ const KNOWN_UNIMPLEMENTED_STATES: ReadonlySet<string> = new Set([
   "ACCUSED_DETAILS_START",
   "CHEQUE_DETAILS_START",
   "DRAFT_READY_START",
+  "FILING_FILED_START",
 ]);
 
 const UNSUPPORTED_STATE_RECOVERY_MESSAGE =
@@ -237,7 +240,8 @@ async function recoverFromUnsupportedState(
  * enrolment-workflow at ADVOCATE_ENROLMENT_PENDING/ADVOCATE_ENROLMENT_CONFIRM
  * (#9), filing-document-workflow at every FILING_DOC_* step (#31),
  * complainant-workflow at every COMPLAINANT_* step (#10), accused-workflow
- * at every ACCUSED_* step (#11). Any other known-but-unimplemented state
+ * at every ACCUSED_* step (#11), filing-sign-workflow at
+ * FILING_DRAFT_READY/FILING_OTP_PENDING (#34). Any other known-but-unimplemented state
  * (see KNOWN_UNIMPLEMENTED_STATES) keeps the conversation alive without
  * sending anything; any state outside even that set is recovered instead of
  * stranding the user silently (#26). Before any of that, an existing
@@ -548,6 +552,14 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
   }
   if (conversation.state === "FILING_DECLARE_PENDING") {
     return handleFilingDeclareInput(deps.filingReviewWorkflowDeps, actionInput);
+  }
+
+  // #34 (Prototype parity - Phase 6): draft-ready summary and simulated e-Sign.
+  if (conversation.state === "FILING_DRAFT_READY") {
+    return handleFilingDraftReadyInput(deps.filingSignWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_OTP_PENDING") {
+    return handleFilingOtpInput(deps.filingSignWorkflowDeps, fieldEvent);
   }
 
   if (KNOWN_UNIMPLEMENTED_STATES.has(conversation.state)) {

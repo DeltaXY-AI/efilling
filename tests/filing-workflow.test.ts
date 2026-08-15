@@ -37,6 +37,9 @@ const FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS = {
   editNarrativeFieldContentSid: { en: "HXfenarrEn0000000000000000000000000", ml: "HXfenarrMl0000000000000000000000000" },
   declareContentSid: { en: "HXfdeclareEn00000000000000000000000", ml: "HXfdeclareMl00000000000000000000000" },
 };
+const FILING_SIGN_SENDER_DEPS_CONTENT_SIDS = {
+  draftReadyActionsContentSid: { en: "HXfdraftreadyEn0000000000000000000", ml: "HXfdraftreadyMl0000000000000000000" },
+};
 
 describe("filing-workflow", () => {
   let conversationRepo: InMemoryConversationRepository;
@@ -92,6 +95,7 @@ describe("filing-workflow", () => {
       },
       filingDetailsSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS },
       filingDocumentRepo: new InMemoryFilingDocumentRepository(),
+      filingSignSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_SIGN_SENDER_DEPS_CONTENT_SIDS },
       withTransaction: createInMemoryWithTransaction(),
     };
   });

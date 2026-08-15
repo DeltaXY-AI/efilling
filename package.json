@@ -28,7 +28,9 @@
     "twilio:accused:create": "tsx --env-file=.env twilio/scripts/create-accused-templates.ts",
     "twilio:accused:verify": "tsx --env-file=.env twilio/scripts/verify-accused-templates.ts",
     "twilio:filing-details:create": "tsx --env-file=.env twilio/scripts/create-filing-details-templates.ts",
-    "twilio:filing-details:verify": "tsx --env-file=.env twilio/scripts/verify-filing-details-templates.ts"
+    "twilio:filing-details:verify": "tsx --env-file=.env twilio/scripts/verify-filing-details-templates.ts",
+    "twilio:filing-sign:create": "tsx --env-file=.env twilio/scripts/create-filing-sign-templates.ts",
+    "twilio:filing-sign:verify": "tsx --env-file=.env twilio/scripts/verify-filing-sign-templates.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

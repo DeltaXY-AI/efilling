@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_filing_draft_ready_actions_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "What would you like to do next?",
+      "actions": [
+        { "title": "Review & e-Sign", "id": "filing:esign" },
+        { "title": "Edit details", "id": "filing:edit-details" }
+      ]
+    }
+  }
+}
