@@ -29,6 +29,13 @@ import type { FilingWorkflowResult } from "./filing-workflow";
  * handler shared by all 5 states via table lookups, thin exported wrappers,
  * and a resend-for-resume function consumed by filing-workflow.ts.
  *
+ * Also implements #32 (Prototype parity — Phase 4, Option A — no OCR): once
+ * the last (support) group is done, this same file sends the "got your
+ * documents" acknowledgement (ALL_RECEIVED_TEXT below) and cascades straight
+ * into COMPLAINANT_NAME_PENDING in the same transaction — there is no
+ * separate "processing"/"extracted" state for #32 to add, matching how #9's
+ * enrolment-recording message already works.
+ *
  * Prompts/errors have no Content Template — sent with the same
  * `sendFilingPlainText` helper every other plain-text message in this
  * codebase uses.
@@ -182,9 +189,18 @@ const UNRECOGNIZED_INPUT_TEXT: Record<SupportedLanguage, string> = {
   ml: 'ഈ രേഖ ഫോട്ടോ അല്ലെങ്കിൽ PDF ആയി അയക്കുക, അല്ലെങ്കിൽ ആവശ്യത്തിന് അയച്ചു കഴിഞ്ഞാൽ "കഴിഞ്ഞു" എന്ന് മറുപടി നൽകുക.',
 };
 
+// #32 (Prototype parity — Phase 4, Option A: no OCR): the prototype's
+// `uploadedAck` promises "I'm reading them now ... this usually takes under
+// a minute" — a promise this codebase cannot keep, since it has no
+// OCR/document-AI extraction step. That line is deliberately dropped; this
+// is an honest "received" acknowledgement followed by a direct handoff into
+// typed case-detail entry, not a "give me a moment" that leads nowhere.
+// ML wording is this codebase's own translation of the adjusted (non-OCR)
+// English above — the prototype's own Malayalam text for this screen
+// assumes the reading illusion and is not reusable verbatim here.
 const ALL_RECEIVED_TEXT: Record<SupportedLanguage, string> = {
-  en: "✓ All documents received.",
-  ml: "✓ എല്ലാ രേഖകളും ലഭിച്ചു.",
+  en: "✓ Got all your documents.\n\nThanks - let's go through the case details next.",
+  ml: "✓ നിങ്ങളുടെ എല്ലാ രേഖകളും ലഭിച്ചു.\n\nനന്ദി - അടുത്തതായി കേസിന്റെ വിവരങ്ങളിലേക്ക് കടക്കാം.",
 };
 
 function receivedAckText(group: FilingDocumentGroup, count: number, language: SupportedLanguage): string {
