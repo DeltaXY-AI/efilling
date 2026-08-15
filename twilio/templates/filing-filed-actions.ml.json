@@ -1,0 +1,10 @@
+{
+  "friendly_name": "oncourts_filing_filed_actions_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "കോടതി ഫീസ് അടച്ച് നിങ്ങളുടെ ഫയലിംഗ് പൂർത്തിയാക്കുക.",
+      "actions": [{ "title": "കോടതി ഫീസ് അടയ്ക്കുക", "id": "filing:pay-fee" }]
+    }
+  }
+}

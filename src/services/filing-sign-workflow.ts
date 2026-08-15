@@ -4,6 +4,7 @@ import type { ConversationRepository } from "../repositories/conversation-reposi
 import type { FilingRecord, FilingRepository } from "../repositories/filing-repository";
 import type { OutboundMessageRepository } from "../repositories/outbound-message-repository";
 import type { RepositoryTransaction } from "../repositories/transaction";
+import { sendFiledActions, sendFiledSummary, type FilingCompletionSenderDeps } from "./filing-completion-sender";
 import { resendFilingReviewPromptForResume, type FilingReviewWorkflowDeps } from "./filing-review-workflow";
 import { sendDraftReadyActions, sendDraftReadySummary, type FilingSignSenderDeps, type SendFilingSignMessageInput } from "./filing-sign-sender";
 import { sendFilingPlainText } from "./filing-sender";
@@ -21,10 +22,13 @@ import type { FilingWorkflowResult } from "./filing-workflow";
  * OTP dispatch that doesn't exist in this codebase.
  *
  * This file must never import from filing-workflow.ts — filing-workflow.ts
- * imports `resendFilingSignPromptForResume` from here, so the dependency
- * only ever runs one way. It imports `resendFilingReviewPromptForResume`
- * from filing-review-workflow.ts (to send Phase 5's review screen back on
- * "Edit details"), which must never import back from here.
+ * imports `resendFilingSignPromptForResume` and `recordFilingAsFiled` from
+ * here, so the dependency only ever runs one way. It imports
+ * `resendFilingReviewPromptForResume` from filing-review-workflow.ts (to
+ * send Phase 5's review screen back on "Edit details"), which must never
+ * import back from here. It also imports the filed-summary sender
+ * functions from filing-completion-sender.ts (a leaf module, #35) to
+ * deliver the real FILING_FILED cascade once a valid OTP is entered.
  */
 
 export interface FilingSignWorkflowDeps {
@@ -37,6 +41,8 @@ export interface FilingSignWorkflowDeps {
   filingSignSenderDeps: FilingSignSenderDeps;
   /** Reused as-is for "Edit details" cascading back into Phase 5's review screen — never a second implementation. */
   filingReviewWorkflowDeps: FilingReviewWorkflowDeps;
+  /** #35: used only to send the filed-acknowledgement summary + actions once a valid OTP cascades into FILING_FILED — never a second implementation of that copy. */
+  filingCompletionSenderDeps: FilingCompletionSenderDeps;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -209,9 +215,24 @@ async function returnToReview(deps: FilingSignWorkflowDeps, input: FilingSignAct
   return { delivered };
 }
 
+/**
+ * Generates a diary number and records the filing as filed — shared by the
+ * real OTP-valid cascade below and filing-workflow.ts's legacy
+ * FILING_FILED_START resume-translation (#35), which must produce the
+ * exact same result rather than a second, potentially-diverging
+ * implementation. Returns the updated record so the caller can render the
+ * filed-summary message without a second read inside the same transaction.
+ */
+export async function recordFilingAsFiled(filingRepo: FilingRepository, tx: RepositoryTransaction, filing: FilingRecord): Promise<FilingRecord> {
+  const filedAt = new Date();
+  const diaryNumber = await filingRepo.nextDiaryNumber(tx, filedAt);
+  await filingRepo.recordFiled(tx, filing.id, { diaryNumber, filedAt });
+  return { ...filing, status: "FILED", diaryNumber, filedAt, currentStep: "FILING_FILED" };
+}
+
 // ---------------------------------------------------------------------------
 // FILING_OTP_PENDING: a format-only check, cascading into Prototype parity
-// - Phase 7's entry state (FILING_FILED_START) once valid.
+// - Phase 7's entry state (FILING_FILED, #35) once valid.
 // ---------------------------------------------------------------------------
 
 export async function handleFilingOtpInput(deps: FilingSignWorkflowDeps, input: FilingSignFieldInputEvent): Promise<FilingWorkflowResult> {
@@ -221,7 +242,8 @@ export async function handleFilingOtpInput(deps: FilingSignWorkflowDeps, input: 
     return { delivered: await sendFilingPlainText(deps, sendInput, OTP_BAD_TEXT[input.language], "filing_otp_bad_send_failed") };
   }
 
-  await commitWithOutbound(deps, input, async (tx, locked) => {
+  let filedFiling: FilingRecord | null = null;
+  const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
     if (locked.state !== "FILING_OTP_PENDING") {
       return { committed: false };
     }
@@ -229,18 +251,26 @@ export async function handleFilingOtpInput(deps: FilingSignWorkflowDeps, input: 
     if (!filing) {
       return { committed: false };
     }
-    // Owned by Prototype parity - Phase 7, the next issue after this one —
-    // never left resting at an intermediate state. No confirmation message
-    // of our own here; Phase 7 owns the first message the advocate sees.
-    await deps.filingRepo.setCurrentStep(tx, filing.id, "FILING_FILED_START");
-    await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_FILED_START");
-    return { committed: true, sends: [] };
+    filedFiling = await recordFilingAsFiled(deps.filingRepo, tx, filing);
+    await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_FILED");
+    return {
+      committed: true,
+      sends: [
+        { messageType: "FILING_FILED_SUMMARY" as const, dedupeSuffix: "filing-filed-summary" },
+        { messageType: "FILING_FILED_ACTIONS" as const, dedupeSuffix: "filing-filed-actions" },
+      ],
+    };
   });
 
-  // Either committed (nothing to finalize — sends was empty) or stale
-  // (state already moved on) — both are a safe no-op from the caller's
-  // point of view.
-  return { delivered: true };
+  if (!commit.committed || !filedFiling) {
+    return { delivered: true };
+  }
+
+  const summaryDelivered = await sendFiledSummary(deps, sendInput, filedFiling);
+  await finalizeOutbound(deps, commit.outboundIds[0], summaryDelivered);
+  const actionsDelivered = await sendFiledActions(deps.filingCompletionSenderDeps, sendInput);
+  await finalizeOutbound(deps, commit.outboundIds[1], actionsDelivered);
+  return { delivered: summaryDelivered && actionsDelivered };
 }
 
 // ---------------------------------------------------------------------------

@@ -38,6 +38,9 @@ const FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS = {
 const FILING_SIGN_SENDER_DEPS_CONTENT_SIDS = {
   draftReadyActionsContentSid: { en: "HXfdraftreadyEn0000000000000000000", ml: "HXfdraftreadyMl0000000000000000000" },
 };
+const FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS = {
+  payFeeActionsContentSid: { en: "HXffiledEn00000000000000000000000", ml: "HXffiledMl00000000000000000000000" },
+};
 
 function baseInput(overrides: Partial<Parameters<typeof routeInboundMessage>[1]> = {}) {
   return {
@@ -85,6 +88,7 @@ describe("routeInboundMessage", () => {
     };
     const filingDetailsSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS };
     const filingSignSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, ...FILING_SIGN_SENDER_DEPS_CONTENT_SIDS };
+    const filingCompletionSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, ...FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS };
     deps = {
       conversationRepo,
       languageWorkflowDeps: {
@@ -113,6 +117,7 @@ describe("routeInboundMessage", () => {
         filingDetailsSenderDeps,
         filingDocumentRepo,
         filingSignSenderDeps,
+        filingCompletionSenderDeps,
         withTransaction: createInMemoryWithTransaction(),
       },
       enrolmentWorkflowDeps: {
@@ -182,6 +187,7 @@ describe("routeInboundMessage", () => {
         messagingClient,
         fromNumber: FROM_NUMBER,
         filingSignSenderDeps,
+        filingCompletionSenderDeps,
         filingReviewWorkflowDeps: {
           conversationRepo,
           filingRepo,
@@ -193,6 +199,16 @@ describe("routeInboundMessage", () => {
           filingSignSenderDeps,
           withTransaction: createInMemoryWithTransaction(),
         },
+        withTransaction: createInMemoryWithTransaction(),
+      },
+      filingCompletionWorkflowDeps: {
+        conversationRepo,
+        filingRepo,
+        outboundMessageRepo,
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        filingCompletionSenderDeps,
+        mainMenuSenderDeps,
         withTransaction: createInMemoryWithTransaction(),
       },
     };

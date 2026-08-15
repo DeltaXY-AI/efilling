@@ -42,6 +42,9 @@ const FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS = {
 const FILING_SIGN_SENDER_DEPS_CONTENT_SIDS = {
   draftReadyActionsContentSid: { en: env.TWILIO_FILING_DRAFT_READY_ACTIONS_SID_EN, ml: env.TWILIO_FILING_DRAFT_READY_ACTIONS_SID_ML },
 };
+const FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS = {
+  payFeeActionsContentSid: { en: env.TWILIO_FILING_FILED_ACTIONS_SID_EN, ml: env.TWILIO_FILING_FILED_ACTIONS_SID_ML },
+};
 
 function sign(params: Record<string, string>): string {
   return getExpectedTwilioSignature(env.TWILIO_AUTH_TOKEN, WEBHOOK_URL, params);
@@ -84,6 +87,7 @@ function buildDeps(
   };
   const filingDetailsSenderDeps = { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS };
   const filingSignSenderDeps = { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, ...FILING_SIGN_SENDER_DEPS_CONTENT_SIDS };
+  const filingCompletionSenderDeps = { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, ...FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS };
   const filingRepo = new InMemoryFilingRepository(conversationRepo);
   const partyRepo = new InMemoryFilingPartyRepository();
   const filingDocumentRepo = new InMemoryFilingDocumentRepository();
@@ -117,6 +121,7 @@ function buildDeps(
       filingDetailsSenderDeps,
       filingDocumentRepo,
       filingSignSenderDeps,
+      filingCompletionSenderDeps,
       withTransaction: createInMemoryWithTransaction(),
     },
     enrolmentWorkflowDeps: {
@@ -186,6 +191,7 @@ function buildDeps(
       messagingClient,
       fromNumber: env.TWILIO_WHATSAPP_FROM,
       filingSignSenderDeps,
+      filingCompletionSenderDeps,
       filingReviewWorkflowDeps: {
         conversationRepo,
         filingRepo,
@@ -197,6 +203,16 @@ function buildDeps(
         filingSignSenderDeps,
         withTransaction: createInMemoryWithTransaction(),
       },
+      withTransaction: createInMemoryWithTransaction(),
+    },
+    filingCompletionWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      outboundMessageRepo,
+      messagingClient,
+      fromNumber: env.TWILIO_WHATSAPP_FROM,
+      filingCompletionSenderDeps,
+      mainMenuSenderDeps,
       withTransaction: createInMemoryWithTransaction(),
     },
   };

@@ -1,0 +1,1052 @@
+{
+  "id": "361b0420-1a85-456a-b3b6-f2ffbd76c9a8",
+  "prevId": "db736de5-fa33-4179-8f12-ba71314a5331",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.conversations": {
+      "name": "conversations",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "whatsapp_number": {
+          "name": "whatsapp_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "language": {
+          "name": "language",
+          "type": "conversation_language",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "state": {
+          "name": "state",
+          "type": "conversation_state",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'NEW'"
+        },
+        "active_filing_id": {
+          "name": "active_filing_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "last_inbound_at": {
+          "name": "last_inbound_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "conversations_active_filing_id_filings_id_fk": {
+          "name": "conversations_active_filing_id_filings_id_fk",
+          "tableFrom": "conversations",
+          "tableTo": "filings",
+          "columnsFrom": [
+            "active_filing_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "conversations_whatsapp_number_unique": {
+          "name": "conversations_whatsapp_number_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "whatsapp_number"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.filing_documents": {
+      "name": "filing_documents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "filing_id": {
+          "name": "filing_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "document_group": {
+          "name": "document_group",
+          "type": "filing_document_group",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "storage_url": {
+          "name": "storage_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_type": {
+          "name": "content_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "original_twilio_media_url": {
+          "name": "original_twilio_media_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "filing_documents_filing_id_idx": {
+          "name": "filing_documents_filing_id_idx",
+          "columns": [
+            {
+              "expression": "filing_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "filing_documents_filing_id_filings_id_fk": {
+          "name": "filing_documents_filing_id_filings_id_fk",
+          "tableFrom": "filing_documents",
+          "tableTo": "filings",
+          "columnsFrom": [
+            "filing_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.filing_parties": {
+      "name": "filing_parties",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "filing_id": {
+          "name": "filing_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "party_role": {
+          "name": "party_role",
+          "type": "filing_party_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "full_name": {
+          "name": "full_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "phone_original": {
+          "name": "phone_original",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "phone_normalized": {
+          "name": "phone_normalized",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "email_normalized": {
+          "name": "email_normalized",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "filing_as_role": {
+          "name": "filing_as_role",
+          "type": "complainant_filing_as_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "representative_enrolment_number": {
+          "name": "representative_enrolment_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "filing_party_entity_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "filing_party_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'DRAFT'"
+        },
+        "confirmed_at": {
+          "name": "confirmed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "filing_parties_filing_role_unique": {
+          "name": "filing_parties_filing_role_unique",
+          "columns": [
+            {
+              "expression": "filing_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "party_role",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "filing_parties_filing_id_idx": {
+          "name": "filing_parties_filing_id_idx",
+          "columns": [
+            {
+              "expression": "filing_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "filing_parties_filing_id_filings_id_fk": {
+          "name": "filing_parties_filing_id_filings_id_fk",
+          "tableFrom": "filing_parties",
+          "tableTo": "filings",
+          "columnsFrom": [
+            "filing_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.filings": {
+      "name": "filings",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "filing_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'COMPLAINANT_ADVOCATE'"
+        },
+        "status": {
+          "name": "status",
+          "type": "filing_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'DRAFT'"
+        },
+        "current_step": {
+          "name": "current_step",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "language": {
+          "name": "language",
+          "type": "conversation_language",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "test_notice_version": {
+          "name": "test_notice_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "test_notice_accepted_at": {
+          "name": "test_notice_accepted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "advocate_enrolment_original": {
+          "name": "advocate_enrolment_original",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "advocate_enrolment_normalized": {
+          "name": "advocate_enrolment_normalized",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "advocate_enrolment_status": {
+          "name": "advocate_enrolment_status",
+          "type": "advocate_enrolment_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "advocate_enrolment_confirmed_at": {
+          "name": "advocate_enrolment_confirmed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cheque_number": {
+          "name": "cheque_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cheque_date": {
+          "name": "cheque_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cheque_amount": {
+          "name": "cheque_amount",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "bank_branch": {
+          "name": "bank_branch",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "return_reason": {
+          "name": "return_reason",
+          "type": "filing_return_reason",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "memo_date": {
+          "name": "memo_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "notice_date": {
+          "name": "notice_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "service_date": {
+          "name": "service_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "part_payment": {
+          "name": "part_payment",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "narrative": {
+          "name": "narrative",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "witness_present": {
+          "name": "witness_present",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "selected_court": {
+          "name": "selected_court",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "declaration_accepted_at": {
+          "name": "declaration_accepted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "diary_number": {
+          "name": "diary_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "filed_at": {
+          "name": "filed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "court_fee_paid_at": {
+          "name": "court_fee_paid_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "court_fee_transaction_id": {
+          "name": "court_fee_transaction_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "filings_conversation_status_idx": {
+          "name": "filings_conversation_status_idx",
+          "columns": [
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "filings_conversation_id_conversations_id_fk": {
+          "name": "filings_conversation_id_conversations_id_fk",
+          "tableFrom": "filings",
+          "tableTo": "conversations",
+          "columnsFrom": [
+            "conversation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.outbound_messages": {
+      "name": "outbound_messages",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "dedupe_key": {
+          "name": "dedupe_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "message_type": {
+          "name": "message_type",
+          "type": "outbound_message_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "language": {
+          "name": "language",
+          "type": "conversation_language",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "outbound_message_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "error_code": {
+          "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "outbound_messages_conversation_id_conversations_id_fk": {
+          "name": "outbound_messages_conversation_id_conversations_id_fk",
+          "tableFrom": "outbound_messages",
+          "tableTo": "conversations",
+          "columnsFrom": [
+            "conversation_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "outbound_messages_dedupe_key_unique": {
+          "name": "outbound_messages_dedupe_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "dedupe_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.processed_webhook_events": {
+      "name": "processed_webhook_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "message_sid": {
+          "name": "message_sid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "whatsapp_number_masked_or_hash": {
+          "name": "whatsapp_number_masked_or_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "processed_at": {
+          "name": "processed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "webhook_event_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'processing'"
+        },
+        "error_code": {
+          "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "processed_webhook_events_message_sid_unique": {
+          "name": "processed_webhook_events_message_sid_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "message_sid"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.advocate_enrolment_status": {
+      "name": "advocate_enrolment_status",
+      "schema": "public",
+      "values": [
+        "PENDING_CONFIRMATION",
+        "RECORDED_UNVERIFIED"
+      ]
+    },
+    "public.complainant_filing_as_role": {
+      "name": "complainant_filing_as_role",
+      "schema": "public",
+      "values": [
+        "SELF",
+        "ADVOCATE_FOR_CLIENT"
+      ]
+    },
+    "public.conversation_language": {
+      "name": "conversation_language",
+      "schema": "public",
+      "values": [
+        "en",
+        "ml"
+      ]
+    },
+    "public.conversation_state": {
+      "name": "conversation_state",
+      "schema": "public",
+      "values": [
+        "NEW",
+        "AWAITING_LANGUAGE",
+        "MAIN_MENU",
+        "FILING_START",
+        "CASE_STATUS_START",
+        "FILING_DRAFT_CHOICE",
+        "FILING_NOTICE",
+        "ADVOCATE_ENROLMENT_PENDING",
+        "ADVOCATE_ENROLMENT_CONFIRM",
+        "FILING_DOC_CHEQUE",
+        "FILING_DOC_MEMO",
+        "FILING_DOC_NOTICE",
+        "FILING_DOC_ID",
+        "FILING_DOC_SUPPORT",
+        "COMPLAINANT_DETAILS_START",
+        "COMPLAINANT_NAME_PENDING",
+        "COMPLAINANT_PHONE_PENDING",
+        "COMPLAINANT_EMAIL_PENDING",
+        "COMPLAINANT_ADDRESS_PENDING",
+        "COMPLAINANT_CONFIRM",
+        "COMPLAINANT_EDIT_FIELD",
+        "COMPLAINANT_EDIT_NAME_PENDING",
+        "COMPLAINANT_EDIT_PHONE_PENDING",
+        "COMPLAINANT_EDIT_EMAIL_PENDING",
+        "COMPLAINANT_EDIT_ADDRESS_PENDING",
+        "ACCUSED_DETAILS_START",
+        "ACCUSED_NAME_PENDING",
+        "ACCUSED_PHONE_PENDING",
+        "ACCUSED_ADDRESS_PENDING",
+        "ACCUSED_CONFIRM",
+        "ACCUSED_EDIT_FIELD",
+        "ACCUSED_EDIT_NAME_PENDING",
+        "ACCUSED_EDIT_PHONE_PENDING",
+        "ACCUSED_EDIT_ADDRESS_PENDING",
+        "ACCUSED_ENTITY_TYPE_PENDING",
+        "ACCUSED_EDIT_ENTITY_TYPE_PENDING",
+        "CHEQUE_DETAILS_START",
+        "COMPLAINANT_ROLE_PENDING",
+        "COMPLAINANT_ENROL_PENDING",
+        "COMPLAINANT_EDIT_ROLE_PENDING",
+        "COMPLAINANT_EDIT_ENROL_PENDING",
+        "FILING_CHEQUE_NUMBER_PENDING",
+        "FILING_CHEQUE_DATE_PENDING",
+        "FILING_AMOUNT_PENDING",
+        "FILING_BANK_BRANCH_PENDING",
+        "FILING_RETURN_REASON_PENDING",
+        "FILING_MEMO_DATE_PENDING",
+        "FILING_NOTICE_DATE_PENDING",
+        "FILING_SERVICE_DATE_PENDING",
+        "FILING_PART_PAYMENT_PENDING",
+        "FILING_STORY_PENDING",
+        "FILING_WITNESS_PENDING",
+        "FILING_WRITTEN_ACCOUNT_PENDING",
+        "FILING_COURT_PENDING",
+        "FILING_REVIEW",
+        "FILING_DECLARE_PENDING",
+        "FILING_EDIT_GROUP_PENDING",
+        "FILING_EDIT_CHEQUE_FIELD_PENDING",
+        "FILING_EDIT_NARRATIVE_FIELD_PENDING",
+        "FILING_EDIT_CHEQUE_NUMBER_PENDING",
+        "FILING_EDIT_CHEQUE_DATE_PENDING",
+        "FILING_EDIT_AMOUNT_PENDING",
+        "FILING_EDIT_BANK_BRANCH_PENDING",
+        "FILING_EDIT_RETURN_REASON_PENDING",
+        "FILING_EDIT_MEMO_DATE_PENDING",
+        "FILING_EDIT_NOTICE_DATE_PENDING",
+        "FILING_EDIT_SERVICE_DATE_PENDING",
+        "FILING_EDIT_PART_PAYMENT_PENDING",
+        "FILING_EDIT_STORY_PENDING",
+        "FILING_EDIT_WITNESS_PENDING",
+        "FILING_EDIT_COURT_PENDING",
+        "DRAFT_READY_START",
+        "FILING_DRAFT_READY",
+        "FILING_OTP_PENDING",
+        "FILING_FILED_START",
+        "FILING_FILED",
+        "FILING_DONE"
+      ]
+    },
+    "public.filing_document_group": {
+      "name": "filing_document_group",
+      "schema": "public",
+      "values": [
+        "cheque",
+        "memo",
+        "notice",
+        "id",
+        "support",
+        "narrative"
+      ]
+    },
+    "public.filing_party_entity_type": {
+      "name": "filing_party_entity_type",
+      "schema": "public",
+      "values": [
+        "INDIVIDUAL",
+        "PROPRIETOR",
+        "COMPANY"
+      ]
+    },
+    "public.filing_party_role": {
+      "name": "filing_party_role",
+      "schema": "public",
+      "values": [
+        "COMPLAINANT",
+        "ACCUSED"
+      ]
+    },
+    "public.filing_party_status": {
+      "name": "filing_party_status",
+      "schema": "public",
+      "values": [
+        "DRAFT",
+        "CONFIRMED"
+      ]
+    },
+    "public.filing_return_reason": {
+      "name": "filing_return_reason",
+      "schema": "public",
+      "values": [
+        "funds",
+        "stop",
+        "acct",
+        "sign"
+      ]
+    },
+    "public.filing_role": {
+      "name": "filing_role",
+      "schema": "public",
+      "values": [
+        "COMPLAINANT_ADVOCATE"
+      ]
+    },
+    "public.filing_status": {
+      "name": "filing_status",
+      "schema": "public",
+      "values": [
+        "DRAFT",
+        "SUBMITTED",
+        "ABANDONED",
+        "FILED"
+      ]
+    },
+    "public.outbound_message_status": {
+      "name": "outbound_message_status",
+      "schema": "public",
+      "values": [
+        "pending",
+        "sent",
+        "failed"
+      ]
+    },
+    "public.outbound_message_type": {
+      "name": "outbound_message_type",
+      "schema": "public",
+      "values": [
+        "FILING_NOTICE",
+        "FILING_DRAFT_CHOICE",
+        "FILING_DRAFT_CREATED",
+        "FILING_RESUMED",
+        "MAIN_MENU",
+        "ADVOCATE_ENROLMENT_PROMPT",
+        "ADVOCATE_ENROLMENT_CONFIRM",
+        "ADVOCATE_ENROLMENT_RECORDED",
+        "FILING_SAVED",
+        "FILING_DOC_CHEQUE_PROMPT",
+        "FILING_DOC_MEMO_PROMPT",
+        "FILING_DOC_NOTICE_PROMPT",
+        "FILING_DOC_ID_PROMPT",
+        "FILING_DOC_SUPPORT_PROMPT",
+        "FILING_DOC_ALL_RECEIVED",
+        "COMPLAINANT_NAME_PROMPT",
+        "COMPLAINANT_PHONE_PROMPT",
+        "COMPLAINANT_EMAIL_PROMPT",
+        "COMPLAINANT_ADDRESS_PROMPT",
+        "COMPLAINANT_SUMMARY",
+        "COMPLAINANT_REVIEW_ACTIONS",
+        "COMPLAINANT_EDIT_FIELDS",
+        "COMPLAINANT_RECORDED",
+        "ACCUSED_NAME_PROMPT",
+        "ACCUSED_PHONE_PROMPT",
+        "ACCUSED_ADDRESS_PROMPT",
+        "ACCUSED_SUMMARY",
+        "ACCUSED_REVIEW_ACTIONS",
+        "ACCUSED_EDIT_FIELDS",
+        "ACCUSED_RECORDED",
+        "COMPLAINANT_ROLE_PROMPT",
+        "COMPLAINANT_ENROL_PROMPT",
+        "ACCUSED_ENTITY_TYPE_PROMPT",
+        "FILING_CHEQUE_NUMBER_PROMPT",
+        "FILING_CHEQUE_DATE_PROMPT",
+        "FILING_AMOUNT_PROMPT",
+        "FILING_BANK_BRANCH_PROMPT",
+        "FILING_RETURN_REASON_PROMPT",
+        "FILING_MEMO_DATE_PROMPT",
+        "FILING_NOTICE_DATE_PROMPT",
+        "FILING_SERVICE_DATE_PROMPT",
+        "FILING_PART_PAYMENT_PROMPT",
+        "FILING_STORY_PROMPT",
+        "FILING_WITNESS_PROMPT",
+        "FILING_WRITTEN_ACCOUNT_PROMPT",
+        "FILING_COURT_PROMPT",
+        "FILING_REVIEW_SUMMARY",
+        "FILING_REVIEW_ACTIONS",
+        "FILING_EDIT_GROUP_PROMPT",
+        "FILING_EDIT_CHEQUE_FIELD_PROMPT",
+        "FILING_EDIT_NARRATIVE_FIELD_PROMPT",
+        "FILING_DECLARE_PROMPT",
+        "FILING_RECORDED",
+        "FILING_DRAFT_READY_SUMMARY",
+        "FILING_DRAFT_READY_ACTIONS",
+        "FILING_OTP_PROMPT",
+        "FILING_FILED_SUMMARY",
+        "FILING_FILED_ACTIONS",
+        "FILING_FEE_PAID_MESSAGE",
+        "FILING_DONE_MESSAGE"
+      ]
+    },
+    "public.webhook_event_status": {
+      "name": "webhook_event_status",
+      "schema": "public",
+      "values": [
+        "processing",
+        "processed",
+        "failed"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {
+    "public.diary_number_seq": {
+      "name": "diary_number_seq",
+      "schema": "public",
+      "increment": "1",
+      "startWith": "1",
+      "minValue": "1",
+      "maxValue": "9223372036854775807",
+      "cache": "1",
+      "cycle": false
+    }
+  },
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

@@ -2,7 +2,8 @@ import type { ConversationLanguage } from "./conversation-repository";
 import type { RepositoryTransaction } from "./transaction";
 
 export type FilingRole = "COMPLAINANT_ADVOCATE";
-export type FilingStatus = "DRAFT" | "SUBMITTED" | "ABANDONED";
+/** #35 — FILED means a diary number has been allotted; the court fee may or may not be paid yet (tracked by courtFeePaidAt, not a further status value). */
+export type FilingStatus = "DRAFT" | "SUBMITTED" | "ABANDONED" | "FILED";
 export type AdvocateEnrolmentStatus = "PENDING_CONFIRMATION" | "RECORDED_UNVERIFIED";
 /** #33 Part C — the cheque's return reason, a fixed 4-option select. */
 export type FilingReturnReason = "funds" | "stop" | "acct" | "sign";
@@ -39,6 +40,12 @@ export interface FilingRecord {
   selectedCourt: string | null;
   /** #33 Part F — when the declaration checkbox was accepted. */
   declarationAcceptedAt: Date | null;
+  /** #35 Part B — generated via nextDiaryNumber, set together with status "FILED" and filedAt (see recordFiled). Never hardcoded, never reused across filings. */
+  diaryNumber: string | null;
+  filedAt: Date | null;
+  /** #35 Part B — set together when the simulated fee payment is recorded (see recordFeePaid). courtFeeTransactionId is a fabricated demo value — no real payment gateway is ever called. */
+  courtFeePaidAt: Date | null;
+  courtFeeTransactionId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -77,6 +84,19 @@ export interface UpsertFilingFieldsInput {
   narrative?: string;
   witnessPresent?: boolean;
   selectedCourt?: string;
+}
+
+/**
+ * #35 Part A (Scope decision: clearly-test format) — a sequential
+ * counter, zero-padded to 6 digits, plus the year the filing was actually
+ * filed in. Never the prototype's hardcoded KLKL01-000482-2026 shared
+ * across every advocate, and unambiguously a demo value, not a real
+ * registry diary number. Shared by both the Drizzle and in-memory
+ * FilingRepository implementations so tests exercise the exact same
+ * format as production.
+ */
+export function formatDiaryNumber(sequence: number, filedAt: Date): string {
+  return `TEST-${String(sequence).padStart(6, "0")}-${filedAt.getFullYear()}`;
 }
 
 /** Thrown by `lockById` when the filing row no longer exists. */
@@ -159,4 +179,28 @@ export interface FilingRepository {
 
   /** #33 Part F — records when the declaration checkbox was accepted. Mirrors recordNoticeAcceptance: a single-column timestamp write, the caller sets current_step separately in the same transaction. */
   recordDeclaration(tx: RepositoryTransaction, filingId: string, acceptedAt: Date): Promise<void>;
+
+  /**
+   * #35 — resolves the conversation's `active_filing_id` pointer
+   * regardless of status, unlike findActiveDraft (which returns null once
+   * the filing is no longer DRAFT). Needed once a filing has moved past
+   * DRAFT to FILED — conversations.active_filing_id still correctly names
+   * it as the filing being acted on (paying the court fee, sending the
+   * final completion message), it just isn't an active *draft* anymore.
+   */
+  findByActiveFilingId(tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord | null>;
+
+  /** #35 Part A — atomically allots the next diary number (via diaryNumberSeq), formatted as "TEST-000001-2026": a zero-padded sequential counter plus filedAt's year. Never the same value twice, never hardcoded. */
+  nextDiaryNumber(tx: RepositoryTransaction, filedAt: Date): Promise<string>;
+
+  /** #35 Part A/B — records the filing as filed: status "FILED", the allotted diaryNumber, filedAt, and current_step "FILING_FILED", all together (mirrors confirmEnrolment's pairing of a status change with the columns it depends on). */
+  recordFiled(tx: RepositoryTransaction, filingId: string, input: { diaryNumber: string; filedAt: Date }): Promise<void>;
+
+  /**
+   * #35 Part A/B — records the simulated court-fee payment and advances
+   * current_step straight to "FILING_DONE" in the same write — "paying
+   * the fee" is documented as automatic/same-turn (Part A), so
+   * FILING_FEE_PAID is never itself persisted as a resting current_step.
+   */
+  recordFeePaid(tx: RepositoryTransaction, filingId: string, input: { transactionId: string; paidAt: Date }): Promise<void>;
 }

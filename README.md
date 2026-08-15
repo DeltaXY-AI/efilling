@@ -215,12 +215,15 @@ more, in `twilio/templates/filing-{return-reason,part-payment,witness,
 court,review-actions,edit-group,edit-cheque-field,edit-narrative-field,
 declare}.{en,ml}.json`) — plus Prototype parity — Phase 6 (#34)'s
 draft-ready "Review & e-Sign / Edit details" quick-reply (two more, in
-`twilio/templates/filing-draft-ready-actions.{en,ml}.json`) — round out the
+`twilio/templates/filing-draft-ready-actions.{en,ml}.json`) and Phase 7
+(#35)'s filed-acknowledgement "Pay court fee" quick-reply (two more, in
+`twilio/templates/filing-filed-actions.{en,ml}.json`) — round out the
 set. The field prompts themselves (name/phone/email/address for the
 complainant; name/phone/address for the accused; cheque number/date,
 amount, bank/branch, memo/notice/service dates, and the narrative for the
-filing; and #34's OTP prompt/error) have no Content Template at all and are
-sent as plain in-session messages. All sets of create/verify
+filing; #34's OTP prompt/error; and #35's fee-paid receipt/completion
+message) have no Content Template at all and are sent as plain in-session
+messages. All sets of create/verify
 scripts share the same idempotent create-or-reuse logic and structural
 comparison (`twilio/scripts/content-api-client.ts` and
 `template-comparison.ts`):
@@ -242,6 +245,8 @@ npm run twilio:filing-details:create  # same, for all 18 #33 Parts C/D/F case-de
 npm run twilio:filing-details:verify
 npm run twilio:filing-sign:create     # same, for #34's draft-ready "Review & e-Sign / Edit details" template
 npm run twilio:filing-sign:verify
+npm run twilio:filing-completion:create  # same, for #35's filed-acknowledgement "Pay court fee" template
+npm run twilio:filing-completion:verify
 ```
 
 ## Deployment (Vercel)
@@ -277,7 +282,8 @@ Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`,
 `TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_EN`,
 `TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_ML`, `TWILIO_FILING_DECLARE_SID_EN`,
 `TWILIO_FILING_DECLARE_SID_ML`, `TWILIO_FILING_DRAFT_READY_ACTIONS_SID_EN`,
-`TWILIO_FILING_DRAFT_READY_ACTIONS_SID_ML`, `PUBLIC_BASE_URL`, and
+`TWILIO_FILING_DRAFT_READY_ACTIONS_SID_ML`, `TWILIO_FILING_FILED_ACTIONS_SID_EN`,
+`TWILIO_FILING_FILED_ACTIONS_SID_ML`, `PUBLIC_BASE_URL`, and
 `DATABASE_URL`
 in the Vercel project's **Production** environment (see
 [docs/twilio-sandbox-setup.md](./docs/twilio-sandbox-setup.md),

@@ -1,0 +1,10 @@
+{
+  "friendly_name": "oncourts_filing_filed_actions_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Complete your filing by paying the court fee.",
+      "actions": [{ "title": "Pay court fee", "id": "filing:pay-fee" }]
+    }
+  }
+}

@@ -86,6 +86,13 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
     draftReadyActionsContentSid: { en: env.TWILIO_FILING_DRAFT_READY_ACTIONS_SID_EN, ml: env.TWILIO_FILING_DRAFT_READY_ACTIONS_SID_ML },
   };
 
+  // #35.
+  const filingCompletionSenderDeps = {
+    messagingClient,
+    fromNumber: env.TWILIO_WHATSAPP_FROM,
+    payFeeActionsContentSid: { en: env.TWILIO_FILING_FILED_ACTIONS_SID_EN, ml: env.TWILIO_FILING_FILED_ACTIONS_SID_ML },
+  };
+
   return {
     conversationRepo,
     processedWebhookRepo: new DrizzleProcessedWebhookRepository(),
@@ -115,6 +122,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       filingDetailsSenderDeps,
       filingDocumentRepo,
       filingSignSenderDeps,
+      filingCompletionSenderDeps,
       withTransaction,
     },
     enrolmentWorkflowDeps: {
@@ -184,6 +192,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       messagingClient,
       fromNumber: env.TWILIO_WHATSAPP_FROM,
       filingSignSenderDeps,
+      filingCompletionSenderDeps,
       filingReviewWorkflowDeps: {
         conversationRepo,
         filingRepo,
@@ -195,6 +204,16 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
         filingSignSenderDeps,
         withTransaction,
       },
+      withTransaction,
+    },
+    filingCompletionWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      outboundMessageRepo,
+      messagingClient,
+      fromNumber: env.TWILIO_WHATSAPP_FROM,
+      filingCompletionSenderDeps,
+      mainMenuSenderDeps,
       withTransaction,
     },
   };
