@@ -205,27 +205,38 @@ complainant-details review-actions (`twilio/quick-reply`) and edit-fields
 (`twilio/list-picker`) templates are four more in
 `twilio/templates/complainant-{review-actions,edit-fields}.{en,ml}.json`;
 the accused-details review-actions and edit-fields templates are four more
-in `twilio/templates/accused-{review-actions,edit-fields}.{en,ml}.json` —
-the field prompts themselves (name/phone/email/address for the
-complainant; name/phone/address for the accused) have no Content Template
-at all and are sent as plain in-session messages. All sets of create/verify
+in `twilio/templates/accused-{review-actions,edit-fields}.{en,ml}.json`;
+the Prototype parity — Phase 5 (#33) case-details-form templates — the
+complainant's "Filing as" role (in `create-complainant-templates.ts`), the
+accused's entity type (in `create-accused-templates.ts`), and the cheque/
+notice/narrative/court screens' return-reason, paid-after-notice, witness,
+court, review-actions, 2-level edit picker, and declaration templates (18
+more, in `twilio/templates/filing-{return-reason,part-payment,witness,
+court,review-actions,edit-group,edit-cheque-field,edit-narrative-field,
+declare}.{en,ml}.json`) — round out the set. The field prompts themselves
+(name/phone/email/address for the complainant; name/phone/address for the
+accused; cheque number/date, amount, bank/branch, memo/notice/service
+dates, and the narrative for the filing) have no Content Template at all
+and are sent as plain in-session messages. All sets of create/verify
 scripts share the same idempotent create-or-reuse logic and structural
 comparison (`twilio/scripts/content-api-client.ts` and
 `template-comparison.ts`):
 
 ```bash
-npm run twilio:template:create      # idempotent: creates once, reuses on reruns
-npm run twilio:template:verify      # confirms the deployed template matches the spec
-npm run twilio:menu:create          # same, for both the English and Malayalam menus
+npm run twilio:template:create        # idempotent: creates once, reuses on reruns
+npm run twilio:template:verify        # confirms the deployed template matches the spec
+npm run twilio:menu:create            # same, for both the English and Malayalam menus
 npm run twilio:menu:verify
-npm run twilio:filing:create        # same, for all four filing templates
+npm run twilio:filing:create          # same, for all four filing (draft-choice/notice) templates
 npm run twilio:filing:verify
-npm run twilio:enrolment:create     # same, for all four advocate-enrolment templates
+npm run twilio:enrolment:create       # same, for all four advocate-enrolment templates
 npm run twilio:enrolment:verify
-npm run twilio:complainant:create   # same, for all four complainant-details templates
+npm run twilio:complainant:create     # same, for all six complainant-details templates (incl. #33 Part A's role)
 npm run twilio:complainant:verify
-npm run twilio:accused:create       # same, for all four accused-details templates
+npm run twilio:accused:create         # same, for all six accused-details templates (incl. #33 Part B's entity type)
 npm run twilio:accused:verify
+npm run twilio:filing-details:create  # same, for all 18 #33 Parts C/D/F case-details-form templates
+npm run twilio:filing-details:verify
 ```
 
 ## Deployment (Vercel)
@@ -248,7 +259,19 @@ Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`,
 `TWILIO_COMPLAINANT_REVIEW_SID_ML`, `TWILIO_COMPLAINANT_EDIT_FIELDS_SID_EN`,
 `TWILIO_COMPLAINANT_EDIT_FIELDS_SID_ML`, `TWILIO_ACCUSED_REVIEW_SID_EN`,
 `TWILIO_ACCUSED_REVIEW_SID_ML`, `TWILIO_ACCUSED_EDIT_FIELDS_SID_EN`,
-`TWILIO_ACCUSED_EDIT_FIELDS_SID_ML`, `PUBLIC_BASE_URL`, and `DATABASE_URL`
+`TWILIO_ACCUSED_EDIT_FIELDS_SID_ML`, `TWILIO_COMPLAINANT_ROLE_SID_EN`,
+`TWILIO_COMPLAINANT_ROLE_SID_ML`, `TWILIO_ACCUSED_ENTITY_TYPE_SID_EN`,
+`TWILIO_ACCUSED_ENTITY_TYPE_SID_ML`, `TWILIO_FILING_RETURN_REASON_SID_EN`,
+`TWILIO_FILING_RETURN_REASON_SID_ML`, `TWILIO_FILING_PART_PAYMENT_SID_EN`,
+`TWILIO_FILING_PART_PAYMENT_SID_ML`, `TWILIO_FILING_WITNESS_SID_EN`,
+`TWILIO_FILING_WITNESS_SID_ML`, `TWILIO_FILING_COURT_SID_EN`,
+`TWILIO_FILING_COURT_SID_ML`, `TWILIO_FILING_REVIEW_ACTIONS_SID_EN`,
+`TWILIO_FILING_REVIEW_ACTIONS_SID_ML`, `TWILIO_FILING_EDIT_GROUP_SID_EN`,
+`TWILIO_FILING_EDIT_GROUP_SID_ML`, `TWILIO_FILING_EDIT_CHEQUE_FIELD_SID_EN`,
+`TWILIO_FILING_EDIT_CHEQUE_FIELD_SID_ML`,
+`TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_EN`,
+`TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_ML`, `TWILIO_FILING_DECLARE_SID_EN`,
+`TWILIO_FILING_DECLARE_SID_ML`, `PUBLIC_BASE_URL`, and `DATABASE_URL`
 in the Vercel project's **Production** environment (see
 [docs/twilio-sandbox-setup.md](./docs/twilio-sandbox-setup.md),
 [docs/language-selection-setup.md](./docs/language-selection-setup.md),

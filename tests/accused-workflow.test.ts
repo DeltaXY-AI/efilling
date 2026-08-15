@@ -3,9 +3,11 @@ import {
   handleAccusedAddressInput,
   handleAccusedConfirmInput,
   handleAccusedEditAddressInput,
+  handleAccusedEditEntityTypeInput,
   handleAccusedEditFieldSelection,
   handleAccusedEditNameInput,
   handleAccusedEditPhoneInput,
+  handleAccusedEntityTypeInput,
   handleAccusedNameInput,
   handleAccusedPhoneInput,
   type AccusedWorkflowDeps,
@@ -22,6 +24,7 @@ const FROM_NUMBER = "whatsapp:+14155238886";
 const MAIN_MENU_CONTENT_SID = { en: "HXmenuen00000000000000000000000000", ml: "HXmenuml00000000000000000000000000" };
 const REVIEW_CONTENT_SID = { en: "HXareviewEn000000000000000000000000", ml: "HXareviewMl000000000000000000000000" };
 const EDIT_FIELDS_CONTENT_SID = { en: "HXaeditFieldsEn0000000000000000000", ml: "HXaeditFieldsMl0000000000000000000" };
+const ENTITY_TYPE_CONTENT_SID = { en: "HXaentityEn0000000000000000000000000", ml: "HXaentityMl0000000000000000000000000" };
 
 describe("accused-workflow", () => {
   let conversationRepo: InMemoryConversationRepository;
@@ -64,6 +67,7 @@ describe("accused-workflow", () => {
         fromNumber: FROM_NUMBER,
         reviewActionsContentSid: REVIEW_CONTENT_SID,
         editFieldsContentSid: EDIT_FIELDS_CONTENT_SID,
+        entityTypeContentSid: ENTITY_TYPE_CONTENT_SID,
       },
       mainMenuSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
       withTransaction: createInMemoryWithTransaction(),
@@ -82,6 +86,8 @@ describe("accused-workflow", () => {
     await handleAccusedNameInput(deps, fieldEvent({ messageId: "SM-name", text: "Rajesh Menon" }));
     await handleAccusedPhoneInput(deps, fieldEvent({ messageId: "SM-phone", text: "Skip" }));
     await handleAccusedAddressInput(deps, fieldEvent({ messageId: "SM-address", text: "32/1147, Menon Villa\nChinnakada, Kollam 691001" }));
+    // #33 Part B: address now advances to the new entity-type field, not ACCUSED_CONFIRM directly.
+    await handleAccusedEntityTypeInput(deps, actionInput({ messageId: "SM-entity", selection: { buttonPayload: "accused:entity-individual" } }));
   }
 
   describe("linear field entry (Part G)", () => {
@@ -165,7 +171,7 @@ describe("accused-workflow", () => {
       expect(conversation).toMatchObject({ state: "ACCUSED_PHONE_PENDING" });
     });
 
-    it("a valid address preserves line breaks, advances to ACCUSED_CONFIRM, and sends the persisted summary + review actions", async () => {
+    it("a valid address preserves line breaks and advances to ACCUSED_ENTITY_TYPE_PENDING (#33 Part B)", async () => {
       await conversationRepo.setState(WHATSAPP_NUMBER, "ACCUSED_ADDRESS_PENDING", new Date());
       await filingRepo.setCurrentStep(undefined, filingId, "ACCUSED_ADDRESS_PENDING");
       await partyRepo.upsertFields(undefined, filingId, "ACCUSED", { fullName: "Rajesh Menon", phoneOriginal: null, phoneNormalized: null });
@@ -173,15 +179,48 @@ describe("accused-workflow", () => {
       const result = await handleAccusedAddressInput(deps, fieldEvent({ text: "32/1147, Menon Villa\r\nChinnakada, Kollam 691001" }));
 
       expect(result.delivered).toBe(true);
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: ENTITY_TYPE_CONTENT_SID.en }));
+
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "ACCUSED_ENTITY_TYPE_PENDING" });
+      expect(filingRepo.findById(filingId)).toMatchObject({ currentStep: "ACCUSED_ENTITY_TYPE_PENDING" });
+      const party = await partyRepo.findByFilingAndRole(undefined, filingId, "ACCUSED");
+      expect(party?.address).toBe("32/1147, Menon Villa\nChinnakada, Kollam 691001");
+    });
+
+    it("selecting an entity type advances to ACCUSED_CONFIRM and sends the persisted summary + review actions (#33 Part B)", async () => {
+      await conversationRepo.setState(WHATSAPP_NUMBER, "ACCUSED_ENTITY_TYPE_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "ACCUSED_ENTITY_TYPE_PENDING");
+      await partyRepo.upsertFields(undefined, filingId, "ACCUSED", {
+        fullName: "Rajesh Menon",
+        phoneOriginal: null,
+        phoneNormalized: null,
+        address: "32/1147, Menon Villa\nChinnakada, Kollam 691001",
+      });
+
+      const result = await handleAccusedEntityTypeInput(deps, actionInput({ selection: { buttonPayload: "accused:entity-company" } }));
+
+      expect(result.delivered).toBe(true);
       expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("Menon Villa") }));
-      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("Not provided") }));
       expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: REVIEW_CONTENT_SID.en }));
 
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       expect(conversation).toMatchObject({ state: "ACCUSED_CONFIRM" });
       expect(filingRepo.findById(filingId)).toMatchObject({ currentStep: "ACCUSED_CONFIRM" });
       const party = await partyRepo.findByFilingAndRole(undefined, filingId, "ACCUSED");
-      expect(party?.address).toBe("32/1147, Menon Villa\nChinnakada, Kollam 691001");
+      expect(party?.entityType).toBe("COMPANY");
+    });
+
+    it("unrecognized entity-type selection redisplays the same prompt, no state change", async () => {
+      await conversationRepo.setState(WHATSAPP_NUMBER, "ACCUSED_ENTITY_TYPE_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "ACCUSED_ENTITY_TYPE_PENDING");
+
+      const result = await handleAccusedEntityTypeInput(deps, actionInput({ selection: { body: "asdf" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: ENTITY_TYPE_CONTENT_SID.en }));
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "ACCUSED_ENTITY_TYPE_PENDING" });
     });
 
     it("is a safe no-op when the conversation is no longer the expected pending state (stale)", async () => {
@@ -246,12 +285,17 @@ describe("accused-workflow", () => {
     });
 
     it("falls back to plain text with numbered options when the review-actions Content Template send fails", async () => {
-      await conversationRepo.setState(WHATSAPP_NUMBER, "ACCUSED_ADDRESS_PENDING", new Date());
-      await filingRepo.setCurrentStep(undefined, filingId, "ACCUSED_ADDRESS_PENDING");
-      await partyRepo.upsertFields(undefined, filingId, "ACCUSED", { fullName: "Rajesh Menon", phoneOriginal: null, phoneNormalized: null });
+      await conversationRepo.setState(WHATSAPP_NUMBER, "ACCUSED_ENTITY_TYPE_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "ACCUSED_ENTITY_TYPE_PENDING");
+      await partyRepo.upsertFields(undefined, filingId, "ACCUSED", {
+        fullName: "Rajesh Menon",
+        phoneOriginal: null,
+        phoneNormalized: null,
+        address: "32/1147, Menon Villa\nKollam 691001",
+      });
       messagingClient.sendContentTemplate.mockRejectedValueOnce(new Error("Twilio 500"));
 
-      const result = await handleAccusedAddressInput(deps, fieldEvent({ text: "32/1147, Menon Villa\nKollam 691001" }));
+      const result = await handleAccusedEntityTypeInput(deps, actionInput({ selection: { buttonPayload: "accused:entity-individual" } }));
 
       expect(result.delivered).toBe(true);
       expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("1. Confirm") }));
@@ -284,7 +328,7 @@ describe("accused-workflow", () => {
       messagingClient.sendContentTemplate.mockClear();
     });
 
-    it("accused:confirm marks the party CONFIRMED and advances to CHEQUE_DETAILS_START", async () => {
+    it("accused:confirm marks the party CONFIRMED and cascades straight into FILING_CHEQUE_NUMBER_PENDING (#33 Part C)", async () => {
       const result = await handleAccusedConfirmInput(deps, actionInput({ selection: { buttonPayload: "accused:confirm" } }));
 
       expect(result.delivered).toBe(true);
@@ -294,10 +338,12 @@ describe("accused-workflow", () => {
       expect(messagingClient.sendText).toHaveBeenCalledWith(
         expect.objectContaining({ body: expect.stringContaining("no message has been sent to the accused") }),
       );
+      // #33: the same Confirm tap also sends the first cheque/notice-group prompt.
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("cheque number") }));
 
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "CHEQUE_DETAILS_START" });
-      expect(filingRepo.findById(filingId)).toMatchObject({ currentStep: "CHEQUE_DETAILS_START" });
+      expect(conversation).toMatchObject({ state: "FILING_CHEQUE_NUMBER_PENDING" });
+      expect(filingRepo.findById(filingId)).toMatchObject({ currentStep: "FILING_CHEQUE_NUMBER_PENDING" });
 
       const party = await partyRepo.findByFilingAndRole(undefined, filingId, "ACCUSED");
       expect(party?.status).toBe("CONFIRMED");
@@ -333,7 +379,7 @@ describe("accused-workflow", () => {
       expect(a.delivered).toBe(true);
       expect(b.delivered).toBe(true);
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(["CHEQUE_DETAILS_START", "ACCUSED_EDIT_FIELD"]).toContain(conversation?.state);
+      expect(["FILING_CHEQUE_NUMBER_PENDING", "ACCUSED_EDIT_FIELD"]).toContain(conversation?.state);
     });
 
     it("does not send a misleading success message when the transaction itself fails, and confirms nothing", async () => {
@@ -503,6 +549,38 @@ describe("accused-workflow", () => {
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       expect(conversation).toMatchObject({ state: "ACCUSED_EDIT_ADDRESS_PENDING" });
       expect(await partyRepo.findByFilingAndRole(undefined, filingId, "ACCUSED")).toEqual(before);
+    });
+
+    it("selecting entity type from the edit-field picker sends the entity-type template, not plain text (#33 Part B)", async () => {
+      await handleAccusedConfirmInput(deps, actionInput({ messageId: "SM-open-edit", selection: { buttonPayload: "accused:edit" } }));
+
+      const result = await handleAccusedEditFieldSelection(
+        deps,
+        actionInput({ messageId: "SM-select-entity", selection: { listId: "accused:edit-entity-type" } }),
+      );
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: ENTITY_TYPE_CONTENT_SID.en }));
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "ACCUSED_EDIT_ENTITY_TYPE_PENDING" });
+    });
+
+    it("editing entity type only changes that field, returns to ACCUSED_CONFIRM, and resends the full updated summary", async () => {
+      await conversationRepo.setState(WHATSAPP_NUMBER, "ACCUSED_EDIT_ENTITY_TYPE_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "ACCUSED_EDIT_ENTITY_TYPE_PENDING");
+
+      const result = await handleAccusedEditEntityTypeInput(deps, actionInput({ messageId: "SM-edit-entity", selection: { buttonPayload: "accused:entity-proprietor" } }));
+
+      expect(result.delivered).toBe(true);
+      const party = await partyRepo.findByFilingAndRole(undefined, filingId, "ACCUSED");
+      expect(party).toMatchObject({
+        entityType: "PROPRIETOR",
+        fullName: "Rajesh Menon", // unrelated field left unchanged
+      });
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: REVIEW_CONTENT_SID.en }));
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "ACCUSED_CONFIRM" });
+      expect(filingRepo.findById(filingId)).toMatchObject({ currentStep: "ACCUSED_CONFIRM" });
     });
   });
 });

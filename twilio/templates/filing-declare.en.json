@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_filing_declare_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "I declare that the facts stated above are true to the best of my knowledge and belief.",
+      "actions": [
+        { "title": "I declare", "id": "filing:declare-accept" },
+        { "title": "Save and exit", "id": "filing:save-exit" }
+      ]
+    }
+  }
+}

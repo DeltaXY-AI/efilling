@@ -21,6 +21,9 @@ const COMPLAINANT_TEMPLATES: ComplainantTemplateEntry[] = [
   { label: "Complainant review actions (Malayalam)", fileName: "complainant-review-actions.ml.json", envVar: "TWILIO_COMPLAINANT_REVIEW_SID_ML" },
   { label: "Complainant edit fields (English)", fileName: "complainant-edit-fields.en.json", envVar: "TWILIO_COMPLAINANT_EDIT_FIELDS_SID_EN" },
   { label: "Complainant edit fields (Malayalam)", fileName: "complainant-edit-fields.ml.json", envVar: "TWILIO_COMPLAINANT_EDIT_FIELDS_SID_ML" },
+  // #33 Part A.
+  { label: "Complainant \"Filing as\" role (English)", fileName: "complainant-role.en.json", envVar: "TWILIO_COMPLAINANT_ROLE_SID_EN" },
+  { label: "Complainant \"Filing as\" role (Malayalam)", fileName: "complainant-role.ml.json", envVar: "TWILIO_COMPLAINANT_ROLE_SID_ML" },
 ];
 
 function loadSpec(fileName: string): ContentTemplateSpec {

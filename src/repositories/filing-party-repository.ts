@@ -2,6 +2,10 @@ import type { RepositoryTransaction } from "./transaction";
 
 export type PartyRole = "COMPLAINANT" | "ACCUSED";
 export type PartyStatus = "DRAFT" | "CONFIRMED";
+/** #33 Part A — whether the complainant is filing as themselves or is represented by an advocate. COMPLAINANT-only. */
+export type FilingAsRole = "SELF" | "ADVOCATE_FOR_CLIENT";
+/** #33 Part B — the accused's entity type. ACCUSED-only. */
+export type FilingPartyEntityType = "INDIVIDUAL" | "PROPRIETOR" | "COMPANY";
 
 export interface FilingPartyRecord {
   id: string;
@@ -14,6 +18,11 @@ export interface FilingPartyRecord {
   /** `null` means the advocate explicitly replied Skip (#10 Part C) — never absent-vs-skipped ambiguity. */
   emailNormalized: string | null;
   address: string | null;
+  /** #33 Part A — COMPLAINANT-only, mirroring how emailNormalized above is COMPLAINANT-only. `representativeEnrolmentNumber` is only ever set when `filingAsRole` is ADVOCATE_FOR_CLIENT. */
+  filingAsRole: FilingAsRole | null;
+  representativeEnrolmentNumber: string | null;
+  /** #33 Part B — ACCUSED-only. */
+  entityType: FilingPartyEntityType | null;
   status: PartyStatus;
   confirmedAt: Date | null;
   createdAt: Date;
@@ -24,7 +33,9 @@ export interface FilingPartyRecord {
  * Patch applied by `upsertFields` — only the keys present are written.
  * `emailNormalized: null` and `phoneOriginal`/`phoneNormalized: null` are
  * meaningful, explicit values (Skip — #10's optional email, #11's optional
- * accused phone), distinct from omitting the key entirely.
+ * accused phone), distinct from omitting the key entirely. Likewise
+ * `representativeEnrolmentNumber: null` is meaningful (#33 Part A: clearing
+ * it when `filingAsRole` is edited back to SELF).
  */
 export interface UpsertFilingPartyFieldsInput {
   fullName?: string;
@@ -32,6 +43,9 @@ export interface UpsertFilingPartyFieldsInput {
   phoneNormalized?: string | null;
   emailNormalized?: string | null;
   address?: string;
+  filingAsRole?: FilingAsRole;
+  representativeEnrolmentNumber?: string | null;
+  entityType?: FilingPartyEntityType;
 }
 
 /**

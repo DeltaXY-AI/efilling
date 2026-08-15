@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_filing_review_actions_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Is everything above correct?",
+      "actions": [
+        { "title": "Confirm", "id": "filing:confirm" },
+        { "title": "Edit", "id": "filing:edit" },
+        { "title": "Save and exit", "id": "filing:save-exit" }
+      ]
+    }
+  }
+}

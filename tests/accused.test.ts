@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseAccusedConfirmAction, parseAccusedEditFieldAction, validateAccusedPhone } from "../src/domain/accused";
+import { parseAccusedConfirmAction, parseAccusedEditFieldAction, parseEntityTypeSelection, validateAccusedPhone } from "../src/domain/accused";
 import { validateAddress, validatePersonName } from "../src/domain/complainant";
 
 describe("validateAccusedPhone", () => {
@@ -85,16 +85,49 @@ describe("parseAccusedEditFieldAction", () => {
     ["3", "accused:edit-address"],
     ["Address", "accused:edit-address"],
     ["വിലാസം", "accused:edit-address"],
+    // #33 Part B appends entity type as the 4th option.
+    ["4", "accused:edit-entity-type"],
+    ["Entity type", "accused:edit-entity-type"],
+    ["സ്ഥാപന തരം", "accused:edit-entity-type"],
   ])("recognizes typed %s as %s", (value, expected) => {
     expect(parseAccusedEditFieldAction({ body: value })).toBe(expected);
   });
 
-  it.each(["accused:edit-name", "accused:edit-phone", "accused:edit-address"])("recognizes the stable ListId %s", (stableId) => {
-    expect(parseAccusedEditFieldAction({ listId: stableId })).toBe(stableId);
-  });
+  it.each(["accused:edit-name", "accused:edit-phone", "accused:edit-address", "accused:edit-entity-type"])(
+    "recognizes the stable ListId %s",
+    (stableId) => {
+      expect(parseAccusedEditFieldAction({ listId: stableId })).toBe(stableId);
+    },
+  );
 
   it("returns null for unrecognized input, without fuzzy matching", () => {
     expect(parseAccusedEditFieldAction({ body: "Full names" })).toBeNull();
     expect(parseAccusedEditFieldAction({})).toBeNull();
+  });
+});
+
+describe("parseEntityTypeSelection (#33 Part B)", () => {
+  it.each([
+    ["1", "INDIVIDUAL"],
+    ["Individual", "INDIVIDUAL"],
+    ["വ്യക്തി", "INDIVIDUAL"],
+    ["2", "PROPRIETOR"],
+    ["Proprietor of a firm", "PROPRIETOR"],
+    ["3", "COMPANY"],
+    ["Company/partnership", "COMPANY"],
+  ])("recognizes typed %s as %s", (value, expected) => {
+    expect(parseEntityTypeSelection({ body: value })).toBe(expected);
+  });
+
+  it.each(["accused:entity-individual", "accused:entity-proprietor", "accused:entity-company"])(
+    "recognizes the stable ButtonPayload %s",
+    (stableId) => {
+      expect(parseEntityTypeSelection({ buttonPayload: stableId })).not.toBeNull();
+    },
+  );
+
+  it("returns null for unrecognized input, without fuzzy matching", () => {
+    expect(parseEntityTypeSelection({ body: "Individually" })).toBeNull();
+    expect(parseEntityTypeSelection({})).toBeNull();
   });
 });

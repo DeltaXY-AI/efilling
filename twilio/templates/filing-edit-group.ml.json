@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_filing_edit_group_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "ഏത് ഭാഗമാണ് എഡിറ്റ് ചെയ്യേണ്ടത്?",
+      "actions": [
+        { "title": "ചെക്കും നോട്ടീസും", "id": "filing:edit-group-cheque" },
+        { "title": "കഥ, സാക്ഷി, കോടതി", "id": "filing:edit-group-narrative" }
+      ]
+    }
+  }
+}

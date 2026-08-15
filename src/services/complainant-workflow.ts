@@ -1,6 +1,7 @@
 import {
   parseComplainantConfirmAction,
   parseComplainantEditFieldAction,
+  parseFilingAsRoleSelection,
   validateAddress,
   validateEmail,
   validatePersonName,
@@ -8,6 +9,7 @@ import {
   type ComplainantEditFieldAction,
   type ComplainantSelectionInput,
 } from "../domain/complainant";
+import { validateEnrolmentNumber } from "../domain/enrolment";
 import type { ConversationRepository, ConversationState } from "../repositories/conversation-repository";
 import type { FilingRecord, FilingRepository } from "../repositories/filing-repository";
 import type { FilingPartyRecord, FilingPartyRepository, UpsertFilingPartyFieldsInput } from "../repositories/filing-party-repository";
@@ -18,6 +20,7 @@ import { sendAccusedNamePrompt } from "./accused-workflow";
 import {
   sendComplainantEditFields,
   sendComplainantReviewActions,
+  sendComplainantRolePrompt,
   sendComplainantSummary,
   type ComplainantSenderDeps,
   type SendComplainantMessageInput,
@@ -76,7 +79,7 @@ export interface ComplainantActionInput {
   selection: ComplainantSelectionInput;
 }
 
-type FieldKey = "name" | "phone" | "email" | "address";
+type FieldKey = "enrol" | "name" | "phone" | "email" | "address";
 
 function sendInputFor(input: { whatsappNumber: string; language: SupportedLanguage; messageId: string }): SendComplainantMessageInput {
   return { to: input.whatsappNumber, language: input.language, correlationId: input.messageId };
@@ -87,6 +90,10 @@ function sendInputFor(input: { whatsappNumber: string; language: SupportedLangua
 // ---------------------------------------------------------------------------
 
 const PROMPT_TEXT: Record<FieldKey, Record<SupportedLanguage, string>> = {
+  enrol: {
+    en: ["Enter the representing advocate's enrolment number.", "", "Bar Council of Kerala, e.g. K/1234/2015"].join("\n"),
+    ml: ["പ്രതിനിധീകരിക്കുന്ന അഭിഭാഷകന്റെ എൻറോൾമെന്റ് നമ്പർ നൽകുക.", "", "കേരള ബാർ കൗൺസിൽ, ഉദാ: K/1234/2015"].join("\n"),
+  },
   name: {
     en: "Enter the complainant's full name.",
     ml: "പരാതിക്കാരന്റെ പൂർണ്ണ പേര് നൽകുക.",
@@ -118,6 +125,18 @@ const PROMPT_TEXT: Record<FieldKey, Record<SupportedLanguage, string>> = {
 };
 
 const ERROR_TEXT: Record<FieldKey, Record<SupportedLanguage, string>> = {
+  enrol: {
+    en: ["That enrolment number does not appear to be in a supported format.", "", "Enter 5–30 letters and numbers using / or - where needed.", "", "Example: K/1234/2015"].join(
+      "\n",
+    ),
+    ml: [
+      "ആ എൻറോൾമെന്റ് നമ്പർ പിന്തുണയുള്ള ഫോർമാറ്റിൽ ആണെന്ന് തോന്നുന്നില്ല.",
+      "",
+      "ആവശ്യമെങ്കിൽ / അല്ലെങ്കിൽ - ഉപയോഗിച്ച് 5–30 അക്ഷരങ്ങളും അക്കങ്ങളും നൽകുക.",
+      "",
+      "ഉദാഹരണം: K/1234/2015",
+    ].join("\n"),
+  },
   name: {
     en: ["That name doesn't look valid.", "", "Enter 2–120 characters, without line breaks.", "", "Example: Anitha Joseph"].join("\n"),
     ml: [
@@ -196,6 +215,7 @@ const SAVED_TEXT: Record<SupportedLanguage, string> = {
 // ---------------------------------------------------------------------------
 
 const PROMPT_OUTBOUND_TYPE: Record<FieldKey, OutboundMessageType> = {
+  enrol: "COMPLAINANT_ENROL_PROMPT",
   name: "COMPLAINANT_NAME_PROMPT",
   phone: "COMPLAINANT_PHONE_PROMPT",
   email: "COMPLAINANT_EMAIL_PROMPT",
@@ -203,6 +223,7 @@ const PROMPT_OUTBOUND_TYPE: Record<FieldKey, OutboundMessageType> = {
 };
 
 const LINEAR_PENDING_STATE: Record<FieldKey, ConversationState> = {
+  enrol: "COMPLAINANT_ENROL_PENDING",
   name: "COMPLAINANT_NAME_PENDING",
   phone: "COMPLAINANT_PHONE_PENDING",
   email: "COMPLAINANT_EMAIL_PENDING",
@@ -210,20 +231,27 @@ const LINEAR_PENDING_STATE: Record<FieldKey, ConversationState> = {
 };
 
 const EDIT_PENDING_STATE: Record<FieldKey, ConversationState> = {
+  enrol: "COMPLAINANT_EDIT_ENROL_PENDING",
   name: "COMPLAINANT_EDIT_NAME_PENDING",
   phone: "COMPLAINANT_EDIT_PHONE_PENDING",
   email: "COMPLAINANT_EDIT_EMAIL_PENDING",
   address: "COMPLAINANT_EDIT_ADDRESS_PENDING",
 };
 
+// #33 Part A: `enrol` always leads into `name` next — the *entry* into
+// `enrol` itself is conditional on the `role` answer (handled separately in
+// handleComplainantRoleInput, since a static 1:1 map can't express that
+// branch), but once at `enrol`, the rest of the chain is linear again.
 const NEXT_FIELD: Record<FieldKey, FieldKey | "confirm"> = {
+  enrol: "name",
   name: "phone",
   phone: "email",
   email: "address",
   address: "confirm",
 };
 
-const EDIT_FIELD_ACTION_TO_FIELD: Record<ComplainantEditFieldAction, FieldKey> = {
+const EDIT_FIELD_ACTION_TO_FIELD: Partial<Record<ComplainantEditFieldAction, FieldKey>> = {
+  "complainant:edit-enrolment": "enrol",
   "complainant:edit-name": "name",
   "complainant:edit-phone": "phone",
   "complainant:edit-email": "email",
@@ -231,32 +259,39 @@ const EDIT_FIELD_ACTION_TO_FIELD: Record<ComplainantEditFieldAction, FieldKey> =
 };
 
 // Resolves every currentStep this workflow ever resumes into a text prompt
-// for (#10 Part K) — the two non-field steps (COMPLAINANT_CONFIRM,
-// COMPLAINANT_EDIT_FIELD) are handled separately in
+// for (#10 Part K) — the non-field steps (COMPLAINANT_CONFIRM,
+// COMPLAINANT_EDIT_FIELD, and #33 Part A's COMPLAINANT_ROLE_PENDING/
+// COMPLAINANT_EDIT_ROLE_PENDING) are handled separately in
 // `resendComplainantPromptForResume`, since they resend a template, not a
 // plain-text field prompt. COMPLAINANT_DETAILS_START is kept only so any
 // pre-existing row from #9 can still resume (see schema.ts).
 const RESUMABLE_STEP_TO_FIELD: Partial<Record<string, FieldKey>> = {
   COMPLAINANT_DETAILS_START: "name",
+  COMPLAINANT_ENROL_PENDING: "enrol",
   COMPLAINANT_NAME_PENDING: "name",
   COMPLAINANT_PHONE_PENDING: "phone",
   COMPLAINANT_EMAIL_PENDING: "email",
   COMPLAINANT_ADDRESS_PENDING: "address",
+  COMPLAINANT_EDIT_ENROL_PENDING: "enrol",
   COMPLAINANT_EDIT_NAME_PENDING: "name",
   COMPLAINANT_EDIT_PHONE_PENDING: "phone",
   COMPLAINANT_EDIT_EMAIL_PENDING: "email",
   COMPLAINANT_EDIT_ADDRESS_PENDING: "address",
 };
 
-/** Every currentStep #10 can resume into — combined with the enrolment set in filing-workflow.ts's SUPPORTED_FILING_STEPS. */
+/** Every currentStep #10 can resume into — combined with the enrolment set in filing-workflow.ts's SUPPORTED_FILING_STEPS. #33 Part A adds the two new leading-field states and their edit counterparts. */
 export const COMPLAINANT_SUPPORTED_FILING_STEPS: ReadonlySet<string> = new Set([
   "COMPLAINANT_DETAILS_START",
+  "COMPLAINANT_ROLE_PENDING",
+  "COMPLAINANT_ENROL_PENDING",
   "COMPLAINANT_NAME_PENDING",
   "COMPLAINANT_PHONE_PENDING",
   "COMPLAINANT_EMAIL_PENDING",
   "COMPLAINANT_ADDRESS_PENDING",
   "COMPLAINANT_CONFIRM",
   "COMPLAINANT_EDIT_FIELD",
+  "COMPLAINANT_EDIT_ROLE_PENDING",
+  "COMPLAINANT_EDIT_ENROL_PENDING",
   "COMPLAINANT_EDIT_NAME_PENDING",
   "COMPLAINANT_EDIT_PHONE_PENDING",
   "COMPLAINANT_EDIT_EMAIL_PENDING",
@@ -270,6 +305,10 @@ interface FieldValidationResult {
 
 /** Dispatches to the field's own validator/normalizer and maps its result onto the filing_parties patch shape (#10 Part C). */
 function validateField(field: FieldKey, text: string): FieldValidationResult {
+  if (field === "enrol") {
+    const result = validateEnrolmentNumber(text);
+    return result.valid && result.normalized ? { valid: true, patch: { representativeEnrolmentNumber: result.normalized } } : { valid: false };
+  }
   if (field === "name") {
     const result = validatePersonName(text);
     return result.valid && result.normalized ? { valid: true, patch: { fullName: result.normalized } } : { valid: false };
@@ -420,6 +459,58 @@ export function handleComplainantAddressInput(deps: ComplainantWorkflowDeps, inp
   return handleLinearFieldInput(deps, "address", input);
 }
 
+/** #33 Part A: only reached when `role` = ADVOCATE_FOR_CLIENT — see handleComplainantRoleInput. */
+export function handleComplainantEnrolInput(deps: ComplainantWorkflowDeps, input: ComplainantFieldInputEvent): Promise<ComplainantWorkflowResult> {
+  return handleLinearFieldInput(deps, "enrol", input);
+}
+
+// ---------------------------------------------------------------------------
+// "Filing as" role (#33 Part A) — a selection, not free text, so it cannot
+// go through handleLinearFieldInput's text-validation pipeline. Its "next
+// field" also genuinely branches on the answer (enrol only when
+// ADVOCATE_FOR_CLIENT), which NEXT_FIELD's static 1:1 map can't express.
+// ---------------------------------------------------------------------------
+
+export async function handleComplainantRoleInput(deps: ComplainantWorkflowDeps, input: ComplainantActionInput): Promise<ComplainantWorkflowResult> {
+  const sendInput = sendInputFor(input);
+  const role = parseFilingAsRoleSelection(input.selection);
+
+  if (!role) {
+    // Unrecognized selection — redisplay the same prompt, no state change.
+    return { delivered: await sendComplainantRolePrompt(deps.complainantSenderDeps, sendInput) };
+  }
+
+  const next: FieldKey | "confirm" = role === "ADVOCATE_FOR_CLIENT" ? "enrol" : "name";
+  const nextState: ConversationState = LINEAR_PENDING_STATE[next];
+
+  const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
+    if (locked.state !== "COMPLAINANT_ROLE_PENDING") {
+      return { committed: false };
+    }
+    const filing = await deps.filingRepo.findActiveDraft(tx, locked.id);
+    if (!filing) {
+      return { committed: false };
+    }
+
+    // SELF clears any stray representativeEnrolmentNumber — harmless on a
+    // fresh row, but keeps the pair consistent if this is ever re-answered.
+    const patch: UpsertFilingPartyFieldsInput =
+      role === "ADVOCATE_FOR_CLIENT" ? { filingAsRole: role } : { filingAsRole: role, representativeEnrolmentNumber: null };
+    await deps.partyRepo.upsertFields(tx, filing.id, "COMPLAINANT", patch);
+    await deps.filingRepo.setCurrentStep(tx, filing.id, nextState);
+    await deps.conversationRepo.setStateInTx(tx, locked.id, nextState);
+    return { committed: true, sends: [{ messageType: PROMPT_OUTBOUND_TYPE[next], dedupeSuffix: `${next}-prompt` }] };
+  });
+
+  if (!commit.committed) {
+    return { delivered: true };
+  }
+
+  const delivered = await sendFilingPlainText(deps.complainantSenderDeps, sendInput, PROMPT_TEXT[next][input.language], `complainant_${next}_prompt_send_failed`);
+  await finalizeOutbound(deps, commit.outboundIds[0], delivered);
+  return { delivered };
+}
+
 /**
  * Sends the name prompt on its own — used by enrolment-workflow.ts's
  * confirmEnrolment to cascade straight from ADVOCATE_ENROLMENT_CONFIRM into
@@ -511,6 +602,79 @@ export function handleComplainantEditAddressInput(deps: ComplainantWorkflowDeps,
   return handleEditFieldInput(deps, "address", input);
 }
 
+export function handleComplainantEditEnrolInput(deps: ComplainantWorkflowDeps, input: ComplainantFieldInputEvent): Promise<ComplainantWorkflowResult> {
+  return handleEditFieldInput(deps, "enrol", input);
+}
+
+/**
+ * #33 Part A: editing "Filing as" from the review screen. A selection, not
+ * free text (see handleComplainantRoleInput), and its own branch: switching
+ * to ADVOCATE_FOR_CLIENT routes into COMPLAINANT_EDIT_ENROL_PENDING next (the
+ * now-required enrolment number must actually be collected, not left null),
+ * while switching to/staying SELF clears it and returns straight to
+ * COMPLAINANT_CONFIRM — the same "only this one field changes" guarantee as
+ * every other edit here, just with one extra hop when representation
+ * changes.
+ */
+export async function handleComplainantEditRoleInput(deps: ComplainantWorkflowDeps, input: ComplainantActionInput): Promise<ComplainantWorkflowResult> {
+  const sendInput = sendInputFor(input);
+  const role = parseFilingAsRoleSelection(input.selection);
+
+  if (!role) {
+    return { delivered: await sendComplainantRolePrompt(deps.complainantSenderDeps, sendInput) };
+  }
+
+  let filingIdRef: string | null = null;
+  const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
+    if (locked.state !== "COMPLAINANT_EDIT_ROLE_PENDING") {
+      return { committed: false };
+    }
+    const filing = await deps.filingRepo.findActiveDraft(tx, locked.id);
+    if (!filing) {
+      return { committed: false };
+    }
+    filingIdRef = filing.id;
+
+    if (role === "ADVOCATE_FOR_CLIENT") {
+      await deps.partyRepo.upsertFields(tx, filing.id, "COMPLAINANT", { filingAsRole: role });
+      await deps.filingRepo.setCurrentStep(tx, filing.id, "COMPLAINANT_EDIT_ENROL_PENDING");
+      await deps.conversationRepo.setStateInTx(tx, locked.id, "COMPLAINANT_EDIT_ENROL_PENDING");
+      return { committed: true, sends: [{ messageType: "COMPLAINANT_ENROL_PROMPT" as const, dedupeSuffix: "edit-enrol-prompt" }] };
+    }
+
+    await deps.partyRepo.upsertFields(tx, filing.id, "COMPLAINANT", { filingAsRole: role, representativeEnrolmentNumber: null });
+    await deps.filingRepo.setCurrentStep(tx, filing.id, "COMPLAINANT_CONFIRM");
+    await deps.conversationRepo.setStateInTx(tx, locked.id, "COMPLAINANT_CONFIRM");
+    return {
+      committed: true,
+      sends: [
+        { messageType: "COMPLAINANT_SUMMARY" as const, dedupeSuffix: "complainant-summary" },
+        { messageType: "COMPLAINANT_REVIEW_ACTIONS" as const, dedupeSuffix: "complainant-review-actions" },
+      ],
+    };
+  });
+
+  if (!commit.committed) {
+    return { delivered: true };
+  }
+
+  if (role === "ADVOCATE_FOR_CLIENT") {
+    const delivered = await sendFilingPlainText(deps.complainantSenderDeps, sendInput, PROMPT_TEXT.enrol[input.language], "complainant_edit_enrol_prompt_send_failed");
+    await finalizeOutbound(deps, commit.outboundIds[0], delivered);
+    return { delivered };
+  }
+
+  const party = filingIdRef ? await fetchParty(deps, filingIdRef) : null;
+  if (!party) {
+    return { delivered: true };
+  }
+  const summaryDelivered = await sendComplainantSummary(deps.complainantSenderDeps, sendInput, party);
+  await finalizeOutbound(deps, commit.outboundIds[0], summaryDelivered);
+  const reviewDelivered = await sendComplainantReviewActions(deps.complainantSenderDeps, sendInput);
+  await finalizeOutbound(deps, commit.outboundIds[1], reviewDelivered);
+  return { delivered: summaryDelivered && reviewDelivered };
+}
+
 // ---------------------------------------------------------------------------
 // Edit-field selection (Part I): COMPLAINANT_EDIT_FIELD list-picker dispatch.
 // ---------------------------------------------------------------------------
@@ -526,7 +690,18 @@ export async function handleComplainantEditFieldSelection(
     return { delivered: await sendComplainantEditFields(deps.complainantSenderDeps, sendInput) };
   }
 
+  // #33 Part A: "Filing as" is a selection (template resend), not a plain-
+  // text field prompt — handled separately from the generic table below.
+  if (action === "complainant:edit-role") {
+    return openEditRolePrompt(deps, input);
+  }
+
   const field = EDIT_FIELD_ACTION_TO_FIELD[action];
+  if (!field) {
+    // Unreachable: every ComplainantEditFieldAction other than
+    // "complainant:edit-role" (handled above) has an entry in this table.
+    return { delivered: true };
+  }
   const pendingState = EDIT_PENDING_STATE[field];
 
   const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
@@ -553,6 +728,32 @@ export async function handleComplainantEditFieldSelection(
     PROMPT_TEXT[field][input.language],
     `complainant_edit_${field}_prompt_send_failed`,
   );
+  await finalizeOutbound(deps, commit.outboundIds[0], delivered);
+  return { delivered };
+}
+
+/** #33 Part A: the "complainant:edit-role" branch of handleComplainantEditFieldSelection — sends the role template (not plain text) once entering COMPLAINANT_EDIT_ROLE_PENDING. */
+async function openEditRolePrompt(deps: ComplainantWorkflowDeps, input: ComplainantActionInput): Promise<ComplainantWorkflowResult> {
+  const sendInput = sendInputFor(input);
+  const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
+    if (locked.state !== "COMPLAINANT_EDIT_FIELD") {
+      return { committed: false };
+    }
+    const filing = await deps.filingRepo.findActiveDraft(tx, locked.id);
+    if (!filing) {
+      return { committed: false };
+    }
+
+    await deps.filingRepo.setCurrentStep(tx, filing.id, "COMPLAINANT_EDIT_ROLE_PENDING");
+    await deps.conversationRepo.setStateInTx(tx, locked.id, "COMPLAINANT_EDIT_ROLE_PENDING");
+    return { committed: true, sends: [{ messageType: "COMPLAINANT_ROLE_PROMPT" as const, dedupeSuffix: "edit-role-prompt" }] };
+  });
+
+  if (!commit.committed) {
+    return { delivered: true };
+  }
+
+  const delivered = await sendComplainantRolePrompt(deps.complainantSenderDeps, sendInput);
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
   return { delivered };
 }
@@ -614,7 +815,12 @@ async function confirmComplainant(deps: ComplainantWorkflowDeps, input: Complain
     const party = await deps.partyRepo.findByFilingAndRole(tx, lockedFiling.id, "COMPLAINANT");
     // #10 Part J: valid only with full name, phone, and address present
     // (each already format-validated on entry) and email valid-or-null.
-    if (!party || !party.fullName || !party.phoneNormalized || !party.address) {
+    // #33 Part A: also requires `filingAsRole` to be answered, and — only
+    // when representing a client — the representative's enrolment number.
+    if (!party || !party.fullName || !party.phoneNormalized || !party.address || !party.filingAsRole) {
+      return { committed: false };
+    }
+    if (party.filingAsRole === "ADVOCATE_FOR_CLIENT" && !party.representativeEnrolmentNumber) {
       return { committed: false };
     }
 
@@ -742,6 +948,11 @@ export async function resendComplainantPromptForResume(
 
   if (filing.currentStep === "COMPLAINANT_EDIT_FIELD") {
     return sendComplainantEditFields(deps.complainantSenderDeps, sendInput);
+  }
+
+  // #33 Part A: "Filing as" resends its own template, not a plain-text field prompt.
+  if (filing.currentStep === "COMPLAINANT_ROLE_PENDING" || filing.currentStep === "COMPLAINANT_EDIT_ROLE_PENDING") {
+    return sendComplainantRolePrompt(deps.complainantSenderDeps, sendInput);
   }
 
   const field = RESUMABLE_STEP_TO_FIELD[filing.currentStep];

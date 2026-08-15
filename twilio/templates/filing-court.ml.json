@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_filing_court_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "ഏത് കോടതി?",
+      "actions": [
+        { "title": "ON കോടതി - I, കൊല്ലം", "id": "filing:court-1" },
+        { "title": "ON കോടതി - II, കൊല്ലം", "id": "filing:court-2" },
+        { "title": "JFCM, കൊട്ടാരക്കര", "id": "filing:court-3" }
+      ]
+    }
+  }
+}

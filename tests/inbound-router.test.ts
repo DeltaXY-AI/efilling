@@ -22,6 +22,19 @@ const COMPLAINANT_REVIEW_CONTENT_SID = { en: "HXcreviewEn00000000000000000000000
 const COMPLAINANT_EDIT_FIELDS_CONTENT_SID = { en: "HXceditEn000000000000000000000000", ml: "HXceditMl000000000000000000000000" };
 const ACCUSED_REVIEW_CONTENT_SID = { en: "HXareviewEn000000000000000000000000", ml: "HXareviewMl000000000000000000000000" };
 const ACCUSED_EDIT_FIELDS_CONTENT_SID = { en: "HXaeditEn0000000000000000000000000", ml: "HXaeditMl0000000000000000000000000" };
+const ACCUSED_ENTITY_TYPE_CONTENT_SID = { en: "HXaentityEn0000000000000000000000000", ml: "HXaentityMl0000000000000000000000000" };
+const COMPLAINANT_ROLE_CONTENT_SID = { en: "HXcroleEn000000000000000000000000", ml: "HXcroleMl000000000000000000000000" };
+const FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS = {
+  returnReasonContentSid: { en: "HXfreasonEn0000000000000000000000000", ml: "HXfreasonMl0000000000000000000000000" },
+  partPaymentContentSid: { en: "HXfpaidEn00000000000000000000000000", ml: "HXfpaidMl00000000000000000000000000" },
+  witnessContentSid: { en: "HXfwitnessEn000000000000000000000000", ml: "HXfwitnessMl000000000000000000000000" },
+  courtContentSid: { en: "HXfcourtEn0000000000000000000000000", ml: "HXfcourtMl0000000000000000000000000" },
+  reviewActionsContentSid: { en: "HXfreviewEn0000000000000000000000000", ml: "HXfreviewMl0000000000000000000000000" },
+  editGroupContentSid: { en: "HXfegroupEn0000000000000000000000000", ml: "HXfegroupMl0000000000000000000000000" },
+  editChequeFieldContentSid: { en: "HXfechequeEn00000000000000000000000", ml: "HXfechequeMl00000000000000000000000" },
+  editNarrativeFieldContentSid: { en: "HXfenarrEn0000000000000000000000000", ml: "HXfenarrMl0000000000000000000000000" },
+  declareContentSid: { en: "HXfdeclareEn00000000000000000000000", ml: "HXfdeclareMl00000000000000000000000" },
+};
 
 function baseInput(overrides: Partial<Parameters<typeof routeInboundMessage>[1]> = {}) {
   return {
@@ -58,13 +71,16 @@ describe("routeInboundMessage", () => {
       fromNumber: FROM_NUMBER,
       reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
       editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
+      rolePromptContentSid: COMPLAINANT_ROLE_CONTENT_SID,
     };
     const accusedSenderDeps = {
       messagingClient,
       fromNumber: FROM_NUMBER,
       reviewActionsContentSid: ACCUSED_REVIEW_CONTENT_SID,
       editFieldsContentSid: ACCUSED_EDIT_FIELDS_CONTENT_SID,
+      entityTypeContentSid: ACCUSED_ENTITY_TYPE_CONTENT_SID,
     };
+    const filingDetailsSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS };
     deps = {
       conversationRepo,
       languageWorkflowDeps: {
@@ -90,6 +106,8 @@ describe("routeInboundMessage", () => {
         enrolmentSenderDeps,
         complainantSenderDeps,
         accusedSenderDeps,
+        filingDetailsSenderDeps,
+        filingDocumentRepo,
         withTransaction: createInMemoryWithTransaction(),
       },
       enrolmentWorkflowDeps: {
@@ -110,6 +128,7 @@ describe("routeInboundMessage", () => {
         fromNumber: FROM_NUMBER,
         documentStorageDeps: createFakeDocumentStorageDeps(),
         complainantSenderDeps,
+        filingDetailsSenderDeps,
         withTransaction: createInMemoryWithTransaction(),
       },
       complainantWorkflowDeps: {
@@ -128,6 +147,25 @@ describe("routeInboundMessage", () => {
         partyRepo,
         outboundMessageRepo,
         accusedSenderDeps,
+        mainMenuSenderDeps,
+        withTransaction: createInMemoryWithTransaction(),
+      },
+      filingDetailsWorkflowDeps: {
+        conversationRepo,
+        filingRepo,
+        outboundMessageRepo,
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        filingDetailsSenderDeps,
+        withTransaction: createInMemoryWithTransaction(),
+      },
+      filingReviewWorkflowDeps: {
+        conversationRepo,
+        filingRepo,
+        partyRepo,
+        filingDocumentRepo,
+        outboundMessageRepo,
+        filingDetailsSenderDeps,
         mainMenuSenderDeps,
         withTransaction: createInMemoryWithTransaction(),
       },
@@ -317,6 +355,7 @@ describe("routeInboundMessage", () => {
     });
     await filingRepo.setCurrentStep(undefined, filing.id, "COMPLAINANT_CONFIRM");
     await partyRepo.upsertFields(undefined, filing.id, "COMPLAINANT", {
+      filingAsRole: "SELF",
       fullName: "Anitha Joseph",
       phoneOriginal: "9876543210",
       phoneNormalized: "+919876543210",
@@ -382,17 +421,20 @@ describe("routeInboundMessage", () => {
       phoneOriginal: null,
       phoneNormalized: null,
       address: "32/1147, Menon Villa\nChinnakada, Kollam 691001",
+      entityType: "INDIVIDUAL",
     });
     await conversationRepo.setActiveFilingAndState(undefined, conversation.id, filing.id, "ACCUSED_CONFIRM");
 
     const result = await routeInboundMessage(deps, baseInput({ buttonPayload: "accused:confirm" }));
 
     expect(result.delivered).toBe(true);
+    // #33: confirming the accused now cascades straight into
+    // FILING_CHEQUE_NUMBER_PENDING — CHEQUE_DETAILS_START is legacy-only.
     const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-    expect(after).toMatchObject({ state: "CHEQUE_DETAILS_START" });
+    expect(after).toMatchObject({ state: "FILING_CHEQUE_NUMBER_PENDING" });
   });
 
-  it("keeps a CHEQUE_DETAILS_START conversation alive without sending anything (owned by Prototype parity Phase 5 / #33)", async () => {
+  it("keeps a legacy CHEQUE_DETAILS_START conversation alive without sending anything (never persisted going forward — see schema.ts)", async () => {
     await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
     await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
     await conversationRepo.setState(WHATSAPP_NUMBER, "CHEQUE_DETAILS_START", new Date());

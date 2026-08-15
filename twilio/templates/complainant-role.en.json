@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_complainant_role_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Filing as?",
+      "actions": [
+        { "title": "Myself (litigant)", "id": "complainant:role-self" },
+        { "title": "Advocate for client", "id": "complainant:role-advocate" }
+      ]
+    }
+  }
+}

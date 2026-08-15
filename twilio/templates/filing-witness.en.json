@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_filing_witness_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Was anyone else present?",
+      "actions": [
+        { "title": "No one else", "id": "filing:witness-no" },
+        { "title": "Someone was present", "id": "filing:witness-yes" }
+      ]
+    }
+  }
+}

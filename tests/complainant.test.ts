@@ -201,29 +201,41 @@ describe("parseComplainantConfirmAction", () => {
 });
 
 describe("parseComplainantEditFieldAction", () => {
+  // #33 Part A renumbers this list, leading with the two new fields (role,
+  // enrolment) to match collection order — 1-2 shifted from name/phone.
   it.each([
-    ["1", "complainant:edit-name"],
+    ["1", "complainant:edit-role"],
+    ["Filing as", "complainant:edit-role"],
+    ["ഫയൽ ചെയ്യുന്നത്", "complainant:edit-role"],
+    ["2", "complainant:edit-enrolment"],
+    ["Enrolment number", "complainant:edit-enrolment"],
+    ["എൻറോൾമെന്റ് നമ്പർ", "complainant:edit-enrolment"],
+    ["3", "complainant:edit-name"],
     ["Full name", "complainant:edit-name"],
     ["പൂർണ്ണ പേര്", "complainant:edit-name"],
-    ["2", "complainant:edit-phone"],
+    ["4", "complainant:edit-phone"],
     ["Phone number", "complainant:edit-phone"],
     ["ഫോൺ നമ്പർ", "complainant:edit-phone"],
-    ["3", "complainant:edit-email"],
+    ["5", "complainant:edit-email"],
     ["Email", "complainant:edit-email"],
     ["ഇമെയിൽ", "complainant:edit-email"],
-    ["4", "complainant:edit-address"],
+    ["6", "complainant:edit-address"],
     ["Address", "complainant:edit-address"],
     ["വിലാസം", "complainant:edit-address"],
   ])("recognizes typed %s as %s", (value, expected) => {
     expect(parseComplainantEditFieldAction({ body: value })).toBe(expected);
   });
 
-  it.each(["complainant:edit-name", "complainant:edit-phone", "complainant:edit-email", "complainant:edit-address"])(
-    "recognizes the stable ListId %s",
-    (stableId) => {
-      expect(parseComplainantEditFieldAction({ listId: stableId })).toBe(stableId);
-    },
-  );
+  it.each([
+    "complainant:edit-role",
+    "complainant:edit-enrolment",
+    "complainant:edit-name",
+    "complainant:edit-phone",
+    "complainant:edit-email",
+    "complainant:edit-address",
+  ])("recognizes the stable ListId %s", (stableId) => {
+    expect(parseComplainantEditFieldAction({ listId: stableId })).toBe(stableId);
+  });
 
   it("returns null for unrecognized input, without fuzzy matching", () => {
     expect(parseComplainantEditFieldAction({ body: "Full names" })).toBeNull();

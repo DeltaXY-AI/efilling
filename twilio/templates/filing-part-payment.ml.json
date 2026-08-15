@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_filing_part_payment_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "നോട്ടീസിന് ശേഷം അടച്ചോ?",
+      "actions": [
+        { "title": "ഒന്നും അടച്ചിട്ടില്ല", "id": "filing:paid-no" },
+        { "title": "ഭാഗിക പേയ്‌മെന്റ് ലഭിച്ചു", "id": "filing:paid-part" }
+      ]
+    }
+  }
+}

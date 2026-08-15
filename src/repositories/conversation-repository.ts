@@ -41,7 +41,53 @@ export type ConversationState =
   | "ACCUSED_EDIT_NAME_PENDING"
   | "ACCUSED_EDIT_PHONE_PENDING"
   | "ACCUSED_EDIT_ADDRESS_PENDING"
-  | "CHEQUE_DETAILS_START";
+  // #33 Part B: one new field inserted right before ACCUSED_CONFIRM.
+  | "ACCUSED_ENTITY_TYPE_PENDING"
+  | "ACCUSED_EDIT_ENTITY_TYPE_PENDING"
+  // #33: never persisted going forward once Part C's real states below
+  // exist — kept only so a pre-existing row from #11 can still resume.
+  | "CHEQUE_DETAILS_START"
+  // #33 Part A: two new leading Complainant-screen fields.
+  | "COMPLAINANT_ROLE_PENDING"
+  | "COMPLAINANT_ENROL_PENDING"
+  | "COMPLAINANT_EDIT_ROLE_PENDING"
+  | "COMPLAINANT_EDIT_ENROL_PENDING"
+  // #33 Part C: cheque and notice particulars.
+  | "FILING_CHEQUE_NUMBER_PENDING"
+  | "FILING_CHEQUE_DATE_PENDING"
+  | "FILING_AMOUNT_PENDING"
+  | "FILING_BANK_BRANCH_PENDING"
+  | "FILING_RETURN_REASON_PENDING"
+  | "FILING_MEMO_DATE_PENDING"
+  | "FILING_NOTICE_DATE_PENDING"
+  | "FILING_SERVICE_DATE_PENDING"
+  | "FILING_PART_PAYMENT_PENDING"
+  // #33 Part D: the narrative.
+  | "FILING_STORY_PENDING"
+  | "FILING_WITNESS_PENDING"
+  // #33 Part E: the optional written-account upload.
+  | "FILING_WRITTEN_ACCOUNT_PENDING"
+  // #33 Part F: court, the combined review, and the declaration.
+  | "FILING_COURT_PENDING"
+  | "FILING_REVIEW"
+  | "FILING_DECLARE_PENDING"
+  | "FILING_EDIT_GROUP_PENDING"
+  | "FILING_EDIT_CHEQUE_FIELD_PENDING"
+  | "FILING_EDIT_NARRATIVE_FIELD_PENDING"
+  | "FILING_EDIT_CHEQUE_NUMBER_PENDING"
+  | "FILING_EDIT_CHEQUE_DATE_PENDING"
+  | "FILING_EDIT_AMOUNT_PENDING"
+  | "FILING_EDIT_BANK_BRANCH_PENDING"
+  | "FILING_EDIT_RETURN_REASON_PENDING"
+  | "FILING_EDIT_MEMO_DATE_PENDING"
+  | "FILING_EDIT_NOTICE_DATE_PENDING"
+  | "FILING_EDIT_SERVICE_DATE_PENDING"
+  | "FILING_EDIT_PART_PAYMENT_PENDING"
+  | "FILING_EDIT_STORY_PENDING"
+  | "FILING_EDIT_WITNESS_PENDING"
+  | "FILING_EDIT_COURT_PENDING"
+  // Owned by Prototype parity - Phase 6, the next issue after this one.
+  | "DRAFT_READY_START";
 
 export interface ConversationRecord {
   id: string;

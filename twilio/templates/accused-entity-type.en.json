@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_accused_entity_type_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Entity type?",
+      "actions": [
+        { "title": "Individual", "id": "accused:entity-individual" },
+        { "title": "Proprietor of a firm", "id": "accused:entity-proprietor" },
+        { "title": "Company/partnership", "id": "accused:entity-company" }
+      ]
+    }
+  }
+}

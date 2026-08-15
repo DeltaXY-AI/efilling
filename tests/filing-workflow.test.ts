@@ -8,6 +8,7 @@ import {
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
 import { InMemoryFilingPartyRepository } from "../src/repositories/in-memory/filing-party-repository";
+import { InMemoryFilingDocumentRepository } from "../src/repositories/in-memory/filing-document-repository";
 import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
@@ -23,6 +24,19 @@ const COMPLAINANT_REVIEW_CONTENT_SID = { en: "HXcreviewEn00000000000000000000000
 const COMPLAINANT_EDIT_FIELDS_CONTENT_SID = { en: "HXceditEn000000000000000000000000", ml: "HXceditMl000000000000000000000000" };
 const ACCUSED_REVIEW_CONTENT_SID = { en: "HXareviewEn000000000000000000000000", ml: "HXareviewMl000000000000000000000000" };
 const ACCUSED_EDIT_FIELDS_CONTENT_SID = { en: "HXaeditEn0000000000000000000000000", ml: "HXaeditMl0000000000000000000000000" };
+const ACCUSED_ENTITY_TYPE_CONTENT_SID = { en: "HXaentityEn0000000000000000000000000", ml: "HXaentityMl0000000000000000000000000" };
+const COMPLAINANT_ROLE_CONTENT_SID = { en: "HXcroleEn000000000000000000000000", ml: "HXcroleMl000000000000000000000000" };
+const FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS = {
+  returnReasonContentSid: { en: "HXfreasonEn0000000000000000000000000", ml: "HXfreasonMl0000000000000000000000000" },
+  partPaymentContentSid: { en: "HXfpaidEn00000000000000000000000000", ml: "HXfpaidMl00000000000000000000000000" },
+  witnessContentSid: { en: "HXfwitnessEn000000000000000000000000", ml: "HXfwitnessMl000000000000000000000000" },
+  courtContentSid: { en: "HXfcourtEn0000000000000000000000000", ml: "HXfcourtMl0000000000000000000000000" },
+  reviewActionsContentSid: { en: "HXfreviewEn0000000000000000000000000", ml: "HXfreviewMl0000000000000000000000000" },
+  editGroupContentSid: { en: "HXfegroupEn0000000000000000000000000", ml: "HXfegroupMl0000000000000000000000000" },
+  editChequeFieldContentSid: { en: "HXfechequeEn00000000000000000000000", ml: "HXfechequeMl00000000000000000000000" },
+  editNarrativeFieldContentSid: { en: "HXfenarrEn0000000000000000000000000", ml: "HXfenarrMl0000000000000000000000000" },
+  declareContentSid: { en: "HXfdeclareEn00000000000000000000000", ml: "HXfdeclareMl00000000000000000000000" },
+};
 
 describe("filing-workflow", () => {
   let conversationRepo: InMemoryConversationRepository;
@@ -67,13 +81,17 @@ describe("filing-workflow", () => {
         fromNumber: FROM_NUMBER,
         reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
         editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
+        rolePromptContentSid: COMPLAINANT_ROLE_CONTENT_SID,
       },
       accusedSenderDeps: {
         messagingClient,
         fromNumber: FROM_NUMBER,
         reviewActionsContentSid: ACCUSED_REVIEW_CONTENT_SID,
         editFieldsContentSid: ACCUSED_EDIT_FIELDS_CONTENT_SID,
+        entityTypeContentSid: ACCUSED_ENTITY_TYPE_CONTENT_SID,
       },
+      filingDetailsSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS },
+      filingDocumentRepo: new InMemoryFilingDocumentRepository(),
       withTransaction: createInMemoryWithTransaction(),
     };
   });

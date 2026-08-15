@@ -7,6 +7,7 @@ import {
   type FilingRecord,
   type FilingRepository,
   type SaveEnrolmentCandidateInput,
+  type UpsertFilingFieldsInput,
 } from "./filing-repository";
 import type { RepositoryTransaction } from "./transaction";
 
@@ -127,5 +128,19 @@ export class DrizzleFilingRepository implements FilingRepository {
       .update(filings)
       .set({ status: "ABANDONED", updatedAt: new Date() })
       .where(and(eq(filings.id, filingId), eq(filings.status, "DRAFT")));
+  }
+
+  async upsertFilingFields(tx: RepositoryTransaction, filingId: string, patch: UpsertFilingFieldsInput): Promise<void> {
+    await (tx as Transaction)
+      .update(filings)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(filings.id, filingId));
+  }
+
+  async recordDeclaration(tx: RepositoryTransaction, filingId: string, acceptedAt: Date): Promise<void> {
+    await (tx as Transaction)
+      .update(filings)
+      .set({ declarationAcceptedAt: acceptedAt, updatedAt: new Date() })
+      .where(eq(filings.id, filingId));
   }
 }
