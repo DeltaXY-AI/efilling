@@ -120,10 +120,18 @@ export const conversationStateEnum = pgEnum("conversation_state", [
   "FILING_EDIT_STORY_PENDING",
   "FILING_EDIT_WITNESS_PENDING",
   "FILING_EDIT_COURT_PENDING",
-  // Owned by Prototype parity - Phase 6 (draft ready / e-Sign), the next
-  // issue after this one — kept-alive placeholder, exactly mirroring how
-  // CHEQUE_DETAILS_START above was this issue's own placeholder.
+  // #34 (Prototype parity - Phase 6): DRAFT_READY_START itself is never
+  // persisted going forward — declaring now cascades straight into
+  // FILING_DRAFT_READY in the same transaction (see filing-review-
+  // workflow.ts's handleFilingDeclareInput). Kept only so a pre-existing
+  // row from #33 can still resume (see filing-workflow.ts's resumeDraft).
   "DRAFT_READY_START",
+  "FILING_DRAFT_READY",
+  "FILING_OTP_PENDING",
+  // Owned by Prototype parity - Phase 7 (filed acknowledgement), the next
+  // issue after this one — kept-alive placeholder, exactly mirroring how
+  // DRAFT_READY_START above was this issue's own placeholder.
+  "FILING_FILED_START",
 ]);
 export const webhookEventStatusEnum = pgEnum("webhook_event_status", ["processing", "processed", "failed"]);
 export const filingRoleEnum = pgEnum("filing_role", ["COMPLAINANT_ADVOCATE"]);
@@ -212,6 +220,11 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "FILING_EDIT_NARRATIVE_FIELD_PROMPT",
   "FILING_DECLARE_PROMPT",
   "FILING_RECORDED",
+  // #34 (Prototype parity - Phase 6): the draft-ready summary + its
+  // Review-and-eSign/Edit-details actions, and the OTP prompt.
+  "FILING_DRAFT_READY_SUMMARY",
+  "FILING_DRAFT_READY_ACTIONS",
+  "FILING_OTP_PROMPT",
 ]);
 export const outboundMessageStatusEnum = pgEnum("outbound_message_status", ["pending", "sent", "failed"]);
 

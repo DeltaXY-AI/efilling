@@ -39,6 +39,9 @@ const FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS = {
   editNarrativeFieldContentSid: { en: env.TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_EN, ml: env.TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_ML },
   declareContentSid: { en: env.TWILIO_FILING_DECLARE_SID_EN, ml: env.TWILIO_FILING_DECLARE_SID_ML },
 };
+const FILING_SIGN_SENDER_DEPS_CONTENT_SIDS = {
+  draftReadyActionsContentSid: { en: env.TWILIO_FILING_DRAFT_READY_ACTIONS_SID_EN, ml: env.TWILIO_FILING_DRAFT_READY_ACTIONS_SID_ML },
+};
 
 function sign(params: Record<string, string>): string {
   return getExpectedTwilioSignature(env.TWILIO_AUTH_TOKEN, WEBHOOK_URL, params);
@@ -80,6 +83,7 @@ function buildDeps(
     entityTypeContentSid: ACCUSED_ENTITY_TYPE_CONTENT_SID,
   };
   const filingDetailsSenderDeps = { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS };
+  const filingSignSenderDeps = { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, ...FILING_SIGN_SENDER_DEPS_CONTENT_SIDS };
   const filingRepo = new InMemoryFilingRepository(conversationRepo);
   const partyRepo = new InMemoryFilingPartyRepository();
   const filingDocumentRepo = new InMemoryFilingDocumentRepository();
@@ -112,6 +116,7 @@ function buildDeps(
       accusedSenderDeps,
       filingDetailsSenderDeps,
       filingDocumentRepo,
+      filingSignSenderDeps,
       withTransaction: createInMemoryWithTransaction(),
     },
     enrolmentWorkflowDeps: {
@@ -171,6 +176,27 @@ function buildDeps(
       outboundMessageRepo,
       filingDetailsSenderDeps,
       mainMenuSenderDeps,
+      filingSignSenderDeps,
+      withTransaction: createInMemoryWithTransaction(),
+    },
+    filingSignWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      outboundMessageRepo,
+      messagingClient,
+      fromNumber: env.TWILIO_WHATSAPP_FROM,
+      filingSignSenderDeps,
+      filingReviewWorkflowDeps: {
+        conversationRepo,
+        filingRepo,
+        partyRepo,
+        filingDocumentRepo,
+        outboundMessageRepo,
+        filingDetailsSenderDeps,
+        mainMenuSenderDeps,
+        filingSignSenderDeps,
+        withTransaction: createInMemoryWithTransaction(),
+      },
       withTransaction: createInMemoryWithTransaction(),
     },
   };

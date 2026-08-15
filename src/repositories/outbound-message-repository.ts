@@ -60,7 +60,10 @@ export type OutboundMessageType =
   | "FILING_EDIT_CHEQUE_FIELD_PROMPT"
   | "FILING_EDIT_NARRATIVE_FIELD_PROMPT"
   | "FILING_DECLARE_PROMPT"
-  | "FILING_RECORDED";
+  | "FILING_RECORDED"
+  | "FILING_DRAFT_READY_SUMMARY"
+  | "FILING_DRAFT_READY_ACTIONS"
+  | "FILING_OTP_PROMPT";
 export type OutboundMessageStatus = "pending" | "sent" | "failed";
 
 export interface OutboundMessageRecord {

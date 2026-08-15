@@ -33,6 +33,9 @@ const FILING_DETAILS_CONTENT_SIDS = {
   editNarrativeFieldContentSid: { en: "HXfenarrEn0000000000000000000000000", ml: "HXfenarrMl0000000000000000000000000" },
   declareContentSid: { en: "HXfdeclareEn00000000000000000000000", ml: "HXfdeclareMl00000000000000000000000" },
 };
+const FILING_SIGN_CONTENT_SIDS = {
+  draftReadyActionsContentSid: { en: "HXfdraftreadyEn0000000000000000000", ml: "HXfdraftreadyMl0000000000000000000" },
+};
 
 /** Covers #33 Part F: court selection, the combined Parts A-F review, the 2-level edit picker, and the declaration. */
 describe("filing-review-workflow", () => {
@@ -105,6 +108,7 @@ describe("filing-review-workflow", () => {
       outboundMessageRepo,
       filingDetailsSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_CONTENT_SIDS },
       mainMenuSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
+      filingSignSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_SIGN_CONTENT_SIDS },
       withTransaction: createInMemoryWithTransaction(),
     };
   });
@@ -323,18 +327,23 @@ describe("filing-review-workflow", () => {
 
   describe("FILING_DECLARE_PENDING", () => {
     beforeEach(async () => {
+      await filingRepo.upsertFilingFields(undefined, filingId, { selectedCourt: "ON Court - I, Kollam" });
       await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_DECLARE_PENDING", new Date());
       await filingRepo.setCurrentStep(undefined, filingId, "FILING_DECLARE_PENDING");
     });
 
-    it("filing:declare-accept records the declaration and cascades into DRAFT_READY_START (Phase 6 placeholder)", async () => {
+    it("filing:declare-accept records the declaration and cascades into FILING_DRAFT_READY (#34), sending the draft-ready summary with the actually-selected court", async () => {
       const result = await handleFilingDeclareInput(deps, actionInput({ selection: { buttonPayload: "filing:declare-accept" } }));
 
       expect(result.delivered).toBe(true);
-      expect(filingRepo.findById(filingId)).toMatchObject({ currentStep: "DRAFT_READY_START" });
+      expect(filingRepo.findById(filingId)).toMatchObject({ currentStep: "FILING_DRAFT_READY" });
       expect(filingRepo.findById(filingId)?.declarationAcceptedAt).toBeInstanceOf(Date);
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "DRAFT_READY_START" });
+      expect(conversation).toMatchObject({ state: "FILING_DRAFT_READY" });
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("ON Court - I, Kollam") }));
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: FILING_SIGN_CONTENT_SIDS.draftReadyActionsContentSid.en }),
+      );
     });
 
     it("filing:save-exit preserves current_step and returns to MAIN_MENU without declaring", async () => {

@@ -35,6 +35,9 @@ const FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS = {
   editNarrativeFieldContentSid: { en: "HXfenarrEn0000000000000000000000000", ml: "HXfenarrMl0000000000000000000000000" },
   declareContentSid: { en: "HXfdeclareEn00000000000000000000000", ml: "HXfdeclareMl00000000000000000000000" },
 };
+const FILING_SIGN_SENDER_DEPS_CONTENT_SIDS = {
+  draftReadyActionsContentSid: { en: "HXfdraftreadyEn0000000000000000000", ml: "HXfdraftreadyMl0000000000000000000" },
+};
 
 function baseInput(overrides: Partial<Parameters<typeof routeInboundMessage>[1]> = {}) {
   return {
@@ -81,6 +84,7 @@ describe("routeInboundMessage", () => {
       entityTypeContentSid: ACCUSED_ENTITY_TYPE_CONTENT_SID,
     };
     const filingDetailsSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS };
+    const filingSignSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, ...FILING_SIGN_SENDER_DEPS_CONTENT_SIDS };
     deps = {
       conversationRepo,
       languageWorkflowDeps: {
@@ -108,6 +112,7 @@ describe("routeInboundMessage", () => {
         accusedSenderDeps,
         filingDetailsSenderDeps,
         filingDocumentRepo,
+        filingSignSenderDeps,
         withTransaction: createInMemoryWithTransaction(),
       },
       enrolmentWorkflowDeps: {
@@ -167,6 +172,27 @@ describe("routeInboundMessage", () => {
         outboundMessageRepo,
         filingDetailsSenderDeps,
         mainMenuSenderDeps,
+        filingSignSenderDeps,
+        withTransaction: createInMemoryWithTransaction(),
+      },
+      filingSignWorkflowDeps: {
+        conversationRepo,
+        filingRepo,
+        outboundMessageRepo,
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        filingSignSenderDeps,
+        filingReviewWorkflowDeps: {
+          conversationRepo,
+          filingRepo,
+          partyRepo,
+          filingDocumentRepo,
+          outboundMessageRepo,
+          filingDetailsSenderDeps,
+          mainMenuSenderDeps,
+          filingSignSenderDeps,
+          withTransaction: createInMemoryWithTransaction(),
+        },
         withTransaction: createInMemoryWithTransaction(),
       },
     };

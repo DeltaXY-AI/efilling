@@ -39,6 +39,7 @@ import {
   type FilingDetailsSenderDeps,
   type SendFilingDetailsMessageInput,
 } from "./filing-details-sender";
+import { sendDraftReadyActions, sendDraftReadySummary, type FilingSignSenderDeps } from "./filing-sign-sender";
 import { sendFilingPlainText } from "./filing-sender";
 import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from "./main-menu-sender";
 import { commitWithOutbound, finalizeOutbound } from "./transactional-outbound";
@@ -49,12 +50,16 @@ import type { FilingWorkflowResult } from "./filing-workflow";
  * single combined review across every field collected in Parts A-F, the
  * 2-level edit picker (only Parts C/D/F's own fields — Parts A/B already
  * have their own dedicated #10/#11 review/edit loop, not re-litigated
- * here), and the declaration checkbox, cascading into Prototype parity —
- * Phase 6 (DRAFT_READY_START, a kept-alive placeholder owned by that issue).
+ * here), and the declaration checkbox, cascading into #34 (Prototype
+ * parity — Phase 6)'s FILING_DRAFT_READY, sending its draft-ready summary
+ * + actions directly (via filing-sign-sender.ts, a leaf module) after the
+ * declaration acknowledgment.
  *
- * This file must never import from filing-workflow.ts — filing-workflow.ts
- * imports `resendFilingReviewPromptForResume` from here, so the dependency
- * only ever runs one way.
+ * This file must never import from filing-workflow.ts or from
+ * filing-sign-workflow.ts — filing-workflow.ts imports
+ * `resendFilingReviewPromptForResume` from here, and filing-sign-workflow.ts
+ * imports it too (for the "Edit details" cascade back into Phase 5), so the
+ * dependency only ever runs one way.
  */
 
 export interface FilingReviewWorkflowDeps {
@@ -69,6 +74,8 @@ export interface FilingReviewWorkflowDeps {
   filingDetailsSenderDeps: FilingDetailsSenderDeps;
   /** Reused as-is for "back to main menu" after save-and-exit — never a second implementation. */
   mainMenuSenderDeps: MainMenuSenderDeps;
+  /** #34: used only to send the draft-ready summary + actions once the declaration cascades into FILING_DRAFT_READY — never a second implementation of that copy. */
+  filingSignSenderDeps: FilingSignSenderDeps;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -99,8 +106,8 @@ const SAVED_TEXT: Record<SupportedLanguage, string> = {
 };
 
 const RECORDED_TEXT: Record<SupportedLanguage, string> = {
-  en: "✓ Declaration recorded.\n\nNext, we will get your complaint ready for e-Sign.",
-  ml: "✓ പ്രഖ്യാപനം രേഖപ്പെടുത്തി.\n\nഅടുത്തതായി, നിങ്ങളുടെ പരാതി ഇ-സൈൻ ചെയ്യാൻ തയ്യാറാക്കും.",
+  en: "✓ Declaration recorded.",
+  ml: "✓ പ്രഖ്യാപനം രേഖപ്പെടുത്തി.",
 };
 
 /** Every currentStep #33 Part F can resume into — combined with the other sets in filing-workflow.ts's SUPPORTED_FILING_STEPS. */
@@ -661,6 +668,7 @@ export async function handleFilingDeclareInput(deps: FilingReviewWorkflowDeps, i
   }
 
   // filing:declare-accept
+  let updatedFiling: FilingRecord | null = null;
   const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
     if (locked.state !== "FILING_DECLARE_PENDING") {
       return { committed: false };
@@ -670,20 +678,32 @@ export async function handleFilingDeclareInput(deps: FilingReviewWorkflowDeps, i
       return { committed: false };
     }
     await deps.filingRepo.recordDeclaration(tx, filing.id, new Date());
-    // Owned by Prototype parity - Phase 6, the next issue after this one —
-    // never left resting at an intermediate state (mirrors every other
-    // section's cascade in this codebase).
-    await deps.filingRepo.setCurrentStep(tx, filing.id, "DRAFT_READY_START");
-    await deps.conversationRepo.setStateInTx(tx, locked.id, "DRAFT_READY_START");
-    return { committed: true, sends: [{ messageType: "FILING_RECORDED" as const, dedupeSuffix: "filing-recorded" }] };
+    // Cascades straight into #34 (Prototype parity - Phase 6)'s
+    // FILING_DRAFT_READY — never left resting at an intermediate state
+    // (mirrors every other section's cascade in this codebase).
+    await deps.filingRepo.setCurrentStep(tx, filing.id, "FILING_DRAFT_READY");
+    await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_DRAFT_READY");
+    updatedFiling = { ...filing, currentStep: "FILING_DRAFT_READY" };
+    return {
+      committed: true,
+      sends: [
+        { messageType: "FILING_RECORDED" as const, dedupeSuffix: "filing-recorded" },
+        { messageType: "FILING_DRAFT_READY_SUMMARY" as const, dedupeSuffix: "filing-draft-ready-summary" },
+        { messageType: "FILING_DRAFT_READY_ACTIONS" as const, dedupeSuffix: "filing-draft-ready-actions" },
+      ],
+    };
   });
 
-  if (!commit.committed) {
+  if (!commit.committed || !updatedFiling) {
     return { delivered: true };
   }
-  const delivered = await sendFilingPlainText(deps.filingDetailsSenderDeps, sendInput, RECORDED_TEXT[input.language], "filing_recorded_send_failed");
-  await finalizeOutbound(deps, commit.outboundIds[0], delivered);
-  return { delivered };
+  const recordedDelivered = await sendFilingPlainText(deps.filingDetailsSenderDeps, sendInput, RECORDED_TEXT[input.language], "filing_recorded_send_failed");
+  await finalizeOutbound(deps, commit.outboundIds[0], recordedDelivered);
+  const summaryDelivered = await sendDraftReadySummary(deps.filingSignSenderDeps, sendInput, updatedFiling);
+  await finalizeOutbound(deps, commit.outboundIds[1], summaryDelivered);
+  const actionsDelivered = await sendDraftReadyActions(deps.filingSignSenderDeps, sendInput);
+  await finalizeOutbound(deps, commit.outboundIds[2], actionsDelivered);
+  return { delivered: recordedDelivered && summaryDelivered && actionsDelivered };
 }
 
 // ---------------------------------------------------------------------------

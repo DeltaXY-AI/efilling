@@ -48,6 +48,8 @@ export default defineConfig({
       TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_ML: "HXtestfenarrml000000000000000000000",
       TWILIO_FILING_DECLARE_SID_EN: "HXtestfdeclaree00000000000000000000",
       TWILIO_FILING_DECLARE_SID_ML: "HXtestfdeclareml00000000000000000000",
+      TWILIO_FILING_DRAFT_READY_ACTIONS_SID_EN: "HXtestfdraftreadye0000000000000000",
+      TWILIO_FILING_DRAFT_READY_ACTIONS_SID_ML: "HXtestfdraftreadyml0000000000000000",
       PUBLIC_BASE_URL: "https://example.test",
       // Never actually connected to in tests — routes are exercised via
       // createApp({ twilioWebhookDeps }) with in-memory repositories, but

@@ -87,7 +87,10 @@ export type ConversationState =
   | "FILING_EDIT_WITNESS_PENDING"
   | "FILING_EDIT_COURT_PENDING"
   // Owned by Prototype parity - Phase 6, the next issue after this one.
-  | "DRAFT_READY_START";
+  | "DRAFT_READY_START"
+  | "FILING_DRAFT_READY"
+  | "FILING_OTP_PENDING"
+  | "FILING_FILED_START";
 
 export interface ConversationRecord {
   id: string;
