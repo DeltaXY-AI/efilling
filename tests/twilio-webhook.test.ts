@@ -26,6 +26,19 @@ const COMPLAINANT_REVIEW_CONTENT_SID = { en: env.TWILIO_COMPLAINANT_REVIEW_SID_E
 const COMPLAINANT_EDIT_FIELDS_CONTENT_SID = { en: env.TWILIO_COMPLAINANT_EDIT_FIELDS_SID_EN, ml: env.TWILIO_COMPLAINANT_EDIT_FIELDS_SID_ML };
 const ACCUSED_REVIEW_CONTENT_SID = { en: env.TWILIO_ACCUSED_REVIEW_SID_EN, ml: env.TWILIO_ACCUSED_REVIEW_SID_ML };
 const ACCUSED_EDIT_FIELDS_CONTENT_SID = { en: env.TWILIO_ACCUSED_EDIT_FIELDS_SID_EN, ml: env.TWILIO_ACCUSED_EDIT_FIELDS_SID_ML };
+const ACCUSED_ENTITY_TYPE_CONTENT_SID = { en: env.TWILIO_ACCUSED_ENTITY_TYPE_SID_EN, ml: env.TWILIO_ACCUSED_ENTITY_TYPE_SID_ML };
+const COMPLAINANT_ROLE_CONTENT_SID = { en: env.TWILIO_COMPLAINANT_ROLE_SID_EN, ml: env.TWILIO_COMPLAINANT_ROLE_SID_ML };
+const FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS = {
+  returnReasonContentSid: { en: env.TWILIO_FILING_RETURN_REASON_SID_EN, ml: env.TWILIO_FILING_RETURN_REASON_SID_ML },
+  partPaymentContentSid: { en: env.TWILIO_FILING_PART_PAYMENT_SID_EN, ml: env.TWILIO_FILING_PART_PAYMENT_SID_ML },
+  witnessContentSid: { en: env.TWILIO_FILING_WITNESS_SID_EN, ml: env.TWILIO_FILING_WITNESS_SID_ML },
+  courtContentSid: { en: env.TWILIO_FILING_COURT_SID_EN, ml: env.TWILIO_FILING_COURT_SID_ML },
+  reviewActionsContentSid: { en: env.TWILIO_FILING_REVIEW_ACTIONS_SID_EN, ml: env.TWILIO_FILING_REVIEW_ACTIONS_SID_ML },
+  editGroupContentSid: { en: env.TWILIO_FILING_EDIT_GROUP_SID_EN, ml: env.TWILIO_FILING_EDIT_GROUP_SID_ML },
+  editChequeFieldContentSid: { en: env.TWILIO_FILING_EDIT_CHEQUE_FIELD_SID_EN, ml: env.TWILIO_FILING_EDIT_CHEQUE_FIELD_SID_ML },
+  editNarrativeFieldContentSid: { en: env.TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_EN, ml: env.TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_ML },
+  declareContentSid: { en: env.TWILIO_FILING_DECLARE_SID_EN, ml: env.TWILIO_FILING_DECLARE_SID_ML },
+};
 
 function sign(params: Record<string, string>): string {
   return getExpectedTwilioSignature(env.TWILIO_AUTH_TOKEN, WEBHOOK_URL, params);
@@ -57,13 +70,16 @@ function buildDeps(
     fromNumber: env.TWILIO_WHATSAPP_FROM,
     reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
     editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
+    rolePromptContentSid: COMPLAINANT_ROLE_CONTENT_SID,
   };
   const accusedSenderDeps = {
     messagingClient,
     fromNumber: env.TWILIO_WHATSAPP_FROM,
     reviewActionsContentSid: ACCUSED_REVIEW_CONTENT_SID,
     editFieldsContentSid: ACCUSED_EDIT_FIELDS_CONTENT_SID,
+    entityTypeContentSid: ACCUSED_ENTITY_TYPE_CONTENT_SID,
   };
+  const filingDetailsSenderDeps = { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS };
   const filingRepo = new InMemoryFilingRepository(conversationRepo);
   const partyRepo = new InMemoryFilingPartyRepository();
   const filingDocumentRepo = new InMemoryFilingDocumentRepository();
@@ -94,6 +110,8 @@ function buildDeps(
       enrolmentSenderDeps,
       complainantSenderDeps,
       accusedSenderDeps,
+      filingDetailsSenderDeps,
+      filingDocumentRepo,
       withTransaction: createInMemoryWithTransaction(),
     },
     enrolmentWorkflowDeps: {
@@ -114,6 +132,7 @@ function buildDeps(
       fromNumber: env.TWILIO_WHATSAPP_FROM,
       documentStorageDeps: createFakeDocumentStorageDeps(),
       complainantSenderDeps,
+      filingDetailsSenderDeps,
       withTransaction: createInMemoryWithTransaction(),
     },
     complainantWorkflowDeps: {
@@ -132,6 +151,25 @@ function buildDeps(
       partyRepo,
       outboundMessageRepo,
       accusedSenderDeps,
+      mainMenuSenderDeps,
+      withTransaction: createInMemoryWithTransaction(),
+    },
+    filingDetailsWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      outboundMessageRepo,
+      messagingClient,
+      fromNumber: env.TWILIO_WHATSAPP_FROM,
+      filingDetailsSenderDeps,
+      withTransaction: createInMemoryWithTransaction(),
+    },
+    filingReviewWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      partyRepo,
+      filingDocumentRepo,
+      outboundMessageRepo,
+      filingDetailsSenderDeps,
       mainMenuSenderDeps,
       withTransaction: createInMemoryWithTransaction(),
     },
@@ -494,7 +532,20 @@ describe("POST /webhooks/twilio/whatsapp", () => {
     }
 
     // Only after the optional support group's "done" does the flow reach
-    // the complainant name prompt.
+    // #33 Part A's new leading "Filing as" field.
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ contentSid: env.TWILIO_COMPLAINANT_ROLE_SID_EN }),
+    );
+
+    const roleResponse = await send({
+      MessageSid: "SMflowb000000000000000000000000006b",
+      From: from,
+      To: "whatsapp:+14155238886",
+      Body: "Myself (litigant)",
+      ButtonPayload: "complainant:role-self",
+      NumMedia: "0",
+    });
+    expect(roleResponse.status).toBe(200);
     expect(messagingClient.sendText).toHaveBeenCalledWith(
       expect.objectContaining({ body: expect.stringContaining("Enter the complainant's full name") }),
     );
@@ -548,6 +599,20 @@ describe("POST /webhooks/twilio/whatsapp", () => {
     });
 
     expect(accusedAddressResponse.status).toBe(200);
+    // #33 Part B: address now advances to the new entity-type field, not the review directly.
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ contentSid: env.TWILIO_ACCUSED_ENTITY_TYPE_SID_EN }),
+    );
+
+    const entityTypeResponse = await send({
+      MessageSid: "SMflowb000000000000000000000000014b",
+      From: from,
+      To: "whatsapp:+14155238886",
+      Body: "Individual",
+      ButtonPayload: "accused:entity-individual",
+      NumMedia: "0",
+    });
+    expect(entityTypeResponse.status).toBe(200);
     expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("Rajesh Menon") }));
     expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
       expect.objectContaining({ contentSid: env.TWILIO_ACCUSED_REVIEW_SID_EN }),
@@ -566,6 +631,8 @@ describe("POST /webhooks/twilio/whatsapp", () => {
     expect(messagingClient.sendText).toHaveBeenCalledWith(
       expect.objectContaining({ body: expect.stringContaining("Accused party details recorded") }),
     );
+    // #33 Part C: the same Confirm tap cascades straight into the cheque/notice screen's first field.
+    expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("Enter the cheque number") }));
     // Part L: never send anything to the accused's own phone number.
     for (const call of [...messagingClient.sendText.mock.calls, ...messagingClient.sendContentTemplate.mock.calls]) {
       expect((call[0] as { to: string }).to).toBe(from);

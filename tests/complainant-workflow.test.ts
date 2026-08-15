@@ -4,11 +4,15 @@ import {
   handleComplainantConfirmInput,
   handleComplainantEditAddressInput,
   handleComplainantEditEmailInput,
+  handleComplainantEditEnrolInput,
   handleComplainantEditFieldSelection,
   handleComplainantEditNameInput,
+  handleComplainantEditRoleInput,
   handleComplainantEmailInput,
+  handleComplainantEnrolInput,
   handleComplainantNameInput,
   handleComplainantPhoneInput,
+  handleComplainantRoleInput,
   type ComplainantWorkflowDeps,
 } from "../src/services/complainant-workflow";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
@@ -25,6 +29,8 @@ const REVIEW_CONTENT_SID = { en: "HXreviewEn0000000000000000000000000", ml: "HXr
 const EDIT_FIELDS_CONTENT_SID = { en: "HXeditFieldsEn000000000000000000000", ml: "HXeditFieldsMl000000000000000000000" };
 const ACCUSED_REVIEW_CONTENT_SID = { en: "HXareviewEn000000000000000000000000", ml: "HXareviewMl000000000000000000000000" };
 const ACCUSED_EDIT_FIELDS_CONTENT_SID = { en: "HXaeditFieldsEn00000000000000000000", ml: "HXaeditFieldsMl00000000000000000000" };
+const ACCUSED_ENTITY_TYPE_CONTENT_SID = { en: "HXaentityEn0000000000000000000000000", ml: "HXaentityMl0000000000000000000000000" };
+const ROLE_PROMPT_CONTENT_SID = { en: "HXroleEn00000000000000000000000000", ml: "HXroleMl00000000000000000000000000" };
 
 describe("complainant-workflow", () => {
   let conversationRepo: InMemoryConversationRepository;
@@ -67,6 +73,7 @@ describe("complainant-workflow", () => {
         fromNumber: FROM_NUMBER,
         reviewActionsContentSid: REVIEW_CONTENT_SID,
         editFieldsContentSid: EDIT_FIELDS_CONTENT_SID,
+        rolePromptContentSid: ROLE_PROMPT_CONTENT_SID,
       },
       mainMenuSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
       accusedSenderDeps: {
@@ -74,6 +81,7 @@ describe("complainant-workflow", () => {
         fromNumber: FROM_NUMBER,
         reviewActionsContentSid: ACCUSED_REVIEW_CONTENT_SID,
         editFieldsContentSid: ACCUSED_EDIT_FIELDS_CONTENT_SID,
+        entityTypeContentSid: ACCUSED_ENTITY_TYPE_CONTENT_SID,
       },
       withTransaction: createInMemoryWithTransaction(),
     };
@@ -88,6 +96,11 @@ describe("complainant-workflow", () => {
   }
 
   async function fillLinearFieldsUpToConfirm(): Promise<void> {
+    // #33 Part A: this suite's beforeEach starts directly at
+    // COMPLAINANT_NAME_PENDING (bypassing the new role/enrol fields, which
+    // have their own dedicated coverage) — filingAsRole is set directly
+    // here since confirmComplainant now requires it to be answered.
+    await partyRepo.upsertFields(undefined, filingId, "COMPLAINANT", { filingAsRole: "SELF" });
     await handleComplainantNameInput(deps, fieldEvent({ messageId: "SM-name", text: "Anitha Joseph" }));
     await handleComplainantPhoneInput(deps, fieldEvent({ messageId: "SM-phone", text: "9876543210" }));
     await handleComplainantEmailInput(deps, fieldEvent({ messageId: "SM-email", text: "Skip" }));
@@ -528,5 +541,226 @@ describe("complainant-workflow", () => {
       expect(conversation).toMatchObject({ state: "COMPLAINANT_EDIT_ADDRESS_PENDING" });
       expect(await partyRepo.findByFilingAndRole(undefined, filingId, "COMPLAINANT")).toEqual(before);
     });
+  });
+});
+
+/** Covers #33 Part A: the two new leading Complainant-screen fields ("Filing as" + conditional enrolment number), inserted before #10's existing name/phone/email/address collection above. */
+describe("complainant-workflow — #33 Part A (role/enrolment)", () => {
+  let conversationRepo: InMemoryConversationRepository;
+  let filingRepo: InMemoryFilingRepository;
+  let partyRepo: InMemoryFilingPartyRepository;
+  let outboundMessageRepo: InMemoryOutboundMessageRepository;
+  let messagingClient: FakeMessagingClient;
+  let deps: ComplainantWorkflowDeps;
+  let conversationId: string;
+  let filingId: string;
+
+  beforeEach(async () => {
+    conversationRepo = new InMemoryConversationRepository();
+    filingRepo = new InMemoryFilingRepository(conversationRepo);
+    partyRepo = new InMemoryFilingPartyRepository();
+    outboundMessageRepo = new InMemoryOutboundMessageRepository();
+    messagingClient = createFakeMessagingClient();
+
+    const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+    conversationId = conversation.id;
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+
+    const filing = await filingRepo.createDraft(undefined, {
+      conversationId,
+      language: "en",
+      role: "COMPLAINANT_ADVOCATE",
+      testNoticeVersion: "v1",
+    });
+    filingId = filing.id;
+    await conversationRepo.setActiveFilingAndState(undefined, conversationId, filing.id, "COMPLAINANT_ROLE_PENDING");
+    await filingRepo.setCurrentStep(undefined, filing.id, "COMPLAINANT_ROLE_PENDING");
+
+    deps = {
+      conversationRepo,
+      filingRepo,
+      partyRepo,
+      outboundMessageRepo,
+      complainantSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        reviewActionsContentSid: REVIEW_CONTENT_SID,
+        editFieldsContentSid: EDIT_FIELDS_CONTENT_SID,
+        rolePromptContentSid: ROLE_PROMPT_CONTENT_SID,
+      },
+      mainMenuSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
+      accusedSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        reviewActionsContentSid: ACCUSED_REVIEW_CONTENT_SID,
+        editFieldsContentSid: ACCUSED_EDIT_FIELDS_CONTENT_SID,
+        entityTypeContentSid: ACCUSED_ENTITY_TYPE_CONTENT_SID,
+      },
+      withTransaction: createInMemoryWithTransaction(),
+    };
+  });
+
+  function actionInput(overrides: Partial<Parameters<typeof handleComplainantRoleInput>[1]> = {}) {
+    return { conversationId, whatsappNumber: WHATSAPP_NUMBER, messageId: "SM1", language: "en" as const, selection: {}, ...overrides };
+  }
+
+  function fieldEvent(overrides: Partial<Parameters<typeof handleComplainantEnrolInput>[1]> = {}) {
+    return { conversationId, whatsappNumber: WHATSAPP_NUMBER, messageId: "SM2", language: "en" as const, text: "", mediaCount: 0, ...overrides };
+  }
+
+  it("choosing 'Myself (litigant)' skips straight to COMPLAINANT_NAME_PENDING — no enrolment field", async () => {
+    const result = await handleComplainantRoleInput(deps, actionInput({ selection: { buttonPayload: "complainant:role-self" } }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("full name") }));
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "COMPLAINANT_NAME_PENDING" });
+    const party = await partyRepo.findByFilingAndRole(undefined, filingId, "COMPLAINANT");
+    expect(party).toMatchObject({ filingAsRole: "SELF", representativeEnrolmentNumber: null });
+  });
+
+  it("choosing 'Advocate for client' advances to COMPLAINANT_ENROL_PENDING", async () => {
+    const result = await handleComplainantRoleInput(deps, actionInput({ selection: { buttonPayload: "complainant:role-advocate" } }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("enrolment number") }));
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "COMPLAINANT_ENROL_PENDING" });
+    const party = await partyRepo.findByFilingAndRole(undefined, filingId, "COMPLAINANT");
+    expect(party?.filingAsRole).toBe("ADVOCATE_FOR_CLIENT");
+  });
+
+  it("unrecognized role selection redisplays the same prompt, no state change", async () => {
+    const result = await handleComplainantRoleInput(deps, actionInput({ selection: { body: "asdf" } }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: ROLE_PROMPT_CONTENT_SID.en }));
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "COMPLAINANT_ROLE_PENDING" });
+  });
+
+  it("a valid enrolment number normalizes and advances to COMPLAINANT_NAME_PENDING", async () => {
+    await conversationRepo.setState(WHATSAPP_NUMBER, "COMPLAINANT_ENROL_PENDING", new Date());
+    await filingRepo.setCurrentStep(undefined, filingId, "COMPLAINANT_ENROL_PENDING");
+    await partyRepo.upsertFields(undefined, filingId, "COMPLAINANT", { filingAsRole: "ADVOCATE_FOR_CLIENT" });
+
+    const result = await handleComplainantEnrolInput(deps, fieldEvent({ text: "ker / 1234 / 2015" }));
+
+    expect(result.delivered).toBe(true);
+    const party = await partyRepo.findByFilingAndRole(undefined, filingId, "COMPLAINANT");
+    expect(party?.representativeEnrolmentNumber).toBe("KER/1234/2015");
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "COMPLAINANT_NAME_PENDING" });
+  });
+
+  it("an invalid enrolment number keeps COMPLAINANT_ENROL_PENDING and sends the localized error", async () => {
+    await conversationRepo.setState(WHATSAPP_NUMBER, "COMPLAINANT_ENROL_PENDING", new Date());
+    await filingRepo.setCurrentStep(undefined, filingId, "COMPLAINANT_ENROL_PENDING");
+
+    const result = await handleComplainantEnrolInput(deps, fieldEvent({ text: "??" }));
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("does not appear to be in a supported format") }));
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "COMPLAINANT_ENROL_PENDING" });
+  });
+
+  it("editing role from ADVOCATE_FOR_CLIENT to SELF clears the enrolment number and returns straight to COMPLAINANT_CONFIRM", async () => {
+    await partyRepo.upsertFields(undefined, filingId, "COMPLAINANT", {
+      filingAsRole: "ADVOCATE_FOR_CLIENT",
+      representativeEnrolmentNumber: "KER/1234/2015",
+      fullName: "Anitha Joseph",
+      phoneOriginal: "9876543210",
+      phoneNormalized: "+919876543210",
+      address: "Thekkumkattil House\nKollam 691008",
+    });
+    await conversationRepo.setState(WHATSAPP_NUMBER, "COMPLAINANT_EDIT_ROLE_PENDING", new Date());
+    await filingRepo.setCurrentStep(undefined, filingId, "COMPLAINANT_EDIT_ROLE_PENDING");
+
+    const result = await handleComplainantEditRoleInput(deps, actionInput({ selection: { buttonPayload: "complainant:role-self" } }));
+
+    expect(result.delivered).toBe(true);
+    const party = await partyRepo.findByFilingAndRole(undefined, filingId, "COMPLAINANT");
+    expect(party).toMatchObject({ filingAsRole: "SELF", representativeEnrolmentNumber: null });
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "COMPLAINANT_CONFIRM" });
+  });
+
+  it("editing role from SELF to ADVOCATE_FOR_CLIENT routes into COMPLAINANT_EDIT_ENROL_PENDING to collect the now-required number", async () => {
+    await partyRepo.upsertFields(undefined, filingId, "COMPLAINANT", { filingAsRole: "SELF" });
+    await conversationRepo.setState(WHATSAPP_NUMBER, "COMPLAINANT_EDIT_ROLE_PENDING", new Date());
+    await filingRepo.setCurrentStep(undefined, filingId, "COMPLAINANT_EDIT_ROLE_PENDING");
+
+    const result = await handleComplainantEditRoleInput(deps, actionInput({ selection: { buttonPayload: "complainant:role-advocate" } }));
+
+    expect(result.delivered).toBe(true);
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "COMPLAINANT_EDIT_ENROL_PENDING" });
+  });
+
+  it("editing the enrolment number only changes that field and returns to COMPLAINANT_CONFIRM", async () => {
+    await partyRepo.upsertFields(undefined, filingId, "COMPLAINANT", {
+      filingAsRole: "ADVOCATE_FOR_CLIENT",
+      representativeEnrolmentNumber: "KER/1234/2015",
+      fullName: "Anitha Joseph",
+    });
+    await conversationRepo.setState(WHATSAPP_NUMBER, "COMPLAINANT_EDIT_ENROL_PENDING", new Date());
+    await filingRepo.setCurrentStep(undefined, filingId, "COMPLAINANT_EDIT_ENROL_PENDING");
+
+    const result = await handleComplainantEditEnrolInput(deps, fieldEvent({ text: "KER/9999/2020" }));
+
+    expect(result.delivered).toBe(true);
+    const party = await partyRepo.findByFilingAndRole(undefined, filingId, "COMPLAINANT");
+    expect(party).toMatchObject({ representativeEnrolmentNumber: "KER/9999/2020", fullName: "Anitha Joseph" });
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "COMPLAINANT_CONFIRM" });
+  });
+
+  it("confirmComplainant is a safe no-op when filingAsRole was never answered (Part J validity)", async () => {
+    await partyRepo.upsertFields(undefined, filingId, "COMPLAINANT", {
+      fullName: "Anitha Joseph",
+      phoneOriginal: "9876543210",
+      phoneNormalized: "+919876543210",
+      address: "Thekkumkattil House\nKollam 691008",
+      // filingAsRole never set
+    });
+    await conversationRepo.setState(WHATSAPP_NUMBER, "COMPLAINANT_CONFIRM", new Date());
+    await filingRepo.setCurrentStep(undefined, filingId, "COMPLAINANT_CONFIRM");
+
+    const result = await handleComplainantConfirmInput(deps, actionInput({ selection: { buttonPayload: "complainant:confirm" } }));
+
+    expect(result.delivered).toBe(true);
+    const party = await partyRepo.findByFilingAndRole(undefined, filingId, "COMPLAINANT");
+    expect(party?.status).toBe("DRAFT"); // never confirmed
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "COMPLAINANT_CONFIRM" }); // never advanced
+  });
+
+  it("confirmComplainant is a safe no-op when representing a client but the enrolment number was never answered", async () => {
+    await partyRepo.upsertFields(undefined, filingId, "COMPLAINANT", {
+      filingAsRole: "ADVOCATE_FOR_CLIENT",
+      fullName: "Anitha Joseph",
+      phoneOriginal: "9876543210",
+      phoneNormalized: "+919876543210",
+      address: "Thekkumkattil House\nKollam 691008",
+      // representativeEnrolmentNumber never set
+    });
+    await conversationRepo.setState(WHATSAPP_NUMBER, "COMPLAINANT_CONFIRM", new Date());
+    await filingRepo.setCurrentStep(undefined, filingId, "COMPLAINANT_CONFIRM");
+
+    const result = await handleComplainantConfirmInput(deps, actionInput({ selection: { buttonPayload: "complainant:confirm" } }));
+
+    expect(result.delivered).toBe(true);
+    const party = await partyRepo.findByFilingAndRole(undefined, filingId, "COMPLAINANT");
+    expect(party?.status).toBe("DRAFT");
+  });
+
+  it("sends the Malayalam role prompt for a Malayalam advocate", async () => {
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "ml", new Date());
+    await conversationRepo.setActiveFilingAndState(undefined, conversationId, filingId, "COMPLAINANT_ROLE_PENDING");
+
+    await handleComplainantRoleInput(deps, actionInput({ language: "ml", selection: { body: "asdf" } }));
+
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: ROLE_PROMPT_CONTENT_SID.ml }));
   });
 });

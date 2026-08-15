@@ -22,25 +22,67 @@ import {
   handleComplainantConfirmInput,
   handleComplainantEditAddressInput,
   handleComplainantEditEmailInput,
+  handleComplainantEditEnrolInput,
   handleComplainantEditFieldSelection,
   handleComplainantEditNameInput,
   handleComplainantEditPhoneInput,
+  handleComplainantEditRoleInput,
   handleComplainantEmailInput,
+  handleComplainantEnrolInput,
   handleComplainantNameInput,
   handleComplainantPhoneInput,
+  handleComplainantRoleInput,
   type ComplainantWorkflowDeps,
 } from "./complainant-workflow";
 import {
   handleAccusedAddressInput,
   handleAccusedConfirmInput,
   handleAccusedEditAddressInput,
+  handleAccusedEditEntityTypeInput,
   handleAccusedEditFieldSelection,
   handleAccusedEditNameInput,
   handleAccusedEditPhoneInput,
+  handleAccusedEntityTypeInput,
   handleAccusedNameInput,
   handleAccusedPhoneInput,
   type AccusedWorkflowDeps,
 } from "./accused-workflow";
+import {
+  handleFilingAmountInput,
+  handleFilingBankBranchInput,
+  handleFilingChequeDateInput,
+  handleFilingChequeNumberInput,
+  handleFilingMemoDateInput,
+  handleFilingNoticeDateInput,
+  handleFilingPartPaymentInput,
+  handleFilingReturnReasonInput,
+  handleFilingServiceDateInput,
+  handleFilingStoryInput,
+  handleFilingWitnessInput,
+  type FilingDetailsWorkflowDeps,
+} from "./filing-details-workflow";
+import { handleFilingWrittenAccountInput } from "./filing-document-workflow";
+import {
+  handleFilingCourtInput,
+  handleFilingDeclareInput,
+  handleFilingEditAmountInput,
+  handleFilingEditBankBranchInput,
+  handleFilingEditChequeDateInput,
+  handleFilingEditChequeFieldInput,
+  handleFilingEditChequeNumberInput,
+  handleFilingEditCourtInput,
+  handleFilingEditGroupInput,
+  handleFilingEditMemoDateInput,
+  handleFilingEditNarrativeFieldInput,
+  handleFilingEditNoticeDateInput,
+  handleFilingEditPartPaymentInput,
+  handleFilingEditReturnReasonInput,
+  handleFilingEditServiceDateInput,
+  handleFilingEditStoryInput,
+  handleFilingEditWitnessInput,
+  handleFilingReviewInput,
+  type FilingReviewWorkflowDeps,
+} from "./filing-review-workflow";
 import type { ConversationRepository } from "../repositories/conversation-repository";
 import { logWorkflowError } from "../lib/logger";
 import type { InboundMedia } from "../types/inbound-message";
@@ -54,6 +96,8 @@ export interface InboundRouterDeps {
   filingDocumentWorkflowDeps: FilingDocumentWorkflowDeps;
   complainantWorkflowDeps: ComplainantWorkflowDeps;
   accusedWorkflowDeps: AccusedWorkflowDeps;
+  filingDetailsWorkflowDeps: FilingDetailsWorkflowDeps;
+  filingReviewWorkflowDeps: FilingReviewWorkflowDeps;
 }
 
 export interface InboundRouterInput {
@@ -119,18 +163,20 @@ async function handleRestartRequest(
 
 /**
  * Persisted states this deployment recognizes but doesn't yet implement a
- * workflow for (FILING_START/CASE_STATUS_START/CHEQUE_DETAILS_START are
- * owned by later issues — CHEQUE_DETAILS_START by Prototype parity Phase 5
- * (#33), the next issue after this one; COMPLAINANT_DETAILS_START and
- * ACCUSED_DETAILS_START are legacy-only, see schema.ts; NEW is the schema
- * column default, never actually persisted by app code). These
- * intentionally keep the conversation "alive" without sending anything, per
- * "do not automatically send the menu... while a future filing subflow is
- * waiting for specific input" — unlike a state outside this set, which this
- * deployment has never heard of at all (#26, added specifically after a
- * real Sandbox conversation got stuck at this exact CHEQUE_DETAILS_START
- * value on a deployment that didn't yet recognize it — never repeat that by
- * leaving a cascade target off this list).
+ * workflow for (FILING_START/CASE_STATUS_START are owned by later issues;
+ * DRAFT_READY_START is owned by Prototype parity Phase 6 (#34), the next
+ * issue after this one — exactly the same placeholder role
+ * CHEQUE_DETAILS_START played for #33; COMPLAINANT_DETAILS_START,
+ * ACCUSED_DETAILS_START, and (as of #33) CHEQUE_DETAILS_START are all
+ * legacy-only, see schema.ts; NEW is the schema column default, never
+ * actually persisted by app code). These intentionally keep the
+ * conversation "alive" without sending anything, per "do not automatically
+ * send the menu... while a future filing subflow is waiting for specific
+ * input" — unlike a state outside this set, which this deployment has never
+ * heard of at all (#26, added specifically after a real Sandbox
+ * conversation got stuck at this exact CHEQUE_DETAILS_START value on a
+ * deployment that didn't yet recognize it — never repeat that by leaving a
+ * cascade target off this list).
  */
 const KNOWN_UNIMPLEMENTED_STATES: ReadonlySet<string> = new Set([
   "NEW",
@@ -139,6 +185,7 @@ const KNOWN_UNIMPLEMENTED_STATES: ReadonlySet<string> = new Set([
   "COMPLAINANT_DETAILS_START",
   "ACCUSED_DETAILS_START",
   "CHEQUE_DETAILS_START",
+  "DRAFT_READY_START",
 ]);
 
 const UNSUPPORTED_STATE_RECOVERY_MESSAGE =
@@ -327,6 +374,20 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
   };
   const actionInput = { conversationId: conversation.id, whatsappNumber: input.whatsappNumber, messageId: input.messageId, language, selection };
 
+  // #33 Part A: the two new leading Complainant-screen fields, before #10's existing ones below.
+  if (conversation.state === "COMPLAINANT_ROLE_PENDING") {
+    return handleComplainantRoleInput(deps.complainantWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "COMPLAINANT_ENROL_PENDING") {
+    return handleComplainantEnrolInput(deps.complainantWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "COMPLAINANT_EDIT_ROLE_PENDING") {
+    return handleComplainantEditRoleInput(deps.complainantWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "COMPLAINANT_EDIT_ENROL_PENDING") {
+    return handleComplainantEditEnrolInput(deps.complainantWorkflowDeps, fieldEvent);
+  }
+
   // #10: the complainant-details flow (Parts A/G-L).
   if (conversation.state === "COMPLAINANT_NAME_PENDING") {
     return handleComplainantNameInput(deps.complainantWorkflowDeps, fieldEvent);
@@ -383,6 +444,110 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
   }
   if (conversation.state === "ACCUSED_EDIT_ADDRESS_PENDING") {
     return handleAccusedEditAddressInput(deps.accusedWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "ACCUSED_ENTITY_TYPE_PENDING") {
+    return handleAccusedEntityTypeInput(deps.accusedWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "ACCUSED_EDIT_ENTITY_TYPE_PENDING") {
+    return handleAccusedEditEntityTypeInput(deps.accusedWorkflowDeps, actionInput);
+  }
+
+  // #33 Part C: cheque and notice particulars.
+  if (conversation.state === "FILING_CHEQUE_NUMBER_PENDING") {
+    return handleFilingChequeNumberInput(deps.filingDetailsWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_CHEQUE_DATE_PENDING") {
+    return handleFilingChequeDateInput(deps.filingDetailsWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_AMOUNT_PENDING") {
+    return handleFilingAmountInput(deps.filingDetailsWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_BANK_BRANCH_PENDING") {
+    return handleFilingBankBranchInput(deps.filingDetailsWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_RETURN_REASON_PENDING") {
+    return handleFilingReturnReasonInput(deps.filingDetailsWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_MEMO_DATE_PENDING") {
+    return handleFilingMemoDateInput(deps.filingDetailsWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_NOTICE_DATE_PENDING") {
+    return handleFilingNoticeDateInput(deps.filingDetailsWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_SERVICE_DATE_PENDING") {
+    return handleFilingServiceDateInput(deps.filingDetailsWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_PART_PAYMENT_PENDING") {
+    return handleFilingPartPaymentInput(deps.filingDetailsWorkflowDeps, actionInput);
+  }
+
+  // #33 Part D: the narrative.
+  if (conversation.state === "FILING_STORY_PENDING") {
+    return handleFilingStoryInput(deps.filingDetailsWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_WITNESS_PENDING") {
+    return handleFilingWitnessInput(deps.filingDetailsWorkflowDeps, actionInput);
+  }
+
+  // #33 Part E: the optional written-account upload — media-consuming, like #31's 5 document groups.
+  if (conversation.state === "FILING_WRITTEN_ACCOUNT_PENDING") {
+    return handleFilingWrittenAccountInput(deps.filingDocumentWorkflowDeps, documentEvent);
+  }
+
+  // #33 Part F: court, the combined review, and the declaration.
+  if (conversation.state === "FILING_COURT_PENDING") {
+    return handleFilingCourtInput(deps.filingReviewWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_REVIEW") {
+    return handleFilingReviewInput(deps.filingReviewWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_EDIT_GROUP_PENDING") {
+    return handleFilingEditGroupInput(deps.filingReviewWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_EDIT_CHEQUE_FIELD_PENDING") {
+    return handleFilingEditChequeFieldInput(deps.filingReviewWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_EDIT_NARRATIVE_FIELD_PENDING") {
+    return handleFilingEditNarrativeFieldInput(deps.filingReviewWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_EDIT_CHEQUE_NUMBER_PENDING") {
+    return handleFilingEditChequeNumberInput(deps.filingReviewWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_EDIT_CHEQUE_DATE_PENDING") {
+    return handleFilingEditChequeDateInput(deps.filingReviewWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_EDIT_AMOUNT_PENDING") {
+    return handleFilingEditAmountInput(deps.filingReviewWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_EDIT_BANK_BRANCH_PENDING") {
+    return handleFilingEditBankBranchInput(deps.filingReviewWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_EDIT_RETURN_REASON_PENDING") {
+    return handleFilingEditReturnReasonInput(deps.filingReviewWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_EDIT_MEMO_DATE_PENDING") {
+    return handleFilingEditMemoDateInput(deps.filingReviewWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_EDIT_NOTICE_DATE_PENDING") {
+    return handleFilingEditNoticeDateInput(deps.filingReviewWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_EDIT_SERVICE_DATE_PENDING") {
+    return handleFilingEditServiceDateInput(deps.filingReviewWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_EDIT_PART_PAYMENT_PENDING") {
+    return handleFilingEditPartPaymentInput(deps.filingReviewWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_EDIT_STORY_PENDING") {
+    return handleFilingEditStoryInput(deps.filingReviewWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_EDIT_WITNESS_PENDING") {
+    return handleFilingEditWitnessInput(deps.filingReviewWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_EDIT_COURT_PENDING") {
+    return handleFilingEditCourtInput(deps.filingReviewWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_DECLARE_PENDING") {
+    return handleFilingDeclareInput(deps.filingReviewWorkflowDeps, actionInput);
   }
 
   if (KNOWN_UNIMPLEMENTED_STATES.has(conversation.state)) {

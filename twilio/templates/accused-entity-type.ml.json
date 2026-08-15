@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_accused_entity_type_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "സ്ഥാപന തരം?",
+      "actions": [
+        { "title": "വ്യക്തി", "id": "accused:entity-individual" },
+        { "title": "സ്ഥാപനത്തിന്റെ ഉടമ", "id": "accused:entity-proprietor" },
+        { "title": "കമ്പനി/പങ്കാളിത്തം", "id": "accused:entity-company" }
+      ]
+    }
+  }
+}

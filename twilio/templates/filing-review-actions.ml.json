@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_filing_review_actions_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "മുകളിലുള്ളതെല്ലാം ശരിയാണോ?",
+      "actions": [
+        { "title": "സ്ഥിരീകരിക്കുക", "id": "filing:confirm" },
+        { "title": "എഡിറ്റ് ചെയ്യുക", "id": "filing:edit" },
+        { "title": "സേവ് ചെയ്ത് പുറത്തുപോകുക", "id": "filing:save-exit" }
+      ]
+    }
+  }
+}

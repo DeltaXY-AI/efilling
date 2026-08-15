@@ -8,23 +8,28 @@
  * I/O, no logging of file contents.
  */
 
-export type FilingDocumentGroup = "cheque" | "memo" | "notice" | "id" | "support";
+// #33 Part E adds "narrative" — the optional written-account upload,
+// handled by its own dedicated state (FILING_WRITTEN_ACCOUNT_PENDING) in
+// filing-document-workflow.ts, never part of DOCUMENT_GROUP_ORDER below
+// (that order is #31 Phase 3's own fixed 5-group cascade).
+export type FilingDocumentGroup = "cheque" | "memo" | "notice" | "id" | "support" | "narrative";
 
 export interface FilingDocumentGroupLimit {
   min: number;
   max: number;
 }
 
-/** Per-group min/max file counts (issue #31 Part A/E — notice allows up to 5, support is optional). */
+/** Per-group min/max file counts (issue #31 Part A/E — notice allows up to 5, support is optional; #33 Part E's narrative group is likewise optional, 0-2). */
 export const DOCUMENT_GROUP_LIMITS: Record<FilingDocumentGroup, FilingDocumentGroupLimit> = {
   cheque: { min: 1, max: 2 },
   memo: { min: 1, max: 2 },
   notice: { min: 1, max: 5 },
   id: { min: 1, max: 2 },
   support: { min: 0, max: 2 },
+  narrative: { min: 0, max: 2 },
 };
 
-/** Every group in upload order — the sequence this issue's state machine advances through. */
+/** Every group in upload order — the sequence #31's state machine advances through. #33 Part E's "narrative" group is deliberately excluded: it's reached from a different part of the flow (after Part D), not this cascade. */
 export const DOCUMENT_GROUP_ORDER: readonly FilingDocumentGroup[] = ["cheque", "memo", "notice", "id", "support"];
 
 /** Confirmed with the product owner: images and PDFs only, capped at 10 MB per file (issue #31 Scope decisions). */

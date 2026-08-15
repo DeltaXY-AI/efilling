@@ -9,6 +9,10 @@ import { ACCUSED_SUPPORTED_FILING_STEPS, resendAccusedPromptForResume } from "./
 import type { ComplainantSenderDeps } from "./complainant-sender";
 import { COMPLAINANT_SUPPORTED_FILING_STEPS, resendComplainantPromptForResume } from "./complainant-workflow";
 import { FILING_DOCUMENT_SUPPORTED_STEPS, resendFilingDocumentPromptForResume } from "./filing-document-workflow";
+import type { FilingDetailsSenderDeps } from "./filing-details-sender";
+import { FILING_DETAILS_SUPPORTED_FILING_STEPS, resendFilingDetailsPromptForResume } from "./filing-details-workflow";
+import { FILING_REVIEW_SUPPORTED_FILING_STEPS, resendFilingReviewPromptForResume } from "./filing-review-workflow";
+import type { FilingDocumentRepository } from "../repositories/filing-document-repository";
 import { sendEnrolmentConfirmation, sendEnrolmentPrompt, type EnrolmentSenderDeps } from "./enrolment-sender";
 import { sendDraftChoice, sendFilingNotice, sendFilingPlainText, type FilingSenderDeps } from "./filing-sender";
 import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from "./main-menu-sender";
@@ -30,6 +34,10 @@ export interface FilingWorkflowDeps {
   complainantSenderDeps: ComplainantSenderDeps;
   /** Reused as-is for resuming into any of #11's accused-details steps — never a second implementation. */
   accusedSenderDeps: AccusedSenderDeps;
+  /** Reused as-is for resuming into any of #33 Parts C/D/F's steps — never a second implementation. */
+  filingDetailsSenderDeps: FilingDetailsSenderDeps;
+  /** #33 Part F's review needs this only to check whether Part E's optional written-account group has any files when resending the review on resume. */
+  filingDocumentRepo: FilingDocumentRepository;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -54,13 +62,15 @@ export interface FilingWorkflowResult {
 
 const TEST_NOTICE_VERSION = "v1";
 
-/** Only ever set by this issue's own createDraft, #9's saveEnrolmentCandidate, #31's document-upload steps, #10's complainant-details steps, or #11's accused-details steps — real, deployed, resumable steps. */
+/** Only ever set by this issue's own createDraft, #9's saveEnrolmentCandidate, #31's document-upload steps, #10's complainant-details steps, #11's accused-details steps, or #33's Parts C/D/F steps — real, deployed, resumable steps. */
 const SUPPORTED_FILING_STEPS: ReadonlySet<string> = new Set([
   "ADVOCATE_ENROLMENT_PENDING",
   "ADVOCATE_ENROLMENT_CONFIRM",
   ...FILING_DOCUMENT_SUPPORTED_STEPS,
   ...COMPLAINANT_SUPPORTED_FILING_STEPS,
   ...ACCUSED_SUPPORTED_FILING_STEPS,
+  ...FILING_DETAILS_SUPPORTED_FILING_STEPS,
+  ...FILING_REVIEW_SUPPORTED_FILING_STEPS,
 ]);
 
 const RESUMED_TEXT: Record<SupportedLanguage, string> = {
@@ -286,6 +296,27 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
         partyRepo: deps.partyRepo,
         outboundMessageRepo: deps.outboundMessageRepo,
         accusedSenderDeps: deps.accusedSenderDeps,
+        mainMenuSenderDeps: deps.mainMenuSenderDeps,
+        withTransaction: deps.withTransaction,
+      },
+      resumedFiling,
+      sendInput,
+    );
+  } else if (resumedStep && FILING_DETAILS_SUPPORTED_FILING_STEPS.has(resumedStep)) {
+    delivered = await resendFilingDetailsPromptForResume(
+      { filingDetailsSenderDeps: deps.filingDetailsSenderDeps, messagingClient: deps.filingSenderDeps.messagingClient, fromNumber: deps.filingSenderDeps.fromNumber },
+      resumedStep,
+      sendInput,
+    );
+  } else if (resumedStep && resumedFiling && FILING_REVIEW_SUPPORTED_FILING_STEPS.has(resumedStep)) {
+    delivered = await resendFilingReviewPromptForResume(
+      {
+        conversationRepo: deps.conversationRepo,
+        filingRepo: deps.filingRepo,
+        partyRepo: deps.partyRepo,
+        filingDocumentRepo: deps.filingDocumentRepo,
+        outboundMessageRepo: deps.outboundMessageRepo,
+        filingDetailsSenderDeps: deps.filingDetailsSenderDeps,
         mainMenuSenderDeps: deps.mainMenuSenderDeps,
         withTransaction: deps.withTransaction,
       },

@@ -1,4 +1,11 @@
-import { FilingNotFoundError, type CreateDraftInput, type FilingRecord, type FilingRepository, type SaveEnrolmentCandidateInput } from "../filing-repository";
+import {
+  FilingNotFoundError,
+  type CreateDraftInput,
+  type FilingRecord,
+  type FilingRepository,
+  type SaveEnrolmentCandidateInput,
+  type UpsertFilingFieldsInput,
+} from "../filing-repository";
 import type { RepositoryTransaction } from "../transaction";
 import type { InMemoryConversationRepository } from "./conversation-repository";
 import { InMemoryMutex, type InMemoryTransactionHandle } from "./transaction";
@@ -54,6 +61,19 @@ export class InMemoryFilingRepository implements FilingRepository {
       advocateEnrolmentNormalized: null,
       advocateEnrolmentStatus: null,
       advocateEnrolmentConfirmedAt: null,
+      chequeNumber: null,
+      chequeDate: null,
+      chequeAmount: null,
+      bankBranch: null,
+      returnReason: null,
+      memoDate: null,
+      noticeDate: null,
+      serviceDate: null,
+      partPayment: null,
+      narrative: null,
+      witnessPresent: null,
+      selectedCourt: null,
+      declarationAcceptedAt: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -116,6 +136,14 @@ export class InMemoryFilingRepository implements FilingRepository {
       return;
     }
     this.update(filingId, { status: "ABANDONED" });
+  }
+
+  async upsertFilingFields(_tx: RepositoryTransaction, filingId: string, patch: UpsertFilingFieldsInput): Promise<void> {
+    this.update(filingId, patch);
+  }
+
+  async recordDeclaration(_tx: RepositoryTransaction, filingId: string, acceptedAt: Date): Promise<void> {
+    this.update(filingId, { declarationAcceptedAt: acceptedAt });
   }
 
   /** Test-wiring helper (not part of the FilingRepository interface) so tests can assert a specific filing's fields directly, e.g. to prove a prior draft was left unchanged. */

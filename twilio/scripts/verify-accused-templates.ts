@@ -14,6 +14,9 @@ const ACCUSED_TEMPLATES: AccusedTemplateEntry[] = [
   { label: "Accused review actions (Malayalam)", fileName: "accused-review-actions.ml.json", envVar: "TWILIO_ACCUSED_REVIEW_SID_ML" },
   { label: "Accused edit fields (English)", fileName: "accused-edit-fields.en.json", envVar: "TWILIO_ACCUSED_EDIT_FIELDS_SID_EN" },
   { label: "Accused edit fields (Malayalam)", fileName: "accused-edit-fields.ml.json", envVar: "TWILIO_ACCUSED_EDIT_FIELDS_SID_ML" },
+  // #33 Part B.
+  { label: "Accused entity type (English)", fileName: "accused-entity-type.en.json", envVar: "TWILIO_ACCUSED_ENTITY_TYPE_SID_EN" },
+  { label: "Accused entity type (Malayalam)", fileName: "accused-entity-type.ml.json", envVar: "TWILIO_ACCUSED_ENTITY_TYPE_SID_ML" },
 ];
 
 function loadSpec(fileName: string): ContentTemplateSpec {

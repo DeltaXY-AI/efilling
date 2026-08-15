@@ -54,12 +54,29 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
     fromNumber: env.TWILIO_WHATSAPP_FROM,
     reviewActionsContentSid: { en: env.TWILIO_COMPLAINANT_REVIEW_SID_EN, ml: env.TWILIO_COMPLAINANT_REVIEW_SID_ML },
     editFieldsContentSid: { en: env.TWILIO_COMPLAINANT_EDIT_FIELDS_SID_EN, ml: env.TWILIO_COMPLAINANT_EDIT_FIELDS_SID_ML },
+    rolePromptContentSid: { en: env.TWILIO_COMPLAINANT_ROLE_SID_EN, ml: env.TWILIO_COMPLAINANT_ROLE_SID_ML },
   };
   const accusedSenderDeps = {
     messagingClient,
     fromNumber: env.TWILIO_WHATSAPP_FROM,
     reviewActionsContentSid: { en: env.TWILIO_ACCUSED_REVIEW_SID_EN, ml: env.TWILIO_ACCUSED_REVIEW_SID_ML },
     editFieldsContentSid: { en: env.TWILIO_ACCUSED_EDIT_FIELDS_SID_EN, ml: env.TWILIO_ACCUSED_EDIT_FIELDS_SID_ML },
+    entityTypeContentSid: { en: env.TWILIO_ACCUSED_ENTITY_TYPE_SID_EN, ml: env.TWILIO_ACCUSED_ENTITY_TYPE_SID_ML },
+  };
+
+  // #33 Parts C-F.
+  const filingDetailsSenderDeps = {
+    messagingClient,
+    fromNumber: env.TWILIO_WHATSAPP_FROM,
+    returnReasonContentSid: { en: env.TWILIO_FILING_RETURN_REASON_SID_EN, ml: env.TWILIO_FILING_RETURN_REASON_SID_ML },
+    partPaymentContentSid: { en: env.TWILIO_FILING_PART_PAYMENT_SID_EN, ml: env.TWILIO_FILING_PART_PAYMENT_SID_ML },
+    witnessContentSid: { en: env.TWILIO_FILING_WITNESS_SID_EN, ml: env.TWILIO_FILING_WITNESS_SID_ML },
+    courtContentSid: { en: env.TWILIO_FILING_COURT_SID_EN, ml: env.TWILIO_FILING_COURT_SID_ML },
+    reviewActionsContentSid: { en: env.TWILIO_FILING_REVIEW_ACTIONS_SID_EN, ml: env.TWILIO_FILING_REVIEW_ACTIONS_SID_ML },
+    editGroupContentSid: { en: env.TWILIO_FILING_EDIT_GROUP_SID_EN, ml: env.TWILIO_FILING_EDIT_GROUP_SID_ML },
+    editChequeFieldContentSid: { en: env.TWILIO_FILING_EDIT_CHEQUE_FIELD_SID_EN, ml: env.TWILIO_FILING_EDIT_CHEQUE_FIELD_SID_ML },
+    editNarrativeFieldContentSid: { en: env.TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_EN, ml: env.TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_ML },
+    declareContentSid: { en: env.TWILIO_FILING_DECLARE_SID_EN, ml: env.TWILIO_FILING_DECLARE_SID_ML },
   };
 
   return {
@@ -88,6 +105,8 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       enrolmentSenderDeps,
       complainantSenderDeps,
       accusedSenderDeps,
+      filingDetailsSenderDeps,
+      filingDocumentRepo,
       withTransaction,
     },
     enrolmentWorkflowDeps: {
@@ -108,6 +127,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       fromNumber: env.TWILIO_WHATSAPP_FROM,
       documentStorageDeps,
       complainantSenderDeps,
+      filingDetailsSenderDeps,
       withTransaction,
     },
     complainantWorkflowDeps: {
@@ -126,6 +146,25 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       partyRepo,
       outboundMessageRepo,
       accusedSenderDeps,
+      mainMenuSenderDeps,
+      withTransaction,
+    },
+    filingDetailsWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      outboundMessageRepo,
+      messagingClient,
+      fromNumber: env.TWILIO_WHATSAPP_FROM,
+      filingDetailsSenderDeps,
+      withTransaction,
+    },
+    filingReviewWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      partyRepo,
+      filingDocumentRepo,
+      outboundMessageRepo,
+      filingDetailsSenderDeps,
       mainMenuSenderDeps,
       withTransaction,
     },

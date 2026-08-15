@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_filing_court_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Which court?",
+      "actions": [
+        { "title": "ON Court - I, Kollam", "id": "filing:court-1" },
+        { "title": "ON Court - II, Kollam", "id": "filing:court-2" },
+        { "title": "JFCM, Kottarakkara", "id": "filing:court-3" }
+      ]
+    }
+  }
+}

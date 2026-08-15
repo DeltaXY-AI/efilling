@@ -4,6 +4,8 @@ import type { RepositoryTransaction } from "./transaction";
 export type FilingRole = "COMPLAINANT_ADVOCATE";
 export type FilingStatus = "DRAFT" | "SUBMITTED" | "ABANDONED";
 export type AdvocateEnrolmentStatus = "PENDING_CONFIRMATION" | "RECORDED_UNVERIFIED";
+/** #33 Part C — the cheque's return reason, a fixed 4-option select. */
+export type FilingReturnReason = "funds" | "stop" | "acct" | "sign";
 
 export interface FilingRecord {
   id: string;
@@ -20,6 +22,23 @@ export interface FilingRecord {
   /** Never "VERIFIED" — no Bar Council integration exists in this slice. */
   advocateEnrolmentStatus: AdvocateEnrolmentStatus | null;
   advocateEnrolmentConfirmedAt: Date | null;
+  /** #33 Part C — cheque and notice particulars. Amount is text (currency), never a float. Dates are plain "YYYY-MM-DD" strings, no time component. */
+  chequeNumber: string | null;
+  chequeDate: string | null;
+  chequeAmount: string | null;
+  bankBranch: string | null;
+  returnReason: FilingReturnReason | null;
+  memoDate: string | null;
+  noticeDate: string | null;
+  serviceDate: string | null;
+  partPayment: boolean | null;
+  /** #33 Part D/E — both optional; a typed narrative and/or Part E's uploaded written account (filing_documents, "narrative" group) are alternatives, not both required. */
+  narrative: string | null;
+  witnessPresent: boolean | null;
+  /** #33 Part F — the hardcoded 3-court list; stored as the exact selected label. */
+  selectedCourt: string | null;
+  /** #33 Part F — when the declaration checkbox was accepted. */
+  declarationAcceptedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -34,6 +53,30 @@ export interface CreateDraftInput {
 export interface SaveEnrolmentCandidateInput {
   original: string;
   normalized: string;
+}
+
+/**
+ * #33 Parts C/D/F — a partial patch of the new field-collecting columns
+ * added by this issue. Mirrors FilingPartyRepository.upsertFields: only the
+ * keys present are written, everything else on the row is left untouched.
+ * One generic method rather than a dedicated setter per field, matching
+ * this repo's own stated principle (see setCurrentStep below) — none of
+ * these fields pair a step change with a *specific* column the way
+ * enrolment's setters do.
+ */
+export interface UpsertFilingFieldsInput {
+  chequeNumber?: string;
+  chequeDate?: string;
+  chequeAmount?: string;
+  bankBranch?: string;
+  returnReason?: FilingReturnReason;
+  memoDate?: string;
+  noticeDate?: string;
+  serviceDate?: string;
+  partPayment?: boolean;
+  narrative?: string;
+  witnessPresent?: boolean;
+  selectedCourt?: string;
 }
 
 /** Thrown by `lockById` when the filing row no longer exists. */
@@ -110,4 +153,10 @@ export interface FilingRepository {
    * can never downgrade a filing past submission.
    */
   abandonDraft(tx: RepositoryTransaction, filingId: string): Promise<void>;
+
+  /** #33 Parts C/D/F — writes only the given keys of the new field-collecting columns; never touches any column not present in `patch`. */
+  upsertFilingFields(tx: RepositoryTransaction, filingId: string, patch: UpsertFilingFieldsInput): Promise<void>;
+
+  /** #33 Part F — records when the declaration checkbox was accepted. Mirrors recordNoticeAcceptance: a single-column timestamp write, the caller sets current_step separately in the same transaction. */
+  recordDeclaration(tx: RepositoryTransaction, filingId: string, acceptedAt: Date): Promise<void>;
 }

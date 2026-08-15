@@ -13,7 +13,8 @@ import type { FilingRepository } from "../repositories/filing-repository";
 import type { OutboundMessageRepository, OutboundMessageType } from "../repositories/outbound-message-repository";
 import type { RepositoryTransaction } from "../repositories/transaction";
 import type { ComplainantSenderDeps } from "./complainant-sender";
-import { sendComplainantNamePrompt } from "./complainant-workflow";
+import { sendComplainantRolePrompt } from "./complainant-sender";
+import { sendCourtPrompt, type FilingDetailsSenderDeps } from "./filing-details-sender";
 import { sendFilingPlainText } from "./filing-sender";
 import type { SupportedLanguage } from "./main-menu-sender";
 import { storeFilingDocument, type FilingDocumentStorageDeps } from "./filing-document-storage";
@@ -51,8 +52,10 @@ export interface FilingDocumentWorkflowDeps {
   fromNumber: string;
   /** Downloads from Twilio's MediaUrl and re-uploads to durable storage (#31 Part D) — the only place in this codebase that accepts inbound media. */
   documentStorageDeps: FilingDocumentStorageDeps;
-  /** Reused as-is for the complainant name prompt sent once all 5 groups are done — never a second implementation. */
+  /** Reused as-is for the "Filing as" role prompt sent once all 5 groups are done (#33 Part A cascade target) — never a second implementation. */
   complainantSenderDeps: ComplainantSenderDeps;
+  /** Reused as-is for the court prompt sent once Part E's optional written-account group is done (#33 Part F cascade target) — never a second implementation. */
+  filingDetailsSenderDeps: FilingDetailsSenderDeps;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -92,6 +95,9 @@ const GROUP_STATE: Record<FilingDocumentGroup, ConversationState> = {
   notice: "FILING_DOC_NOTICE",
   id: "FILING_DOC_ID",
   support: "FILING_DOC_SUPPORT",
+  // #33 Part E — reached from a different part of the flow (after Part D's
+  // witness field), never from the 5-group cascade above.
+  narrative: "FILING_WRITTEN_ACCOUNT_PENDING",
 };
 
 const STATE_TO_GROUP: Partial<Record<string, FilingDocumentGroup>> = {
@@ -100,14 +106,21 @@ const STATE_TO_GROUP: Partial<Record<string, FilingDocumentGroup>> = {
   FILING_DOC_NOTICE: "notice",
   FILING_DOC_ID: "id",
   FILING_DOC_SUPPORT: "support",
+  FILING_WRITTEN_ACCOUNT_PENDING: "narrative",
 };
 
-const NEXT_GROUP: Record<FilingDocumentGroup, FilingDocumentGroup | "complainant"> = {
+// #33 Part A: the "support" group's cascade target is now COMPLAINANT_ROLE_PENDING
+// (the Complainant screen's new first field), not COMPLAINANT_NAME_PENDING
+// directly. #33 Part E: "narrative"'s cascade target is Part F's court
+// screen — "narrative" is never itself a `next` target (see GROUP_STATE
+// above), so it never appears on the left of this map except as itself.
+const NEXT_GROUP: Record<FilingDocumentGroup, FilingDocumentGroup | "complainant" | "court"> = {
   cheque: "memo",
   memo: "notice",
   notice: "id",
   id: "support",
   support: "complainant",
+  narrative: "court",
 };
 
 const GROUP_PROMPT_OUTBOUND_TYPE: Record<FilingDocumentGroup, OutboundMessageType> = {
@@ -116,10 +129,11 @@ const GROUP_PROMPT_OUTBOUND_TYPE: Record<FilingDocumentGroup, OutboundMessageTyp
   notice: "FILING_DOC_NOTICE_PROMPT",
   id: "FILING_DOC_ID_PROMPT",
   support: "FILING_DOC_SUPPORT_PROMPT",
+  narrative: "FILING_WRITTEN_ACCOUNT_PROMPT",
 };
 
-/** Every currentStep #31 can resume into — combined into filing-workflow.ts's SUPPORTED_FILING_STEPS. */
-export const FILING_DOCUMENT_SUPPORTED_STEPS: ReadonlySet<string> = new Set(DOCUMENT_GROUP_ORDER.map((group) => GROUP_STATE[group]));
+/** Every currentStep #31 can resume into — combined into filing-workflow.ts's SUPPORTED_FILING_STEPS. #33 Part E adds FILING_WRITTEN_ACCOUNT_PENDING, reached separately from the 5-group cascade. */
+export const FILING_DOCUMENT_SUPPORTED_STEPS: ReadonlySet<string> = new Set([...DOCUMENT_GROUP_ORDER.map((group) => GROUP_STATE[group]), "FILING_WRITTEN_ACCOUNT_PENDING"]);
 
 // ---------------------------------------------------------------------------
 // Content (#31 Part E — base sentences are verbatim from PR.md Appendix A.4;
@@ -148,6 +162,12 @@ const GROUP_BASE_PROMPT: Record<FilingDocumentGroup, Record<SupportedLanguage, s
   support: {
     en: "Optional, but they make the complaint stronger.",
     ml: "നിർബന്ധമല്ല, പക്ഷേ പരാതി ശക്തമാക്കും.",
+  },
+  // #33 Part E — an alternative to typing the story (Part D): if you
+  // already have a written account, upload it here instead.
+  narrative: {
+    en: "Already written it down? If you have a written account of what happened, upload it here instead of typing it.",
+    ml: "ഇത് നേരത്തെ എഴുതി വെച്ചിട്ടുണ്ടോ? എന്താണ് സംഭവിച്ചത് എന്നതിന്റെ രേഖാമൂലമുള്ള വിവരണം ഉണ്ടെങ്കിൽ, ടൈപ്പ് ചെയ്യുന്നതിന് പകരം ഇവിടെ അപ്‌ലോഡ് ചെയ്യുക.",
   },
 };
 
@@ -327,15 +347,24 @@ async function handleContinueAction(deps: FilingDocumentWorkflowDeps, group: Fil
 
     const next = NEXT_GROUP[group];
     if (next === "complainant") {
-      await deps.filingRepo.setCurrentStep(tx, filing.id, "COMPLAINANT_NAME_PENDING");
-      await deps.conversationRepo.setStateInTx(tx, locked.id, "COMPLAINANT_NAME_PENDING");
+      // #33 Part A: cascades into COMPLAINANT_ROLE_PENDING (the Complainant
+      // screen's new first field), not COMPLAINANT_NAME_PENDING directly.
+      await deps.filingRepo.setCurrentStep(tx, filing.id, "COMPLAINANT_ROLE_PENDING");
+      await deps.conversationRepo.setStateInTx(tx, locked.id, "COMPLAINANT_ROLE_PENDING");
       return {
         committed: true,
         sends: [
           { messageType: "FILING_DOC_ALL_RECEIVED" as const, dedupeSuffix: "filing-doc-all-received" },
-          { messageType: "COMPLAINANT_NAME_PROMPT" as const, dedupeSuffix: "complainant-name-prompt" },
+          { messageType: "COMPLAINANT_ROLE_PROMPT" as const, dedupeSuffix: "complainant-role-prompt" },
         ],
       };
+    }
+    if (next === "court") {
+      // #33 Part E -> Part F: the optional written-account group cascades
+      // straight into court selection, the same "no dead state" pattern.
+      await deps.filingRepo.setCurrentStep(tx, filing.id, "FILING_COURT_PENDING");
+      await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_COURT_PENDING");
+      return { committed: true, sends: [{ messageType: "FILING_COURT_PROMPT" as const, dedupeSuffix: "filing-court-prompt" }] };
     }
 
     await deps.filingRepo.setCurrentStep(tx, filing.id, GROUP_STATE[next]);
@@ -356,9 +385,14 @@ async function handleContinueAction(deps: FilingDocumentWorkflowDeps, group: Fil
     const allReceivedDelivered = await sendPlain(deps, sendInput, ALL_RECEIVED_TEXT[input.language], "filing_document_all_received_send_failed");
     await finalizeOutbound(deps, commit.outboundIds[0], allReceivedDelivered);
 
-    const namePromptDelivered = await sendComplainantNamePrompt(deps.complainantSenderDeps, sendInput);
-    await finalizeOutbound(deps, commit.outboundIds[1], namePromptDelivered);
-    return { delivered: allReceivedDelivered && namePromptDelivered };
+    const rolePromptDelivered = await sendComplainantRolePrompt(deps.complainantSenderDeps, sendInput);
+    await finalizeOutbound(deps, commit.outboundIds[1], rolePromptDelivered);
+    return { delivered: allReceivedDelivered && rolePromptDelivered };
+  }
+  if (next === "court") {
+    const delivered = await sendCourtPrompt(deps.filingDetailsSenderDeps, sendInput);
+    await finalizeOutbound(deps, commit.outboundIds[0], delivered);
+    return { delivered };
   }
 
   const delivered = await sendPlain(deps, sendInput, promptText(next, input.language), `filing_document_${next}_prompt_send_failed`);
@@ -407,6 +441,22 @@ export function handleFilingDocIdInput(deps: FilingDocumentWorkflowDeps, input: 
 
 export function handleFilingDocSupportInput(deps: FilingDocumentWorkflowDeps, input: FilingDocumentInputEvent): Promise<FilingWorkflowResult> {
   return handleFilingDocumentGroupInput(deps, "support", input);
+}
+
+/** #33 Part E: the optional written-account upload, reached from Part D's witness field, not the 5-group cascade above. */
+export function handleFilingWrittenAccountInput(deps: FilingDocumentWorkflowDeps, input: FilingDocumentInputEvent): Promise<FilingWorkflowResult> {
+  return handleFilingDocumentGroupInput(deps, "narrative", input);
+}
+
+/**
+ * Sends the written-account prompt on its own — used by
+ * filing-details-workflow.ts's handleFilingWitnessInput to cascade straight
+ * from FILING_WITNESS_PENDING into FILING_WRITTEN_ACCOUNT_PENDING (#33 Part
+ * E), which only needs the minimal messaging shape, not the rest of
+ * FilingDocumentWorkflowDeps.
+ */
+export function handleFilingWrittenAccountEntry(deps: { messagingClient: TwilioMessagingClient; fromNumber: string }, sendInput: SendInput): Promise<boolean> {
+  return sendFilingPlainText(deps, sendInput, promptText("narrative", sendInput.language), "filing_written_account_prompt_send_failed");
 }
 
 /**

@@ -25,6 +25,33 @@ const envSchema = z.object({
   TWILIO_ACCUSED_REVIEW_SID_ML: z.string().min(1, "TWILIO_ACCUSED_REVIEW_SID_ML is required"),
   TWILIO_ACCUSED_EDIT_FIELDS_SID_EN: z.string().min(1, "TWILIO_ACCUSED_EDIT_FIELDS_SID_EN is required"),
   TWILIO_ACCUSED_EDIT_FIELDS_SID_ML: z.string().min(1, "TWILIO_ACCUSED_EDIT_FIELDS_SID_ML is required"),
+  // #33 Part A.
+  TWILIO_COMPLAINANT_ROLE_SID_EN: z.string().min(1, "TWILIO_COMPLAINANT_ROLE_SID_EN is required"),
+  TWILIO_COMPLAINANT_ROLE_SID_ML: z.string().min(1, "TWILIO_COMPLAINANT_ROLE_SID_ML is required"),
+  // #33 Part B.
+  TWILIO_ACCUSED_ENTITY_TYPE_SID_EN: z.string().min(1, "TWILIO_ACCUSED_ENTITY_TYPE_SID_EN is required"),
+  TWILIO_ACCUSED_ENTITY_TYPE_SID_ML: z.string().min(1, "TWILIO_ACCUSED_ENTITY_TYPE_SID_ML is required"),
+  // #33 Part C.
+  TWILIO_FILING_RETURN_REASON_SID_EN: z.string().min(1, "TWILIO_FILING_RETURN_REASON_SID_EN is required"),
+  TWILIO_FILING_RETURN_REASON_SID_ML: z.string().min(1, "TWILIO_FILING_RETURN_REASON_SID_ML is required"),
+  TWILIO_FILING_PART_PAYMENT_SID_EN: z.string().min(1, "TWILIO_FILING_PART_PAYMENT_SID_EN is required"),
+  TWILIO_FILING_PART_PAYMENT_SID_ML: z.string().min(1, "TWILIO_FILING_PART_PAYMENT_SID_ML is required"),
+  // #33 Part D.
+  TWILIO_FILING_WITNESS_SID_EN: z.string().min(1, "TWILIO_FILING_WITNESS_SID_EN is required"),
+  TWILIO_FILING_WITNESS_SID_ML: z.string().min(1, "TWILIO_FILING_WITNESS_SID_ML is required"),
+  // #33 Part F.
+  TWILIO_FILING_COURT_SID_EN: z.string().min(1, "TWILIO_FILING_COURT_SID_EN is required"),
+  TWILIO_FILING_COURT_SID_ML: z.string().min(1, "TWILIO_FILING_COURT_SID_ML is required"),
+  TWILIO_FILING_REVIEW_ACTIONS_SID_EN: z.string().min(1, "TWILIO_FILING_REVIEW_ACTIONS_SID_EN is required"),
+  TWILIO_FILING_REVIEW_ACTIONS_SID_ML: z.string().min(1, "TWILIO_FILING_REVIEW_ACTIONS_SID_ML is required"),
+  TWILIO_FILING_EDIT_GROUP_SID_EN: z.string().min(1, "TWILIO_FILING_EDIT_GROUP_SID_EN is required"),
+  TWILIO_FILING_EDIT_GROUP_SID_ML: z.string().min(1, "TWILIO_FILING_EDIT_GROUP_SID_ML is required"),
+  TWILIO_FILING_EDIT_CHEQUE_FIELD_SID_EN: z.string().min(1, "TWILIO_FILING_EDIT_CHEQUE_FIELD_SID_EN is required"),
+  TWILIO_FILING_EDIT_CHEQUE_FIELD_SID_ML: z.string().min(1, "TWILIO_FILING_EDIT_CHEQUE_FIELD_SID_ML is required"),
+  TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_EN: z.string().min(1, "TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_EN is required"),
+  TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_ML: z.string().min(1, "TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_ML is required"),
+  TWILIO_FILING_DECLARE_SID_EN: z.string().min(1, "TWILIO_FILING_DECLARE_SID_EN is required"),
+  TWILIO_FILING_DECLARE_SID_ML: z.string().min(1, "TWILIO_FILING_DECLARE_SID_ML is required"),
   PUBLIC_BASE_URL: z.string().url("PUBLIC_BASE_URL must be an absolute URL"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   // #31: durable storage for uploaded filing documents (Vercel Blob). Set

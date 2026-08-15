@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_filing_witness_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "മറ്റാരെങ്കിലും ഉണ്ടായിരുന്നോ?",
+      "actions": [
+        { "title": "മറ്റാരും ഇല്ല", "id": "filing:witness-no" },
+        { "title": "ആരെങ്കിലും ഉണ്ടായിരുന്നു", "id": "filing:witness-yes" }
+      ]
+    }
+  }
+}

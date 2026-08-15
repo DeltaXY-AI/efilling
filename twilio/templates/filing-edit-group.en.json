@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_filing_edit_group_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Which part do you want to edit?",
+      "actions": [
+        { "title": "Cheque & notice", "id": "filing:edit-group-cheque" },
+        { "title": "Story, witness & court", "id": "filing:edit-group-narrative" }
+      ]
+    }
+  }
+}

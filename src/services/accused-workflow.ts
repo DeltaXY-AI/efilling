@@ -1,11 +1,13 @@
 import {
   parseAccusedConfirmAction,
   parseAccusedEditFieldAction,
+  parseEntityTypeSelection,
   validateAccusedPhone,
   type AccusedEditFieldAction,
   type AccusedSelectionInput,
 } from "../domain/accused";
 import { validateAddress, validatePersonName } from "../domain/complainant";
+import { sendFilingChequeNumberPrompt } from "./filing-details-workflow";
 import type { ConversationRepository, ConversationState } from "../repositories/conversation-repository";
 import type { FilingRecord, FilingRepository } from "../repositories/filing-repository";
 import type { FilingPartyRecord, FilingPartyRepository, UpsertFilingPartyFieldsInput } from "../repositories/filing-party-repository";
@@ -13,6 +15,7 @@ import type { OutboundMessageRepository, OutboundMessageType } from "../reposito
 import type { RepositoryTransaction } from "../repositories/transaction";
 import {
   sendAccusedEditFields,
+  sendAccusedEntityTypePrompt,
   sendAccusedReviewActions,
   sendAccusedSummary,
   type AccusedSenderDeps,
@@ -206,21 +209,26 @@ const EDIT_PENDING_STATE: Record<FieldKey, ConversationState> = {
   address: "ACCUSED_EDIT_ADDRESS_PENDING",
 };
 
-const NEXT_FIELD: Record<FieldKey, FieldKey | "confirm"> = {
+// #33 Part B: `address`'s next is now the new entity-type field, not
+// confirm directly — a selection, not free text (see
+// handleAccusedEntityTypeInput), so it's a sentinel like "confirm" rather
+// than a real FieldKey.
+const NEXT_FIELD: Record<FieldKey, FieldKey | "confirm" | "entity-type"> = {
   name: "phone",
   phone: "address",
-  address: "confirm",
+  address: "entity-type",
 };
 
-const EDIT_FIELD_ACTION_TO_FIELD: Record<AccusedEditFieldAction, FieldKey> = {
+const EDIT_FIELD_ACTION_TO_FIELD: Partial<Record<AccusedEditFieldAction, FieldKey>> = {
   "accused:edit-name": "name",
   "accused:edit-phone": "phone",
   "accused:edit-address": "address",
 };
 
 // Resolves every currentStep this workflow ever resumes into a text prompt
-// for (#11 Part J) — the two non-field steps (ACCUSED_CONFIRM,
-// ACCUSED_EDIT_FIELD) are handled separately in
+// for (#11 Part J) — the non-field steps (ACCUSED_CONFIRM,
+// ACCUSED_EDIT_FIELD, and #33 Part B's ACCUSED_ENTITY_TYPE_PENDING/
+// ACCUSED_EDIT_ENTITY_TYPE_PENDING) are handled separately in
 // `resendAccusedPromptForResume`, since they resend a template, not a
 // plain-text field prompt. ACCUSED_DETAILS_START is kept only so any
 // pre-existing row from #10 can still resume (see schema.ts).
@@ -234,17 +242,19 @@ const RESUMABLE_STEP_TO_FIELD: Partial<Record<string, FieldKey>> = {
   ACCUSED_EDIT_ADDRESS_PENDING: "address",
 };
 
-/** Every currentStep #11 can resume into — combined with the other sets in filing-workflow.ts's SUPPORTED_FILING_STEPS. */
+/** Every currentStep #11 can resume into — combined with the other sets in filing-workflow.ts's SUPPORTED_FILING_STEPS. #33 Part B adds the entity-type field and its edit counterpart. */
 export const ACCUSED_SUPPORTED_FILING_STEPS: ReadonlySet<string> = new Set([
   "ACCUSED_DETAILS_START",
   "ACCUSED_NAME_PENDING",
   "ACCUSED_PHONE_PENDING",
   "ACCUSED_ADDRESS_PENDING",
+  "ACCUSED_ENTITY_TYPE_PENDING",
   "ACCUSED_CONFIRM",
   "ACCUSED_EDIT_FIELD",
   "ACCUSED_EDIT_NAME_PENDING",
   "ACCUSED_EDIT_PHONE_PENDING",
   "ACCUSED_EDIT_ADDRESS_PENDING",
+  "ACCUSED_EDIT_ENTITY_TYPE_PENDING",
 ]);
 
 interface FieldValidationResult {
@@ -312,7 +322,7 @@ async function handleLinearFieldInput(deps: AccusedWorkflowDeps, field: FieldKey
   const patch = validation.patch;
 
   const next = NEXT_FIELD[field];
-  const nextState: ConversationState = next === "confirm" ? "ACCUSED_CONFIRM" : LINEAR_PENDING_STATE[next];
+  const nextState: ConversationState = next === "confirm" ? "ACCUSED_CONFIRM" : next === "entity-type" ? "ACCUSED_ENTITY_TYPE_PENDING" : LINEAR_PENDING_STATE[next];
   let filingIdRef: string | null = null;
 
   const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
@@ -339,6 +349,9 @@ async function handleLinearFieldInput(deps: AccusedWorkflowDeps, field: FieldKey
         ],
       };
     }
+    if (next === "entity-type") {
+      return { committed: true, sends: [{ messageType: "ACCUSED_ENTITY_TYPE_PROMPT" as const, dedupeSuffix: "entity-type-prompt" }] };
+    }
     return { committed: true, sends: [{ messageType: PROMPT_OUTBOUND_TYPE[next], dedupeSuffix: `${next}-prompt` }] };
   });
 
@@ -358,6 +371,12 @@ async function handleLinearFieldInput(deps: AccusedWorkflowDeps, field: FieldKey
     const reviewDelivered = await sendAccusedReviewActions(deps.accusedSenderDeps, sendInput);
     await finalizeOutbound(deps, commit.outboundIds[1], reviewDelivered);
     return { delivered: summaryDelivered && reviewDelivered };
+  }
+
+  if (next === "entity-type") {
+    const delivered = await sendAccusedEntityTypePrompt(deps.accusedSenderDeps, sendInput);
+    await finalizeOutbound(deps, commit.outboundIds[0], delivered);
+    return { delivered };
   }
 
   const delivered = await sendFilingPlainText(
@@ -391,6 +410,106 @@ export function handleAccusedAddressInput(deps: AccusedWorkflowDeps, input: Accu
  */
 export function sendAccusedNamePrompt(deps: AccusedSenderDeps, input: SendAccusedMessageInput): Promise<boolean> {
   return sendFilingPlainText(deps, input, PROMPT_TEXT.name[input.language], "accused_name_prompt_send_failed");
+}
+
+// ---------------------------------------------------------------------------
+// Entity type (#33 Part B) — a selection, not free text, so it cannot go
+// through handleLinearFieldInput's text-validation pipeline. Unlike
+// complainant's "Filing as" (#33 Part A), there is no conditional branching
+// here: every value leads straight to ACCUSED_CONFIRM.
+// ---------------------------------------------------------------------------
+
+export async function handleAccusedEntityTypeInput(deps: AccusedWorkflowDeps, input: AccusedActionInput): Promise<AccusedWorkflowResult> {
+  const sendInput = sendInputFor(input);
+  const entityType = parseEntityTypeSelection(input.selection);
+
+  if (!entityType) {
+    return { delivered: await sendAccusedEntityTypePrompt(deps.accusedSenderDeps, sendInput) };
+  }
+
+  let filingIdRef: string | null = null;
+  const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
+    if (locked.state !== "ACCUSED_ENTITY_TYPE_PENDING") {
+      return { committed: false };
+    }
+    const filing = await deps.filingRepo.findActiveDraft(tx, locked.id);
+    if (!filing) {
+      return { committed: false };
+    }
+    filingIdRef = filing.id;
+
+    await deps.partyRepo.upsertFields(tx, filing.id, "ACCUSED", { entityType });
+    await deps.filingRepo.setCurrentStep(tx, filing.id, "ACCUSED_CONFIRM");
+    await deps.conversationRepo.setStateInTx(tx, locked.id, "ACCUSED_CONFIRM");
+    return {
+      committed: true,
+      sends: [
+        { messageType: "ACCUSED_SUMMARY" as const, dedupeSuffix: "accused-summary" },
+        { messageType: "ACCUSED_REVIEW_ACTIONS" as const, dedupeSuffix: "accused-review-actions" },
+      ],
+    };
+  });
+
+  if (!commit.committed) {
+    return { delivered: true };
+  }
+
+  const party = filingIdRef ? await fetchParty(deps, filingIdRef) : null;
+  if (!party) {
+    return { delivered: true };
+  }
+  const summaryDelivered = await sendAccusedSummary(deps.accusedSenderDeps, sendInput, party);
+  await finalizeOutbound(deps, commit.outboundIds[0], summaryDelivered);
+  const reviewDelivered = await sendAccusedReviewActions(deps.accusedSenderDeps, sendInput);
+  await finalizeOutbound(deps, commit.outboundIds[1], reviewDelivered);
+  return { delivered: summaryDelivered && reviewDelivered };
+}
+
+/** #33 Part B: editing entity type from the review screen — same "only this one field changes" guarantee as every other edit, always returns to ACCUSED_CONFIRM. */
+export async function handleAccusedEditEntityTypeInput(deps: AccusedWorkflowDeps, input: AccusedActionInput): Promise<AccusedWorkflowResult> {
+  const sendInput = sendInputFor(input);
+  const entityType = parseEntityTypeSelection(input.selection);
+
+  if (!entityType) {
+    return { delivered: await sendAccusedEntityTypePrompt(deps.accusedSenderDeps, sendInput) };
+  }
+
+  let filingIdRef: string | null = null;
+  const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
+    if (locked.state !== "ACCUSED_EDIT_ENTITY_TYPE_PENDING") {
+      return { committed: false };
+    }
+    const filing = await deps.filingRepo.findActiveDraft(tx, locked.id);
+    if (!filing) {
+      return { committed: false };
+    }
+    filingIdRef = filing.id;
+
+    await deps.partyRepo.upsertFields(tx, filing.id, "ACCUSED", { entityType });
+    await deps.filingRepo.setCurrentStep(tx, filing.id, "ACCUSED_CONFIRM");
+    await deps.conversationRepo.setStateInTx(tx, locked.id, "ACCUSED_CONFIRM");
+    return {
+      committed: true,
+      sends: [
+        { messageType: "ACCUSED_SUMMARY" as const, dedupeSuffix: "accused-summary" },
+        { messageType: "ACCUSED_REVIEW_ACTIONS" as const, dedupeSuffix: "accused-review-actions" },
+      ],
+    };
+  });
+
+  if (!commit.committed) {
+    return { delivered: true };
+  }
+
+  const party = filingIdRef ? await fetchParty(deps, filingIdRef) : null;
+  if (!party) {
+    return { delivered: true };
+  }
+  const summaryDelivered = await sendAccusedSummary(deps.accusedSenderDeps, sendInput, party);
+  await finalizeOutbound(deps, commit.outboundIds[0], summaryDelivered);
+  const reviewDelivered = await sendAccusedReviewActions(deps.accusedSenderDeps, sendInput);
+  await finalizeOutbound(deps, commit.outboundIds[1], reviewDelivered);
+  return { delivered: summaryDelivered && reviewDelivered };
 }
 
 // ---------------------------------------------------------------------------
@@ -476,7 +595,18 @@ export async function handleAccusedEditFieldSelection(deps: AccusedWorkflowDeps,
     return { delivered: await sendAccusedEditFields(deps.accusedSenderDeps, sendInput) };
   }
 
+  // #33 Part B: entity type is a selection (template resend), not a
+  // plain-text field prompt — handled separately from the generic table below.
+  if (action === "accused:edit-entity-type") {
+    return openEditEntityTypePrompt(deps, input);
+  }
+
   const field = EDIT_FIELD_ACTION_TO_FIELD[action];
+  if (!field) {
+    // Unreachable: every AccusedEditFieldAction other than
+    // "accused:edit-entity-type" (handled above) has an entry in this table.
+    return { delivered: true };
+  }
   const pendingState = EDIT_PENDING_STATE[field];
 
   const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
@@ -503,6 +633,32 @@ export async function handleAccusedEditFieldSelection(deps: AccusedWorkflowDeps,
     PROMPT_TEXT[field][input.language],
     `accused_edit_${field}_prompt_send_failed`,
   );
+  await finalizeOutbound(deps, commit.outboundIds[0], delivered);
+  return { delivered };
+}
+
+/** #33 Part B: the "accused:edit-entity-type" branch of handleAccusedEditFieldSelection — sends the entity-type template (not plain text) once entering ACCUSED_EDIT_ENTITY_TYPE_PENDING. */
+async function openEditEntityTypePrompt(deps: AccusedWorkflowDeps, input: AccusedActionInput): Promise<AccusedWorkflowResult> {
+  const sendInput = sendInputFor(input);
+  const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
+    if (locked.state !== "ACCUSED_EDIT_FIELD") {
+      return { committed: false };
+    }
+    const filing = await deps.filingRepo.findActiveDraft(tx, locked.id);
+    if (!filing) {
+      return { committed: false };
+    }
+
+    await deps.filingRepo.setCurrentStep(tx, filing.id, "ACCUSED_EDIT_ENTITY_TYPE_PENDING");
+    await deps.conversationRepo.setStateInTx(tx, locked.id, "ACCUSED_EDIT_ENTITY_TYPE_PENDING");
+    return { committed: true, sends: [{ messageType: "ACCUSED_ENTITY_TYPE_PROMPT" as const, dedupeSuffix: "edit-entity-type-prompt" }] };
+  });
+
+  if (!commit.committed) {
+    return { delivered: true };
+  }
+
+  const delivered = await sendAccusedEntityTypePrompt(deps.accusedSenderDeps, sendInput);
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
   return { delivered };
 }
@@ -560,29 +716,39 @@ async function confirmAccused(deps: AccusedWorkflowDeps, input: AccusedActionInp
 
     const party = await deps.partyRepo.findByFilingAndRole(tx, lockedFiling.id, "ACCUSED");
     // #11 Part I: valid only with full/legal name and address present (each
-    // already format-validated on entry); phone is valid-or-null.
-    if (!party || !party.fullName || !party.address) {
+    // already format-validated on entry); phone is valid-or-null. #33 Part B
+    // also requires entityType.
+    if (!party || !party.fullName || !party.address || !party.entityType) {
       return { committed: false };
     }
 
     await deps.partyRepo.confirm(tx, lockedFiling.id, "ACCUSED", new Date());
-    await deps.filingRepo.setCurrentStep(tx, lockedFiling.id, "CHEQUE_DETAILS_START");
-    await deps.conversationRepo.setStateInTx(tx, locked.id, "CHEQUE_DETAILS_START");
-    return { committed: true, sends: [{ messageType: "ACCUSED_RECORDED" as const, dedupeSuffix: "accused-recorded" }] };
+    // #33 Part C: cascades straight into the cheque/notice screen's first
+    // field, replacing the old CHEQUE_DETAILS_START placeholder — never left
+    // resting at an intermediate state (mirrors #10/#11's own cascades).
+    await deps.filingRepo.setCurrentStep(tx, lockedFiling.id, "FILING_CHEQUE_NUMBER_PENDING");
+    await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_CHEQUE_NUMBER_PENDING");
+    return {
+      committed: true,
+      sends: [
+        { messageType: "ACCUSED_RECORDED" as const, dedupeSuffix: "accused-recorded" },
+        { messageType: "FILING_CHEQUE_NUMBER_PROMPT" as const, dedupeSuffix: "filing-cheque-number-prompt" },
+      ],
+    };
   });
 
   if (!commit.committed) {
     return { delivered: true };
   }
 
-  const delivered = await sendFilingPlainText(
-    deps.accusedSenderDeps,
-    sendInputFor(input),
-    RECORDED_TEXT[input.language],
-    "accused_recorded_send_failed",
-  );
+  const sendInput = sendInputFor(input);
+  const delivered = await sendFilingPlainText(deps.accusedSenderDeps, sendInput, RECORDED_TEXT[input.language], "accused_recorded_send_failed");
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
-  return { delivered };
+
+  const chequePromptDelivered = await sendFilingChequeNumberPrompt(deps.accusedSenderDeps, sendInput);
+  await finalizeOutbound(deps, commit.outboundIds[1], chequePromptDelivered);
+
+  return { delivered: delivered && chequePromptDelivered };
 }
 
 async function openEditFieldPicker(deps: AccusedWorkflowDeps, input: AccusedActionInput): Promise<AccusedWorkflowResult> {
@@ -672,6 +838,11 @@ export async function resendAccusedPromptForResume(
 
   if (filing.currentStep === "ACCUSED_EDIT_FIELD") {
     return sendAccusedEditFields(deps.accusedSenderDeps, sendInput);
+  }
+
+  // #33 Part B: entity type resends its own template, not a plain-text field prompt.
+  if (filing.currentStep === "ACCUSED_ENTITY_TYPE_PENDING" || filing.currentStep === "ACCUSED_EDIT_ENTITY_TYPE_PENDING") {
+    return sendAccusedEntityTypePrompt(deps.accusedSenderDeps, sendInput);
   }
 
   const field = RESUMABLE_STEP_TO_FIELD[filing.currentStep];

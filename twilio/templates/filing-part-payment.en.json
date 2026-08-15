@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_filing_part_payment_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Paid after notice?",
+      "actions": [
+        { "title": "No, nothing paid", "id": "filing:paid-no" },
+        { "title": "Part payment received", "id": "filing:paid-part" }
+      ]
+    }
+  }
+}

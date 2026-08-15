@@ -209,11 +209,60 @@ export function validateAddress(value: string): AddressValidationResult {
 }
 
 // ---------------------------------------------------------------------------
-// Review-action and edit-field selection parsing (Parts A/I/J/L)
+// Filing-as role (#33 Part A — the two new leading Complainant-screen
+// fields, inserted before the fields above). A distinct concept from #9's
+// advocate-enrolment-for-this-session: this describes whether the
+// complainant themselves is a litigant or is represented by an advocate.
+// ---------------------------------------------------------------------------
+
+export type FilingAsRole = "SELF" | "ADVOCATE_FOR_CLIENT";
+
+const FILING_AS_ROLE_ACTIONS: ReadonlySet<string> = new Set(["complainant:role-self", "complainant:role-advocate"]);
+
+const FILING_AS_ROLE_ACTION_TO_VALUE: Record<string, FilingAsRole> = {
+  "complainant:role-self": "SELF",
+  "complainant:role-advocate": "ADVOCATE_FOR_CLIENT",
+};
+
+// Numbers and exact localized titles, matching the plain-text fallback
+// ("1. Myself (litigant) 2. Advocate for client").
+const FILING_AS_ROLE_TEXT_TO_ACTION: Record<string, string> = {
+  "1": "complainant:role-self",
+  "myself (litigant)": "complainant:role-self",
+  myself: "complainant:role-self",
+  "ഞാൻ തന്നെ (കക്ഷി)": "complainant:role-self",
+  "2": "complainant:role-advocate",
+  "advocate for client": "complainant:role-advocate",
+  "അഭിഭാഷകൻ, കക്ഷിക്കായി": "complainant:role-advocate",
+};
+
+/**
+ * Resolves the "Filing as" radio (Myself (litigant) / Advocate for client)
+ * to its stored enum value, with the same stable-ID-authoritative rule as
+ * every other action parser in this codebase.
+ */
+export function parseFilingAsRoleSelection(input: ComplainantSelectionInput): FilingAsRole | null {
+  const stableId = resolveStableId(input);
+  if (stableId) {
+    return FILING_AS_ROLE_ACTIONS.has(stableId) ? FILING_AS_ROLE_ACTION_TO_VALUE[stableId] : null;
+  }
+
+  for (const candidate of resolveTextCandidates(input)) {
+    if (candidate in FILING_AS_ROLE_TEXT_TO_ACTION) {
+      return FILING_AS_ROLE_ACTION_TO_VALUE[FILING_AS_ROLE_TEXT_TO_ACTION[candidate]];
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Review-action and edit-field selection parsing (Parts A/I/J/L, #33 Part A)
 // ---------------------------------------------------------------------------
 
 export type ComplainantConfirmAction = "complainant:confirm" | "complainant:edit" | "filing:save-exit";
 export type ComplainantEditFieldAction =
+  | "complainant:edit-role"
+  | "complainant:edit-enrolment"
   | "complainant:edit-name"
   | "complainant:edit-phone"
   | "complainant:edit-email"
@@ -221,6 +270,8 @@ export type ComplainantEditFieldAction =
 
 const CONFIRM_ACTIONS: ReadonlySet<string> = new Set(["complainant:confirm", "complainant:edit", "filing:save-exit"]);
 const EDIT_FIELD_ACTIONS: ReadonlySet<string> = new Set([
+  "complainant:edit-role",
+  "complainant:edit-enrolment",
   "complainant:edit-name",
   "complainant:edit-phone",
   "complainant:edit-email",
@@ -242,18 +293,26 @@ const CONFIRM_TEXT_TO_ACTION: Record<string, ComplainantConfirmAction> = {
   "സേവ് ചെയ്ത് പുറത്തുപോകുക": "filing:save-exit",
 };
 
-// Matching the plain-text fallback in Part L ("1. Full name 2. Phone number 3. Email 4. Address").
+// Matching the plain-text fallback in Part L, extended by #33 Part A
+// ("1. Filing as 2. Enrolment number 3. Full name 4. Phone number 5. Email
+// 6. Address") — the two new fields lead, matching collection order.
 const EDIT_FIELD_TEXT_TO_ACTION: Record<string, ComplainantEditFieldAction> = {
-  "1": "complainant:edit-name",
+  "1": "complainant:edit-role",
+  "filing as": "complainant:edit-role",
+  "ഫയൽ ചെയ്യുന്നത്": "complainant:edit-role",
+  "2": "complainant:edit-enrolment",
+  "enrolment number": "complainant:edit-enrolment",
+  "എൻറോൾമെന്റ് നമ്പർ": "complainant:edit-enrolment",
+  "3": "complainant:edit-name",
   "full name": "complainant:edit-name",
   "പൂർണ്ണ പേര്": "complainant:edit-name",
-  "2": "complainant:edit-phone",
+  "4": "complainant:edit-phone",
   "phone number": "complainant:edit-phone",
   "ഫോൺ നമ്പർ": "complainant:edit-phone",
-  "3": "complainant:edit-email",
+  "5": "complainant:edit-email",
   email: "complainant:edit-email",
   "ഇമെയിൽ": "complainant:edit-email",
-  "4": "complainant:edit-address",
+  "6": "complainant:edit-address",
   address: "complainant:edit-address",
   "വിലാസം": "complainant:edit-address",
 };

@@ -41,14 +41,67 @@ export function validateAccusedPhone(value: string): AccusedPhoneValidationResul
 }
 
 // ---------------------------------------------------------------------------
-// Review-action and edit-field selection parsing (Parts A/H/I/K)
+// Entity type (#33 Part B — inserted right before ACCUSED_CONFIRM)
+// ---------------------------------------------------------------------------
+
+export type EntityType = "INDIVIDUAL" | "PROPRIETOR" | "COMPANY";
+
+const ENTITY_TYPE_ACTIONS: ReadonlySet<string> = new Set(["accused:entity-individual", "accused:entity-proprietor", "accused:entity-company"]);
+
+const ENTITY_TYPE_ACTION_TO_VALUE: Record<string, EntityType> = {
+  "accused:entity-individual": "INDIVIDUAL",
+  "accused:entity-proprietor": "PROPRIETOR",
+  "accused:entity-company": "COMPANY",
+};
+
+// Numbers and exact localized titles, matching the plain-text fallback
+// ("1. Individual 2. Proprietor of a firm 3. Company/partnership").
+const ENTITY_TYPE_TEXT_TO_ACTION: Record<string, string> = {
+  "1": "accused:entity-individual",
+  individual: "accused:entity-individual",
+  "വ്യക്തി": "accused:entity-individual",
+  "2": "accused:entity-proprietor",
+  "proprietor of a firm": "accused:entity-proprietor",
+  "സ്ഥാപനത്തിന്റെ ഉടമ": "accused:entity-proprietor",
+  "3": "accused:entity-company",
+  "company/partnership": "accused:entity-company",
+  company: "accused:entity-company",
+  "കമ്പനി/പങ്കാളിത്തം": "accused:entity-company",
+};
+
+/**
+ * Resolves the entity-type select (individual / proprietor of a firm /
+ * company-partnership) to its stored enum value, with the same stable-ID-
+ * authoritative rule as every other action parser in this codebase.
+ */
+export function parseEntityTypeSelection(input: AccusedSelectionInput): EntityType | null {
+  const stableId = resolveStableId(input);
+  if (stableId) {
+    return ENTITY_TYPE_ACTIONS.has(stableId) ? ENTITY_TYPE_ACTION_TO_VALUE[stableId] : null;
+  }
+
+  for (const candidate of resolveTextCandidates(input)) {
+    if (candidate in ENTITY_TYPE_TEXT_TO_ACTION) {
+      return ENTITY_TYPE_ACTION_TO_VALUE[ENTITY_TYPE_TEXT_TO_ACTION[candidate]];
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Review-action and edit-field selection parsing (Parts A/H/I/K, #33 Part B)
 // ---------------------------------------------------------------------------
 
 export type AccusedConfirmAction = "accused:confirm" | "accused:edit" | "filing:save-exit";
-export type AccusedEditFieldAction = "accused:edit-name" | "accused:edit-phone" | "accused:edit-address";
+export type AccusedEditFieldAction = "accused:edit-name" | "accused:edit-phone" | "accused:edit-address" | "accused:edit-entity-type";
 
 const CONFIRM_ACTIONS: ReadonlySet<string> = new Set(["accused:confirm", "accused:edit", "filing:save-exit"]);
-const EDIT_FIELD_ACTIONS: ReadonlySet<string> = new Set(["accused:edit-name", "accused:edit-phone", "accused:edit-address"]);
+const EDIT_FIELD_ACTIONS: ReadonlySet<string> = new Set([
+  "accused:edit-name",
+  "accused:edit-phone",
+  "accused:edit-address",
+  "accused:edit-entity-type",
+]);
 
 // Numbers and exact localized titles, matching the plain-text fallback in
 // Part K ("1. Confirm 2. Edit 3. Save and exit"). Matching is case-
@@ -65,7 +118,8 @@ const CONFIRM_TEXT_TO_ACTION: Record<string, AccusedConfirmAction> = {
   "സേവ് ചെയ്ത് പുറത്തുപോകുക": "filing:save-exit",
 };
 
-// Matching the plain-text fallback in Part K ("1. Full/legal name 2. Phone number 3. Address").
+// Matching the plain-text fallback ("1. Full/legal name 2. Phone number
+// 3. Address 4. Entity type") — #33 Part B adds the 4th option.
 const EDIT_FIELD_TEXT_TO_ACTION: Record<string, AccusedEditFieldAction> = {
   "1": "accused:edit-name",
   "full/legal name": "accused:edit-name",
@@ -77,6 +131,9 @@ const EDIT_FIELD_TEXT_TO_ACTION: Record<string, AccusedEditFieldAction> = {
   "3": "accused:edit-address",
   address: "accused:edit-address",
   "വിലാസം": "accused:edit-address",
+  "4": "accused:edit-entity-type",
+  "entity type": "accused:edit-entity-type",
+  "സ്ഥാപന തരം": "accused:edit-entity-type",
 };
 
 /** Same shape as the other domain modules' selection input — kept local so this module has no dependency on their files. */

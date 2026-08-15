@@ -1,4 +1,4 @@
-import { index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { boolean, date, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 /**
  * Conversation + filing + processed-webhook persistence for the
@@ -57,7 +57,73 @@ export const conversationStateEnum = pgEnum("conversation_state", [
   "ACCUSED_EDIT_NAME_PENDING",
   "ACCUSED_EDIT_PHONE_PENDING",
   "ACCUSED_EDIT_ADDRESS_PENDING",
+  // #33 Part B: one new field inserted into #11's existing accused flow,
+  // right before ACCUSED_CONFIRM (the review this issue does NOT change).
+  "ACCUSED_ENTITY_TYPE_PENDING",
+  "ACCUSED_EDIT_ENTITY_TYPE_PENDING",
+  // #33 (Prototype parity - Phase 5). CHEQUE_DETAILS_START itself is never
+  // persisted going forward, mirroring the *_DETAILS_START sentinels above
+  // — confirming the accused now cascades straight into
+  // COMPLAINANT_ROLE_PENDING... no wait, into FILING_CHEQUE_NUMBER_PENDING
+  // in the same transaction (see accused-workflow.ts's confirmAccused).
+  // Kept only so a pre-existing row from #11 can still resume.
   "CHEQUE_DETAILS_START",
+  // #33 Part A: two new leading fields on the Complainant screen, inserted
+  // before #10's existing COMPLAINANT_NAME_PENDING. `enrol` only applies
+  // when `role` = "advocate for client" (see domain/complainant.ts).
+  "COMPLAINANT_ROLE_PENDING",
+  "COMPLAINANT_ENROL_PENDING",
+  "COMPLAINANT_EDIT_ROLE_PENDING",
+  "COMPLAINANT_EDIT_ENROL_PENDING",
+  // #33 Part C: cheque and notice particulars — 9 fields, one state each,
+  // no per-section review of their own (Part F's single combined review
+  // covers Parts C-F; Parts A/B keep their own existing #10/#11 review).
+  "FILING_CHEQUE_NUMBER_PENDING",
+  "FILING_CHEQUE_DATE_PENDING",
+  "FILING_AMOUNT_PENDING",
+  "FILING_BANK_BRANCH_PENDING",
+  "FILING_RETURN_REASON_PENDING",
+  "FILING_MEMO_DATE_PENDING",
+  "FILING_NOTICE_DATE_PENDING",
+  "FILING_SERVICE_DATE_PENDING",
+  "FILING_PART_PAYMENT_PENDING",
+  // #33 Part D: the transaction narrative — both optional (a typed story,
+  // and/or Part E's uploaded written account below; neither is required).
+  "FILING_STORY_PENDING",
+  "FILING_WITNESS_PENDING",
+  // #33 Part E: optional written-account upload (0-2 files), reusing #31's
+  // filing_documents table with a new "narrative" document_group value —
+  // an alternative to Part D's typed story, not a requirement on top of it.
+  "FILING_WRITTEN_ACCOUNT_PENDING",
+  // #33 Part F: court selection, then the single combined review across
+  // every field collected in Parts C-F (Parts A/B already have their own
+  // review/edit loop from #10/#11 and are not re-litigated here), then the
+  // declaration checkbox before cascading into Prototype parity - Phase 6.
+  "FILING_COURT_PENDING",
+  "FILING_REVIEW",
+  // Reached after Confirm on FILING_REVIEW — the declaration checkbox is
+  // its own screen (mirroring the prototype's separate checkbox UI), not
+  // folded into the review's own Confirm action.
+  "FILING_DECLARE_PENDING",
+  "FILING_EDIT_GROUP_PENDING",
+  "FILING_EDIT_CHEQUE_FIELD_PENDING",
+  "FILING_EDIT_NARRATIVE_FIELD_PENDING",
+  "FILING_EDIT_CHEQUE_NUMBER_PENDING",
+  "FILING_EDIT_CHEQUE_DATE_PENDING",
+  "FILING_EDIT_AMOUNT_PENDING",
+  "FILING_EDIT_BANK_BRANCH_PENDING",
+  "FILING_EDIT_RETURN_REASON_PENDING",
+  "FILING_EDIT_MEMO_DATE_PENDING",
+  "FILING_EDIT_NOTICE_DATE_PENDING",
+  "FILING_EDIT_SERVICE_DATE_PENDING",
+  "FILING_EDIT_PART_PAYMENT_PENDING",
+  "FILING_EDIT_STORY_PENDING",
+  "FILING_EDIT_WITNESS_PENDING",
+  "FILING_EDIT_COURT_PENDING",
+  // Owned by Prototype parity - Phase 6 (draft ready / e-Sign), the next
+  // issue after this one — kept-alive placeholder, exactly mirroring how
+  // CHEQUE_DETAILS_START above was this issue's own placeholder.
+  "DRAFT_READY_START",
 ]);
 export const webhookEventStatusEnum = pgEnum("webhook_event_status", ["processing", "processed", "failed"]);
 export const filingRoleEnum = pgEnum("filing_role", ["COMPLAINANT_ADVOCATE"]);
@@ -69,10 +135,22 @@ export const advocateEnrolmentStatusEnum = pgEnum("advocate_enrolment_status", [
 // table/enum for ACCUSED — no second implementation, no schema change.
 export const filingPartyRoleEnum = pgEnum("filing_party_role", ["COMPLAINANT", "ACCUSED"]);
 export const filingPartyStatusEnum = pgEnum("filing_party_status", ["DRAFT", "CONFIRMED"]);
+// #33 Part A — describes the COMPLAINANT party's own representation (self
+// vs. represented by an advocate). Nullable on filing_parties, and only
+// ever set on the COMPLAINANT row — a distinct concept from #9's
+// advocateEnrolment* columns on `filings`, which record the enrolment of
+// whoever is operating this WhatsApp session, not the complainant's own.
+export const complainantFilingAsRoleEnum = pgEnum("complainant_filing_as_role", ["SELF", "ADVOCATE_FOR_CLIENT"]);
+// #33 Part B — only ever set on the ACCUSED row.
+export const filingPartyEntityTypeEnum = pgEnum("filing_party_entity_type", ["INDIVIDUAL", "PROPRIETOR", "COMPANY"]);
 // #31: one value per document-upload state (FILING_DOC_CHEQUE etc.) —
 // unlike filing_party_role, a filing can have many rows per group (up to
 // each group's max file count), never just one.
-export const filingDocumentGroupEnum = pgEnum("filing_document_group", ["cheque", "memo", "notice", "id", "support"]);
+// #33 Part E adds "narrative" — the optional written-account upload,
+// alternative to Part D's typed story.
+export const filingDocumentGroupEnum = pgEnum("filing_document_group", ["cheque", "memo", "notice", "id", "support", "narrative"]);
+// #33 Part C — the cheque's return reason, a fixed 4-option select.
+export const filingReturnReasonEnum = pgEnum("filing_return_reason", ["funds", "stop", "acct", "sign"]);
 export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "FILING_NOTICE",
   "FILING_DRAFT_CHOICE",
@@ -105,6 +183,35 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "ACCUSED_REVIEW_ACTIONS",
   "ACCUSED_EDIT_FIELDS",
   "ACCUSED_RECORDED",
+  // #33 Part A: the two new leading Complainant-screen fields.
+  "COMPLAINANT_ROLE_PROMPT",
+  "COMPLAINANT_ENROL_PROMPT",
+  // #33 Part B: the one new Accused-screen field.
+  "ACCUSED_ENTITY_TYPE_PROMPT",
+  // #33 Part C: cheque and notice particulars, one prompt per field.
+  "FILING_CHEQUE_NUMBER_PROMPT",
+  "FILING_CHEQUE_DATE_PROMPT",
+  "FILING_AMOUNT_PROMPT",
+  "FILING_BANK_BRANCH_PROMPT",
+  "FILING_RETURN_REASON_PROMPT",
+  "FILING_MEMO_DATE_PROMPT",
+  "FILING_NOTICE_DATE_PROMPT",
+  "FILING_SERVICE_DATE_PROMPT",
+  "FILING_PART_PAYMENT_PROMPT",
+  // #33 Part D: the narrative.
+  "FILING_STORY_PROMPT",
+  "FILING_WITNESS_PROMPT",
+  // #33 Part E: the optional written-account upload.
+  "FILING_WRITTEN_ACCOUNT_PROMPT",
+  // #33 Part F: court, the combined Parts C-F review, and the declaration.
+  "FILING_COURT_PROMPT",
+  "FILING_REVIEW_SUMMARY",
+  "FILING_REVIEW_ACTIONS",
+  "FILING_EDIT_GROUP_PROMPT",
+  "FILING_EDIT_CHEQUE_FIELD_PROMPT",
+  "FILING_EDIT_NARRATIVE_FIELD_PROMPT",
+  "FILING_DECLARE_PROMPT",
+  "FILING_RECORDED",
 ]);
 export const outboundMessageStatusEnum = pgEnum("outbound_message_status", ["pending", "sent", "failed"]);
 
@@ -148,6 +255,32 @@ export const filings = pgTable(
     advocateEnrolmentNormalized: text("advocate_enrolment_normalized"),
     advocateEnrolmentStatus: advocateEnrolmentStatusEnum("advocate_enrolment_status"),
     advocateEnrolmentConfirmedAt: timestamp("advocate_enrolment_confirmed_at", { withTimezone: true }),
+    // #33 Part C — cheque and notice particulars. Amount is stored as text
+    // (currency), never a float (Part C's own schema note). Bank/branch and
+    // return reason are optional per the field table; every date is a plain
+    // calendar date, no time component.
+    chequeNumber: text("cheque_number"),
+    chequeDate: date("cheque_date", { mode: "string" }),
+    chequeAmount: text("cheque_amount"),
+    bankBranch: text("bank_branch"),
+    returnReason: filingReturnReasonEnum("return_reason"),
+    memoDate: date("memo_date", { mode: "string" }),
+    noticeDate: date("notice_date", { mode: "string" }),
+    serviceDate: date("service_date", { mode: "string" }),
+    partPayment: boolean("part_payment"),
+    // #33 Part D — both nullable/optional; Part E's uploaded written
+    // account (filing_documents, "narrative" group) is the alternative to
+    // a typed narrative, not an additional requirement on top of it.
+    narrative: text("narrative"),
+    witnessPresent: boolean("witness_present"),
+    // #33 Part F — the hardcoded 3-court list (Scope decisions: confirmed
+    // hardcoded for the pilot). Stored as the exact selected label text,
+    // matching this issue's own schema snippet (TEXT, not an enum).
+    selectedCourt: text("selected_court"),
+    // #33 Part F — when the declaration checkbox was accepted. Mirrors
+    // testNoticeAcceptedAt/advocateEnrolmentConfirmedAt above: an auditable
+    // timestamp for a one-time acceptance, nullable until it happens.
+    declarationAcceptedAt: timestamp("declaration_accepted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -177,6 +310,15 @@ export const filingParties = pgTable(
     phoneNormalized: text("phone_normalized"),
     emailNormalized: text("email_normalized"),
     address: text("address"),
+    // #33 Part A — COMPLAINANT-only (mirrors how emailNormalized above is
+    // COMPLAINANT-only): whether the complainant is filing as themselves or
+    // is represented by an advocate, and that advocate's enrolment number
+    // when so. A distinct concept from `filings.advocateEnrolment*` (#9),
+    // which is the session operator's own enrolment, not the complainant's.
+    filingAsRole: complainantFilingAsRoleEnum("filing_as_role"),
+    representativeEnrolmentNumber: text("representative_enrolment_number"),
+    // #33 Part B — ACCUSED-only.
+    entityType: filingPartyEntityTypeEnum("entity_type"),
     status: filingPartyStatusEnum("status").notNull().default("DRAFT"),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

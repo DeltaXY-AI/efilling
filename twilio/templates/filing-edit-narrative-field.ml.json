@@ -1,0 +1,16 @@
+{
+  "friendly_name": "oncourts_filing_edit_narrative_field_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/list-picker": {
+      "body": "ഏത് വിവരമാണ് എഡിറ്റ് ചെയ്യേണ്ടത് എന്ന് തിരഞ്ഞെടുക്കുക.",
+      "button": "ഫീൽഡ് തിരഞ്ഞെടുക്കുക",
+      "items": [
+        { "item": "എന്താണ് സംഭവിച്ചത്", "description": null, "id": "filing:edit-story", "media_url": null },
+        { "item": "സാക്ഷി", "description": null, "id": "filing:edit-witness", "media_url": null },
+        { "item": "കോടതി", "description": null, "id": "filing:edit-court", "media_url": null }
+      ],
+      "multiple_selection": null
+    }
+  }
+}

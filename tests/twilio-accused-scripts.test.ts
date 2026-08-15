@@ -10,12 +10,17 @@ const FILE_NAMES = [
   "accused-review-actions.ml.json",
   "accused-edit-fields.en.json",
   "accused-edit-fields.ml.json",
+  // #33 Part B.
+  "accused-entity-type.en.json",
+  "accused-entity-type.ml.json",
 ];
 const ENV_VARS = [
   "TWILIO_ACCUSED_REVIEW_SID_EN",
   "TWILIO_ACCUSED_REVIEW_SID_ML",
   "TWILIO_ACCUSED_EDIT_FIELDS_SID_EN",
   "TWILIO_ACCUSED_EDIT_FIELDS_SID_ML",
+  "TWILIO_ACCUSED_ENTITY_TYPE_SID_EN",
+  "TWILIO_ACCUSED_ENTITY_TYPE_SID_ML",
 ];
 
 const SPECS: ContentTemplateSpec[] = FILE_NAMES.map(
@@ -83,7 +88,7 @@ describe("Twilio accused-details Content Template scripts", () => {
       await createMain();
 
       expect(process.exitCode).toBeUndefined();
-      expect(fetchMock).toHaveBeenCalledTimes(4); // one list call per template, no creates
+      expect(fetchMock).toHaveBeenCalledTimes(SPECS.length); // one list call per template, no creates
       expect(loggedOutput()).toContain("matches the repository specification");
     });
 
@@ -104,7 +109,7 @@ describe("Twilio accused-details Content Template scripts", () => {
       const output = loggedOutput();
       expect(output).toContain(mismatched.sid);
       expect(output).toContain("_v2");
-      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(fetchMock).toHaveBeenCalledTimes(SPECS.length);
     });
 
     it("reports duplicate same-name templates and creates nothing for that entry", async () => {
@@ -118,6 +123,11 @@ describe("Twilio accused-details Content Template scripts", () => {
       fetchMock.mockResolvedValueOnce(
         jsonResponse({ contents: [resourceFrom(SPECS[3], "HXok0000000000000000000000000000D")], meta: { next_page_url: null } }),
       );
+      for (const spec of SPECS.slice(4)) {
+        fetchMock.mockResolvedValueOnce(
+          jsonResponse({ contents: [resourceFrom(spec, `HXok${spec.friendly_name}`.slice(0, 34).padEnd(34, "0"))], meta: { next_page_url: null } }),
+        );
+      }
 
       await createMain();
 
@@ -157,21 +167,14 @@ describe("Twilio accused-details Content Template scripts", () => {
 
   describe("verify-accused-templates", () => {
     beforeEach(() => {
-      process.env.TWILIO_ACCUSED_REVIEW_SID_EN = "HXconfiguredA00000000000000000000";
-      process.env.TWILIO_ACCUSED_REVIEW_SID_ML = "HXconfiguredB00000000000000000000";
-      process.env.TWILIO_ACCUSED_EDIT_FIELDS_SID_EN = "HXconfiguredC00000000000000000000";
-      process.env.TWILIO_ACCUSED_EDIT_FIELDS_SID_ML = "HXconfiguredD00000000000000000000";
+      for (const [index, envVar] of ENV_VARS.entries()) {
+        process.env[envVar] = `HXconfigured${index}`.padEnd(34, "0");
+      }
     });
 
-    it("succeeds when all four configured SIDs match their specifications", async () => {
-      const sids = [
-        process.env.TWILIO_ACCUSED_REVIEW_SID_EN!,
-        process.env.TWILIO_ACCUSED_REVIEW_SID_ML!,
-        process.env.TWILIO_ACCUSED_EDIT_FIELDS_SID_EN!,
-        process.env.TWILIO_ACCUSED_EDIT_FIELDS_SID_ML!,
-      ];
+    it("succeeds when all configured SIDs match their specifications", async () => {
       for (const [index, spec] of SPECS.entries()) {
-        fetchMock.mockResolvedValueOnce(jsonResponse(resourceFrom(spec, sids[index])));
+        fetchMock.mockResolvedValueOnce(jsonResponse(resourceFrom(spec, process.env[ENV_VARS[index]]!)));
       }
 
       await verifyMain();
@@ -181,35 +184,25 @@ describe("Twilio accused-details Content Template scripts", () => {
     });
 
     it("reports a missing SID for one template while still verifying the rest", async () => {
-      delete process.env.TWILIO_ACCUSED_EDIT_FIELDS_SID_ML;
-      const sids = [
-        process.env.TWILIO_ACCUSED_REVIEW_SID_EN!,
-        process.env.TWILIO_ACCUSED_REVIEW_SID_ML!,
-        process.env.TWILIO_ACCUSED_EDIT_FIELDS_SID_EN!,
-      ];
-      for (const [index, spec] of SPECS.slice(0, 3).entries()) {
-        fetchMock.mockResolvedValueOnce(jsonResponse(resourceFrom(spec, sids[index])));
+      delete process.env[ENV_VARS[ENV_VARS.length - 1]];
+      for (const [index, spec] of SPECS.slice(0, -1).entries()) {
+        fetchMock.mockResolvedValueOnce(jsonResponse(resourceFrom(spec, process.env[ENV_VARS[index]]!)));
       }
 
       await verifyMain();
 
       expect(process.exitCode).toBe(1);
-      expect(fetchMock).toHaveBeenCalledTimes(3); // the missing one never attempted a fetch
-      expect(loggedOutput()).toContain("TWILIO_ACCUSED_EDIT_FIELDS_SID_ML is not configured");
+      expect(fetchMock).toHaveBeenCalledTimes(SPECS.length - 1); // the missing one never attempted a fetch
+      expect(loggedOutput()).toContain(`${ENV_VARS[ENV_VARS.length - 1]} is not configured`);
     });
 
     it("reports a mismatch against the remote template without aborting the rest", async () => {
-      const mismatched = resourceFrom(SPECS[0], process.env.TWILIO_ACCUSED_REVIEW_SID_EN!, {
+      const mismatched = resourceFrom(SPECS[0], process.env[ENV_VARS[0]]!, {
         types: { "twilio/quick-reply": { body: "different body", actions: [] } },
       });
       fetchMock.mockResolvedValueOnce(jsonResponse(mismatched));
-      const sids = [
-        process.env.TWILIO_ACCUSED_REVIEW_SID_ML!,
-        process.env.TWILIO_ACCUSED_EDIT_FIELDS_SID_EN!,
-        process.env.TWILIO_ACCUSED_EDIT_FIELDS_SID_ML!,
-      ];
       for (const [index, spec] of SPECS.slice(1).entries()) {
-        fetchMock.mockResolvedValueOnce(jsonResponse(resourceFrom(spec, sids[index])));
+        fetchMock.mockResolvedValueOnce(jsonResponse(resourceFrom(spec, process.env[ENV_VARS[index + 1]]!)));
       }
 
       await verifyMain();

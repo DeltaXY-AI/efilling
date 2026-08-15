@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_complainant_role_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "ഫയൽ ചെയ്യുന്നത്?",
+      "actions": [
+        { "title": "ഞാൻ തന്നെ (കക്ഷി)", "id": "complainant:role-self" },
+        { "title": "അഭിഭാഷകൻ, കക്ഷിക്കായി", "id": "complainant:role-advocate" }
+      ]
+    }
+  }
+}
