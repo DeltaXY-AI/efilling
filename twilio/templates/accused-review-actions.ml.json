@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_accused_review_actions_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "എതിർകക്ഷിയുടെ ഈ വിവരങ്ങൾ ശരിയാണോ?",
+      "actions": [
+        { "title": "സ്ഥിരീകരിക്കുക", "id": "accused:confirm" },
+        { "title": "എഡിറ്റ് ചെയ്യുക", "id": "accused:edit" },
+        { "title": "സേവ് ചെയ്ത് പുറത്തുപോകുക", "id": "filing:save-exit" }
+      ]
+    }
+  }
+}

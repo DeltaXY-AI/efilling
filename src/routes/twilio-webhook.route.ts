@@ -55,6 +55,12 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
     reviewActionsContentSid: { en: env.TWILIO_COMPLAINANT_REVIEW_SID_EN, ml: env.TWILIO_COMPLAINANT_REVIEW_SID_ML },
     editFieldsContentSid: { en: env.TWILIO_COMPLAINANT_EDIT_FIELDS_SID_EN, ml: env.TWILIO_COMPLAINANT_EDIT_FIELDS_SID_ML },
   };
+  const accusedSenderDeps = {
+    messagingClient,
+    fromNumber: env.TWILIO_WHATSAPP_FROM,
+    reviewActionsContentSid: { en: env.TWILIO_ACCUSED_REVIEW_SID_EN, ml: env.TWILIO_ACCUSED_REVIEW_SID_ML },
+    editFieldsContentSid: { en: env.TWILIO_ACCUSED_EDIT_FIELDS_SID_EN, ml: env.TWILIO_ACCUSED_EDIT_FIELDS_SID_ML },
+  };
 
   return {
     conversationRepo,
@@ -81,6 +87,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       mainMenuSenderDeps,
       enrolmentSenderDeps,
       complainantSenderDeps,
+      accusedSenderDeps,
       withTransaction,
     },
     enrolmentWorkflowDeps: {
@@ -109,6 +116,16 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       partyRepo,
       outboundMessageRepo,
       complainantSenderDeps,
+      mainMenuSenderDeps,
+      accusedSenderDeps,
+      withTransaction,
+    },
+    accusedWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      partyRepo,
+      outboundMessageRepo,
+      accusedSenderDeps,
       mainMenuSenderDeps,
       withTransaction,
     },

@@ -24,6 +24,8 @@ const ENROLMENT_PROMPT_CONTENT_SID = { en: env.TWILIO_ENROLMENT_PROMPT_SID_EN, m
 const ENROLMENT_CONFIRM_CONTENT_SID = { en: env.TWILIO_ENROLMENT_CONFIRM_SID_EN, ml: env.TWILIO_ENROLMENT_CONFIRM_SID_ML };
 const COMPLAINANT_REVIEW_CONTENT_SID = { en: env.TWILIO_COMPLAINANT_REVIEW_SID_EN, ml: env.TWILIO_COMPLAINANT_REVIEW_SID_ML };
 const COMPLAINANT_EDIT_FIELDS_CONTENT_SID = { en: env.TWILIO_COMPLAINANT_EDIT_FIELDS_SID_EN, ml: env.TWILIO_COMPLAINANT_EDIT_FIELDS_SID_ML };
+const ACCUSED_REVIEW_CONTENT_SID = { en: env.TWILIO_ACCUSED_REVIEW_SID_EN, ml: env.TWILIO_ACCUSED_REVIEW_SID_ML };
+const ACCUSED_EDIT_FIELDS_CONTENT_SID = { en: env.TWILIO_ACCUSED_EDIT_FIELDS_SID_EN, ml: env.TWILIO_ACCUSED_EDIT_FIELDS_SID_ML };
 
 function sign(params: Record<string, string>): string {
   return getExpectedTwilioSignature(env.TWILIO_AUTH_TOKEN, WEBHOOK_URL, params);
@@ -56,6 +58,12 @@ function buildDeps(
     reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
     editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
   };
+  const accusedSenderDeps = {
+    messagingClient,
+    fromNumber: env.TWILIO_WHATSAPP_FROM,
+    reviewActionsContentSid: ACCUSED_REVIEW_CONTENT_SID,
+    editFieldsContentSid: ACCUSED_EDIT_FIELDS_CONTENT_SID,
+  };
   const filingRepo = new InMemoryFilingRepository(conversationRepo);
   const partyRepo = new InMemoryFilingPartyRepository();
   const filingDocumentRepo = new InMemoryFilingDocumentRepository();
@@ -85,6 +93,7 @@ function buildDeps(
       mainMenuSenderDeps,
       enrolmentSenderDeps,
       complainantSenderDeps,
+      accusedSenderDeps,
       withTransaction: createInMemoryWithTransaction(),
     },
     enrolmentWorkflowDeps: {
@@ -113,6 +122,16 @@ function buildDeps(
       partyRepo,
       outboundMessageRepo,
       complainantSenderDeps,
+      mainMenuSenderDeps,
+      accusedSenderDeps,
+      withTransaction: createInMemoryWithTransaction(),
+    },
+    accusedWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      partyRepo,
+      outboundMessageRepo,
+      accusedSenderDeps,
       mainMenuSenderDeps,
       withTransaction: createInMemoryWithTransaction(),
     },
@@ -386,7 +405,7 @@ describe("POST /webhooks/twilio/whatsapp", () => {
     });
   });
 
-  it("routes a full conversation from enrolment confirm through complainant details confirm, end to end (#10)", async () => {
+  it("routes a full conversation from enrolment confirm through accused details confirm, end to end (#10/#11)", async () => {
     const from = "whatsapp:+15005550012";
     const send = (params: Record<string, string>) =>
       request(app).post(ROUTE_PATH).type("form").set("X-Twilio-Signature", sign(params)).send(params);
@@ -511,6 +530,46 @@ describe("POST /webhooks/twilio/whatsapp", () => {
     expect(messagingClient.sendText).toHaveBeenCalledWith(
       expect.objectContaining({ body: expect.stringContaining("Complainant details recorded") }),
     );
+    // #11 Part A: the same Confirm tap cascades straight into the accused
+    // name prompt — ACCUSED_DETAILS_START is never a separate step.
+    expect(messagingClient.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ body: expect.stringContaining("Enter the accused person's full or legal name") }),
+    );
+
+    await send({ MessageSid: "SMflowb000000000000000000000000012", From: from, To: "whatsapp:+14155238886", Body: "Rajesh Menon", NumMedia: "0" });
+    await send({ MessageSid: "SMflowb000000000000000000000000013", From: from, To: "whatsapp:+14155238886", Body: "Skip", NumMedia: "0" });
+
+    const accusedAddressResponse = await send({
+      MessageSid: "SMflowb000000000000000000000000014",
+      From: from,
+      To: "whatsapp:+14155238886",
+      Body: "32/1147, Menon Villa\nChinnakada, Kollam 691001",
+      NumMedia: "0",
+    });
+
+    expect(accusedAddressResponse.status).toBe(200);
+    expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("Rajesh Menon") }));
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ contentSid: env.TWILIO_ACCUSED_REVIEW_SID_EN }),
+    );
+
+    const accusedConfirmResponse = await send({
+      MessageSid: "SMflowb000000000000000000000000015",
+      From: from,
+      To: "whatsapp:+14155238886",
+      Body: "Confirm",
+      ButtonPayload: "accused:confirm",
+      NumMedia: "0",
+    });
+
+    expect(accusedConfirmResponse.status).toBe(200);
+    expect(messagingClient.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ body: expect.stringContaining("Accused party details recorded") }),
+    );
+    // Part L: never send anything to the accused's own phone number.
+    for (const call of [...messagingClient.sendText.mock.calls, ...messagingClient.sendContentTemplate.mock.calls]) {
+      expect((call[0] as { to: string }).to).toBe(from);
+    }
   });
 
   it("acks with 200 and logs safely instead of a 500 when the idempotency claim itself fails (e.g. DB unreachable)", async () => {

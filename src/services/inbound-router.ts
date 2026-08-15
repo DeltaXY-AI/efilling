@@ -30,6 +30,17 @@ import {
   handleComplainantPhoneInput,
   type ComplainantWorkflowDeps,
 } from "./complainant-workflow";
+import {
+  handleAccusedAddressInput,
+  handleAccusedConfirmInput,
+  handleAccusedEditAddressInput,
+  handleAccusedEditFieldSelection,
+  handleAccusedEditNameInput,
+  handleAccusedEditPhoneInput,
+  handleAccusedNameInput,
+  handleAccusedPhoneInput,
+  type AccusedWorkflowDeps,
+} from "./accused-workflow";
 import type { ConversationRepository } from "../repositories/conversation-repository";
 import { logWorkflowError } from "../lib/logger";
 import type { InboundMedia } from "../types/inbound-message";
@@ -42,6 +53,7 @@ export interface InboundRouterDeps {
   enrolmentWorkflowDeps: EnrolmentWorkflowDeps;
   filingDocumentWorkflowDeps: FilingDocumentWorkflowDeps;
   complainantWorkflowDeps: ComplainantWorkflowDeps;
+  accusedWorkflowDeps: AccusedWorkflowDeps;
 }
 
 export interface InboundRouterInput {
@@ -171,12 +183,13 @@ async function recoverFromUnsupportedState(
  * MAIN_MENU, filing-workflow at FILING_DRAFT_CHOICE/FILING_NOTICE (#8),
  * enrolment-workflow at ADVOCATE_ENROLMENT_PENDING/ADVOCATE_ENROLMENT_CONFIRM
  * (#9), filing-document-workflow at every FILING_DOC_* step (#31),
- * complainant-workflow at every COMPLAINANT_* step (#10). Any other
- * known-but-unimplemented state (see KNOWN_UNIMPLEMENTED_STATES) keeps the
- * conversation alive without sending anything; any state outside even that
- * set is recovered instead of stranding the user silently (#26). Before any
- * of that, an existing conversation's "restart" keyword is checked first —
- * it applies regardless of state (see handleRestartRequest).
+ * complainant-workflow at every COMPLAINANT_* step (#10), accused-workflow
+ * at every ACCUSED_* step (#11). Any other known-but-unimplemented state
+ * (see KNOWN_UNIMPLEMENTED_STATES) keeps the conversation alive without
+ * sending anything; any state outside even that set is recovered instead of
+ * stranding the user silently (#26). Before any of that, an existing
+ * conversation's "restart" keyword is checked first — it applies regardless
+ * of state (see handleRestartRequest).
  */
 export async function routeInboundMessage(deps: InboundRouterDeps, input: InboundRouterInput): Promise<LanguageWorkflowResult> {
   const conversation = await deps.conversationRepo.findByWhatsappNumber(input.whatsappNumber);
@@ -338,6 +351,32 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
   }
   if (conversation.state === "COMPLAINANT_EDIT_ADDRESS_PENDING") {
     return handleComplainantEditAddressInput(deps.complainantWorkflowDeps, fieldEvent);
+  }
+
+  // #11: the accused-details flow (Parts A/G-K).
+  if (conversation.state === "ACCUSED_NAME_PENDING") {
+    return handleAccusedNameInput(deps.accusedWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "ACCUSED_PHONE_PENDING") {
+    return handleAccusedPhoneInput(deps.accusedWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "ACCUSED_ADDRESS_PENDING") {
+    return handleAccusedAddressInput(deps.accusedWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "ACCUSED_CONFIRM") {
+    return handleAccusedConfirmInput(deps.accusedWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "ACCUSED_EDIT_FIELD") {
+    return handleAccusedEditFieldSelection(deps.accusedWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "ACCUSED_EDIT_NAME_PENDING") {
+    return handleAccusedEditNameInput(deps.accusedWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "ACCUSED_EDIT_PHONE_PENDING") {
+    return handleAccusedEditPhoneInput(deps.accusedWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "ACCUSED_EDIT_ADDRESS_PENDING") {
+    return handleAccusedEditAddressInput(deps.accusedWorkflowDeps, fieldEvent);
   }
 
   if (KNOWN_UNIMPLEMENTED_STATES.has(conversation.state)) {

@@ -22,13 +22,14 @@ export interface FilingPartyRecord {
 
 /**
  * Patch applied by `upsertFields` — only the keys present are written.
- * `emailNormalized: null` is a meaningful, explicit value (Skip), distinct
- * from omitting the key entirely.
+ * `emailNormalized: null` and `phoneOriginal`/`phoneNormalized: null` are
+ * meaningful, explicit values (Skip — #10's optional email, #11's optional
+ * accused phone), distinct from omitting the key entirely.
  */
 export interface UpsertFilingPartyFieldsInput {
   fullName?: string;
-  phoneOriginal?: string;
-  phoneNormalized?: string;
+  phoneOriginal?: string | null;
+  phoneNormalized?: string | null;
   emailNormalized?: string | null;
   address?: string;
 }
