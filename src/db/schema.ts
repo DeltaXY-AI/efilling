@@ -144,6 +144,13 @@ export const conversationStateEnum = pgEnum("conversation_state", [
   // since a value that can never appear on a row would only invite
   // confusion.
   "FILING_DONE",
+  // #36 (Prototype parity - Phase 8): "My cases" — a sectioned list of
+  // every filing for this conversation (Drafts / Active cases), and the
+  // per-draft detail card (Resume / Discard). No database changes beyond
+  // these two conversation states — see filing-repository.ts's
+  // listByConversation and filing-draft-list-workflow.ts.
+  "FILING_DRAFT_LIST",
+  "FILING_DRAFT_DETAIL",
 ]);
 export const webhookEventStatusEnum = pgEnum("webhook_event_status", ["processing", "processed", "failed"]);
 export const filingRoleEnum = pgEnum("filing_role", ["COMPLAINANT_ADVOCATE"]);
@@ -254,6 +261,11 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "FILING_FILED_ACTIONS",
   "FILING_FEE_PAID_MESSAGE",
   "FILING_DONE_MESSAGE",
+  // #36 (Prototype parity - Phase 8): the sectioned "My cases" list, the
+  // per-draft detail card, and the discard confirmation.
+  "FILING_DRAFT_LIST_MESSAGE",
+  "FILING_DRAFT_DETAIL_MESSAGE",
+  "FILING_DRAFT_DISCARDED_MESSAGE",
 ]);
 export const outboundMessageStatusEnum = pgEnum("outbound_message_status", ["pending", "sent", "failed"]);
 

@@ -203,4 +203,13 @@ export interface FilingRepository {
    * FILING_FEE_PAID is never itself persisted as a resting current_step.
    */
   recordFeePaid(tx: RepositoryTransaction, filingId: string, input: { transactionId: string; paidAt: Date }): Promise<void>;
+
+  /**
+   * #36 — every filing for this conversation, newest first, regardless of
+   * status (DRAFT, ABANDONED, FILED). Broader than findActiveDraft/
+   * findByActiveFilingId (both resolve a single filing via the
+   * active_filing_id pointer): "My cases" shows every draft and case the
+   * advocate has ever started, sectioned by status.
+   */
+  listByConversation(tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord[]>;
 }

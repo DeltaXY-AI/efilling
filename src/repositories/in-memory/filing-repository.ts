@@ -175,6 +175,12 @@ export class InMemoryFilingRepository implements FilingRepository {
     this.update(filingId, { courtFeePaidAt: input.paidAt, courtFeeTransactionId: input.transactionId, currentStep: "FILING_DONE" });
   }
 
+  async listByConversation(_tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord[]> {
+    return [...this.byId.values()]
+      .filter((filing) => filing.conversationId === conversationId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
   /** Test-wiring helper (not part of the FilingRepository interface) so tests can assert a specific filing's fields directly, e.g. to prove a prior draft was left unchanged. */
   findById(filingId: string): FilingRecord | null {
     return this.byId.get(filingId) ?? null;

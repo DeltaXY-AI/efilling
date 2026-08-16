@@ -41,6 +41,10 @@ const FILING_SIGN_SENDER_DEPS_CONTENT_SIDS = {
 const FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS = {
   payFeeActionsContentSid: { en: "HXffiledEn00000000000000000000000", ml: "HXffiledMl00000000000000000000000" },
 };
+const FILING_DRAFT_LIST_SENDER_DEPS_CONTENT_SIDS = {
+  draftListContentSid: { en: "HXfdlistEn0000000000000000000000000", ml: "HXfdlistMl0000000000000000000000000" },
+  draftDetailActionsContentSid: { en: "HXfddetailEn00000000000000000000000", ml: "HXfddetailMl00000000000000000000000" },
+};
 
 function baseInput(overrides: Partial<Parameters<typeof routeInboundMessage>[1]> = {}) {
   return {
@@ -89,6 +93,28 @@ describe("routeInboundMessage", () => {
     const filingDetailsSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS };
     const filingSignSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, ...FILING_SIGN_SENDER_DEPS_CONTENT_SIDS };
     const filingCompletionSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, ...FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS };
+    const filingDraftListSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DRAFT_LIST_SENDER_DEPS_CONTENT_SIDS };
+    const filingWorkflowDeps = {
+      conversationRepo,
+      filingRepo,
+      partyRepo,
+      outboundMessageRepo,
+      filingSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        draftChoiceContentSid: DRAFT_CHOICE_CONTENT_SID,
+        noticeContentSid: NOTICE_CONTENT_SID,
+      },
+      mainMenuSenderDeps,
+      enrolmentSenderDeps,
+      complainantSenderDeps,
+      accusedSenderDeps,
+      filingDetailsSenderDeps,
+      filingDocumentRepo,
+      filingSignSenderDeps,
+      filingCompletionSenderDeps,
+      withTransaction: createInMemoryWithTransaction(),
+    };
     deps = {
       conversationRepo,
       languageWorkflowDeps: {
@@ -99,27 +125,7 @@ describe("routeInboundMessage", () => {
         mainMenuContentSid: MAIN_MENU_CONTENT_SID,
       },
       mainMenuSenderDeps,
-      filingWorkflowDeps: {
-        conversationRepo,
-        filingRepo,
-        partyRepo,
-        outboundMessageRepo,
-        filingSenderDeps: {
-          messagingClient,
-          fromNumber: FROM_NUMBER,
-          draftChoiceContentSid: DRAFT_CHOICE_CONTENT_SID,
-          noticeContentSid: NOTICE_CONTENT_SID,
-        },
-        mainMenuSenderDeps,
-        enrolmentSenderDeps,
-        complainantSenderDeps,
-        accusedSenderDeps,
-        filingDetailsSenderDeps,
-        filingDocumentRepo,
-        filingSignSenderDeps,
-        filingCompletionSenderDeps,
-        withTransaction: createInMemoryWithTransaction(),
-      },
+      filingWorkflowDeps,
       enrolmentWorkflowDeps: {
         conversationRepo,
         filingRepo,
@@ -209,6 +215,20 @@ describe("routeInboundMessage", () => {
         fromNumber: FROM_NUMBER,
         filingCompletionSenderDeps,
         mainMenuSenderDeps,
+        withTransaction: createInMemoryWithTransaction(),
+      },
+      filingDraftListWorkflowDeps: {
+        conversationRepo,
+        filingRepo,
+        partyRepo,
+        filingDocumentRepo,
+        outboundMessageRepo,
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        filingDraftListSenderDeps,
+        mainMenuSenderDeps,
+        blobStorage: createFakeDocumentStorageDeps().blobStorage,
+        filingWorkflowDeps,
         withTransaction: createInMemoryWithTransaction(),
       },
     };

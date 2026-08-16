@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_filing_draft_detail_actions_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "What would you like to do with this draft?",
+      "actions": [
+        { "title": "Continue filing", "id": "filing:resume-draft" },
+        { "title": "Discard draft", "id": "filing:discard-draft" },
+        { "title": "Main menu", "id": "nav:main-menu" }
+      ]
+    }
+  }
+}

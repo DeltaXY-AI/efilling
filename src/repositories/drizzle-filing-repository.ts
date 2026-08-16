@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Transaction } from "../db/client";
 import { conversations, filings } from "../db/schema";
 import {
@@ -185,5 +185,13 @@ export class DrizzleFilingRepository implements FilingRepository {
         updatedAt: new Date(),
       })
       .where(eq(filings.id, filingId));
+  }
+
+  async listByConversation(tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord[]> {
+    return (tx as Transaction)
+      .select()
+      .from(filings)
+      .where(eq(filings.conversationId, conversationId))
+      .orderBy(desc(filings.createdAt));
   }
 }

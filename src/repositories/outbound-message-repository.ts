@@ -67,7 +67,10 @@ export type OutboundMessageType =
   | "FILING_FILED_SUMMARY"
   | "FILING_FILED_ACTIONS"
   | "FILING_FEE_PAID_MESSAGE"
-  | "FILING_DONE_MESSAGE";
+  | "FILING_DONE_MESSAGE"
+  | "FILING_DRAFT_LIST_MESSAGE"
+  | "FILING_DRAFT_DETAIL_MESSAGE"
+  | "FILING_DRAFT_DISCARDED_MESSAGE";
 export type OutboundMessageStatus = "pending" | "sent" | "failed";
 
 export interface OutboundMessageRecord {

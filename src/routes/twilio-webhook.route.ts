@@ -93,6 +93,14 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
     payFeeActionsContentSid: { en: env.TWILIO_FILING_FILED_ACTIONS_SID_EN, ml: env.TWILIO_FILING_FILED_ACTIONS_SID_ML },
   };
 
+  // #36.
+  const filingDraftListSenderDeps = {
+    messagingClient,
+    fromNumber: env.TWILIO_WHATSAPP_FROM,
+    draftListContentSid: { en: env.TWILIO_FILING_DRAFT_LIST_SID_EN, ml: env.TWILIO_FILING_DRAFT_LIST_SID_ML },
+    draftDetailActionsContentSid: { en: env.TWILIO_FILING_DRAFT_DETAIL_ACTIONS_SID_EN, ml: env.TWILIO_FILING_DRAFT_DETAIL_ACTIONS_SID_ML },
+  };
+
   return {
     conversationRepo,
     processedWebhookRepo: new DrizzleProcessedWebhookRepository(),
@@ -214,6 +222,40 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       fromNumber: env.TWILIO_WHATSAPP_FROM,
       filingCompletionSenderDeps,
       mainMenuSenderDeps,
+      withTransaction,
+    },
+    filingDraftListWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      partyRepo,
+      filingDocumentRepo,
+      outboundMessageRepo,
+      messagingClient,
+      fromNumber: env.TWILIO_WHATSAPP_FROM,
+      filingDraftListSenderDeps,
+      mainMenuSenderDeps,
+      blobStorage: documentStorageDeps.blobStorage,
+      filingWorkflowDeps: {
+        conversationRepo,
+        filingRepo,
+        partyRepo,
+        outboundMessageRepo,
+        filingSenderDeps: {
+          messagingClient,
+          fromNumber: env.TWILIO_WHATSAPP_FROM,
+          draftChoiceContentSid: { en: env.TWILIO_FILING_DRAFT_CHOICE_SID_EN, ml: env.TWILIO_FILING_DRAFT_CHOICE_SID_ML },
+          noticeContentSid: { en: env.TWILIO_FILING_NOTICE_SID_EN, ml: env.TWILIO_FILING_NOTICE_SID_ML },
+        },
+        mainMenuSenderDeps,
+        enrolmentSenderDeps,
+        complainantSenderDeps,
+        accusedSenderDeps,
+        filingDetailsSenderDeps,
+        filingDocumentRepo,
+        filingSignSenderDeps,
+        filingCompletionSenderDeps,
+        withTransaction,
+      },
       withTransaction,
     },
   };

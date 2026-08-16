@@ -34,6 +34,12 @@ export class InMemoryFilingDocumentRepository implements FilingDocumentRepositor
     return this.rows.filter((row) => row.filingId === filingId);
   }
 
+  async deleteByFiling(_tx: RepositoryTransaction, filingId: string): Promise<void> {
+    const remaining = this.rows.filter((row) => row.filingId !== filingId);
+    this.rows.length = 0;
+    this.rows.push(...remaining);
+  }
+
   /** Test-wiring helper (not part of the FilingDocumentRepository interface) so tests can assert directly without a transaction. */
   findById(id: string): FilingDocumentRecord | null {
     return this.rows.find((row) => row.id === id) ?? null;

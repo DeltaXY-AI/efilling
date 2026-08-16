@@ -1,5 +1,6 @@
 import type { TwilioMessagingClient } from "../adapters/twilio/messaging-client";
 import type { FilingRecord } from "../repositories/filing-repository";
+import { formatIstTimestamp } from "../lib/format-ist-date";
 import { logWorkflowError } from "../lib/logger";
 import type { SupportedLanguage } from "./main-menu-sender";
 
@@ -21,23 +22,6 @@ export interface SendFilingCompletionMessageInput {
   language: SupportedLanguage;
   /** Twilio MessageSid, used only for safe error correlation — never logged with content. */
   correlationId: string;
-}
-
-// IST (Asia/Kolkata) — the courts this pilot serves are in Kerala.
-// "DD-MM-YYYY, h:mm AM/PM", matching the prototype's own timestamp style
-// (PR.md Appendix A.8, e.g. "20-04-2026, 9:41 AM").
-function formatIstTimestamp(date: Date): string {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Kolkata",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  }).formatToParts(date);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return `${get("day")}-${get("month")}-${get("year")}, ${get("hour")}:${get("minute")} ${get("dayPeriod").toUpperCase()}`;
 }
 
 const COURT_FEE_TEXT: Record<SupportedLanguage, string> = { en: "Rs. 500", ml: "₹500" };

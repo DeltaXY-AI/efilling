@@ -95,7 +95,11 @@ export type ConversationState =
   // persisted (see schema.ts's conversation_state comment).
   | "FILING_FILED_START"
   | "FILING_FILED"
-  | "FILING_DONE";
+  | "FILING_DONE"
+  // Prototype parity - Phase 8 (#36): "My cases" — the sectioned list and
+  // per-draft detail card.
+  | "FILING_DRAFT_LIST"
+  | "FILING_DRAFT_DETAIL";
 
 export interface ConversationRecord {
   id: string;

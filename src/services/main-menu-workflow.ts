@@ -2,6 +2,7 @@ import { MENU_ACTION_TARGET_STATE, isMenuRedisplayRequest, parseMenuAction, type
 import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from "./main-menu-sender";
 import { reopenLanguagePicker, type LanguageWorkflowDeps, type LanguageWorkflowResult } from "./language-workflow";
 import { handleFileOrResume, type FilingWorkflowDeps } from "./filing-workflow";
+import { handleMyCasesEntry, type FilingDraftListWorkflowDeps } from "./filing-draft-list-workflow";
 import type { ConversationRepository } from "../repositories/conversation-repository";
 import { logWorkflowError } from "../lib/logger";
 
@@ -12,6 +13,8 @@ export interface MainMenuWorkflowDeps {
   languageWorkflowDeps: LanguageWorkflowDeps;
   /** Reused as-is for menu:file-case (#8) — never a second implementation of the draft/notice flow. */
   filingWorkflowDeps: FilingWorkflowDeps;
+  /** Reused as-is for menu:my-cases (#36) — never a second implementation of the draft/case list. */
+  filingDraftListWorkflowDeps: FilingDraftListWorkflowDeps;
 }
 
 export interface MainMenuWorkflowInput {
@@ -38,13 +41,6 @@ const CASE_STATUS_ACKNOWLEDGEMENT: Record<SupportedLanguage, string> = {
   ml: "നിങ്ങളുടെ കേസ് സ്ഥിതി പരിശോധിക്കാം.",
 };
 
-// #29: My cases isn't built yet (Prototype parity — Phase 8, #36) — an
-// honest "not built yet" stub, never a silent no-op or fabricated case list.
-const MY_CASES_STUB_TEXT: Record<SupportedLanguage, string> = {
-  en: 'My cases isn\'t ready yet in this version. Check back soon — for now, use "File or resume a case" to continue an existing filing draft.',
-  ml: 'എന്റെ കേസുകൾ ഇപ്പോൾ ലഭ്യമല്ല. ഫയലിംഗ് ഡ്രാഫ്റ്റ് തുടരാൻ "കേസ് ഫയൽ ചെയ്യുക / തുടരുക" ഉപയോഗിക്കുക.',
-};
-
 async function sendPlainText(deps: MainMenuWorkflowDeps, input: MainMenuWorkflowInput, body: string, code: string): Promise<boolean> {
   try {
     await deps.mainMenuSenderDeps.messagingClient.sendText({ from: deps.mainMenuSenderDeps.fromNumber, to: input.whatsappNumber, body });
@@ -65,11 +61,11 @@ function redisplayMenu(deps: MainMenuWorkflowDeps, input: MainMenuWorkflowInput)
 
 /**
  * Implements Parts B–D's MAIN_MENU routing table: menu redisplay on
- * "menu"/"മെനു", the five stable menu actions (file-case/case-status ->
- * their *_START states, change-language -> reused #3 picker, help/my-cases ->
- * stay at MAIN_MENU and redisplay after their own text), and a safe
- * redisplay-with-clarification for anything unrecognized. my-cases is a
- * content-only stub until Prototype parity — Phase 8 (#36) exists (#29).
+ * "menu"/"മെനു", the five stable menu actions (file-case -> #8's
+ * draft/notice flow, my-cases -> #36's sectioned draft/case list,
+ * case-status -> its own *_START state, change-language -> reused #3
+ * picker, help -> stay at MAIN_MENU and redisplay after its own text), and
+ * a safe redisplay-with-clarification for anything unrecognized.
  * Only ever called while the conversation is in MAIN_MENU — routing for
  * other states lives in language-workflow.ts or is out of scope for this
  * slice.
@@ -106,10 +102,15 @@ export async function handleInboundForMainMenu(
   }
 
   if (action === "menu:my-cases") {
-    await deps.conversationRepo.touchLastInboundAt(input.whatsappNumber, now);
-    const stubSent = await sendPlainText(deps, input, MY_CASES_STUB_TEXT[input.language], "main_menu_my_cases_stub_send_failed");
-    const menuDelivered = await redisplayMenu(deps, input);
-    return { delivered: stubSent && menuDelivered };
+    // #36 owns everything past this point: the sectioned draft/case list,
+    // per-draft detail card, and resume/discard — never reimplemented here.
+    return handleMyCasesEntry(deps.filingDraftListWorkflowDeps, {
+      conversationId: input.conversationId,
+      whatsappNumber: input.whatsappNumber,
+      messageId: input.messageId,
+      language: input.language,
+      selection: {},
+    });
   }
 
   if (action === "menu:file-case") {
