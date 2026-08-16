@@ -1,4 +1,4 @@
-import { put } from "@vercel/blob";
+import { del, put } from "@vercel/blob";
 
 /**
  * Durable file storage (#31 Part D) — the destination every downloaded
@@ -9,6 +9,8 @@ import { put } from "@vercel/blob";
  */
 export interface BlobStorage {
   store(input: { pathname: string; buffer: Buffer; contentType: string }): Promise<{ url: string }>;
+  /** #36 — deletes the given Blob URLs (a no-op array is valid). Never throws for an already-deleted/missing URL — Vercel Blob's own `del` treats that as a success. */
+  delete(urls: string[]): Promise<void>;
 }
 
 /**
@@ -21,6 +23,12 @@ export function createVercelBlobStorage(token: string): BlobStorage {
     async store({ pathname, buffer, contentType }) {
       const blob = await put(pathname, buffer, { access: "private", contentType, token });
       return { url: blob.url };
+    },
+    async delete(urls) {
+      if (urls.length === 0) {
+        return;
+      }
+      await del(urls, { token });
     },
   };
 }

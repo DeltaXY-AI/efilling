@@ -85,6 +85,7 @@ import {
 } from "./filing-review-workflow";
 import { handleFilingDraftReadyInput, handleFilingOtpInput, type FilingSignWorkflowDeps } from "./filing-sign-workflow";
 import { handleFilingDoneInput, handleFilingFiledInput, type FilingCompletionWorkflowDeps } from "./filing-completion-workflow";
+import { handleFilingDraftDetailInput, handleFilingDraftListInput, type FilingDraftListWorkflowDeps } from "./filing-draft-list-workflow";
 import type { ConversationRepository } from "../repositories/conversation-repository";
 import { logWorkflowError } from "../lib/logger";
 import type { InboundMedia } from "../types/inbound-message";
@@ -102,6 +103,7 @@ export interface InboundRouterDeps {
   filingReviewWorkflowDeps: FilingReviewWorkflowDeps;
   filingSignWorkflowDeps: FilingSignWorkflowDeps;
   filingCompletionWorkflowDeps: FilingCompletionWorkflowDeps;
+  filingDraftListWorkflowDeps: FilingDraftListWorkflowDeps;
 }
 
 export interface InboundRouterInput {
@@ -246,7 +248,8 @@ async function recoverFromUnsupportedState(
  * complainant-workflow at every COMPLAINANT_* step (#10), accused-workflow
  * at every ACCUSED_* step (#11), filing-sign-workflow at
  * FILING_DRAFT_READY/FILING_OTP_PENDING (#34), filing-completion-workflow
- * at FILING_FILED/FILING_DONE (#35). Any other known-but-unimplemented state
+ * at FILING_FILED/FILING_DONE (#35), filing-draft-list-workflow at
+ * FILING_DRAFT_LIST/FILING_DRAFT_DETAIL (#36). Any other known-but-unimplemented state
  * (see KNOWN_UNIMPLEMENTED_STATES) keeps the conversation alive without
  * sending anything; any state outside even that set is recovered instead of
  * stranding the user silently (#26). Before any of that, an existing
@@ -299,6 +302,7 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
         mainMenuSenderDeps: deps.mainMenuSenderDeps,
         languageWorkflowDeps: deps.languageWorkflowDeps,
         filingWorkflowDeps: deps.filingWorkflowDeps,
+        filingDraftListWorkflowDeps: deps.filingDraftListWorkflowDeps,
       },
       { conversationId: conversation.id, whatsappNumber: input.whatsappNumber, messageId: input.messageId, language, selection },
     );
@@ -578,6 +582,27 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
       whatsappNumber: input.whatsappNumber,
       messageId: input.messageId,
       language,
+    });
+  }
+
+  // #36 (Prototype parity - Phase 8): "My cases" — the sectioned draft/case
+  // list and the per-draft detail card.
+  if (conversation.state === "FILING_DRAFT_LIST") {
+    return handleFilingDraftListInput(deps.filingDraftListWorkflowDeps, {
+      conversationId: conversation.id,
+      whatsappNumber: input.whatsappNumber,
+      messageId: input.messageId,
+      language,
+      selection,
+    });
+  }
+  if (conversation.state === "FILING_DRAFT_DETAIL") {
+    return handleFilingDraftDetailInput(deps.filingDraftListWorkflowDeps, {
+      conversationId: conversation.id,
+      whatsappNumber: input.whatsappNumber,
+      messageId: input.messageId,
+      language,
+      selection,
     });
   }
 

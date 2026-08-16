@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_filing_draft_detail_actions_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "ഈ ഡ്രാഫ്റ്റ് ഉപയോഗിച്ച് എന്ത് ചെയ്യണം?",
+      "actions": [
+        { "title": "ഫയലിംഗ് തുടരുക", "id": "filing:resume-draft" },
+        { "title": "ഡ്രാഫ്റ്റ് ഒഴിവാക്കുക", "id": "filing:discard-draft" },
+        { "title": "പ്രധാന മെനു", "id": "nav:main-menu" }
+      ]
+    }
+  }
+}

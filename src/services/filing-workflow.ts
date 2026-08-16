@@ -93,7 +93,8 @@ const RESUMED_TEXT: Record<SupportedLanguage, string> = {
 };
 
 /** Sent when a draft's current_step isn't one this deployment knows how to resume — the draft itself is left untouched. */
-const UNSUPPORTED_STEP_TEXT: Record<SupportedLanguage, string> = {
+/** Exported for #36's per-draft resume (filing-draft-list-workflow.ts), which hits the exact same "unsupported step" case via applyResumeWrite. */
+export const UNSUPPORTED_STEP_TEXT: Record<SupportedLanguage, string> = {
   en: "We couldn't resume this filing automatically. Our support team will follow up — your saved draft is unchanged.",
   ml: "ഈ ഫയലിംഗ് സ്വയമേവ പുനരാരംഭിക്കാൻ കഴിഞ്ഞില്ല. ഞങ്ങളുടെ സഹായ ടീം തുടർന്ന് ബന്ധപ്പെടും — നിങ്ങളുടെ സേവ് ചെയ്ത ഡ്രാഫ്റ്റിന് മാറ്റമില്ല.",
 };
@@ -105,6 +106,170 @@ const COMPLETION_TEXT: Record<SupportedLanguage, string> = {
 
 function sendInputFor(input: { whatsappNumber: string; language: SupportedLanguage; messageId: string }) {
   return { to: input.whatsappNumber, language: input.language, correlationId: input.messageId };
+}
+
+type ResumeSendInput = ReturnType<typeof sendInputFor>;
+
+// #10/#11 Part A: neither COMPLAINANT_DETAILS_START nor ACCUSED_DETAILS_START
+// is ever persisted going forward (see schema.ts) — any pre-existing row
+// still at either value resumes as its effective *_NAME_PENDING equivalent.
+// #34: DRAFT_READY_START likewise resumes as FILING_DRAFT_READY. Both the
+// filing's current_step and the conversation's state are corrected together
+// (Part B: "must move together in the same transaction") rather than
+// leaving current_step stale until the next valid answer.
+const LEGACY_DETAILS_START_TO_NAME_PENDING: Partial<Record<string, ConversationState>> = {
+  COMPLAINANT_DETAILS_START: "COMPLAINANT_NAME_PENDING",
+  ACCUSED_DETAILS_START: "ACCUSED_NAME_PENDING",
+  DRAFT_READY_START: "FILING_DRAFT_READY",
+};
+
+export interface ResumeFilingResult {
+  kind: "resumed" | "unsupported-step";
+  resumedStep?: string;
+  resumedFiling?: FilingRecord;
+  resumedNormalizedEnrolment?: string | null;
+}
+
+/**
+ * Shared by resumeDraft (#8's single-draft "Resume draft" from
+ * FILING_DRAFT_CHOICE) and #36's per-draft resume from FILING_DRAFT_LIST/
+ * FILING_DRAFT_DETAIL — both must apply the exact same SUPPORTED_FILING_STEPS
+ * gate, legacy-sentinel translation (including #35's FILING_FILED_START
+ * special case, which actually files the draft rather than a pure rename),
+ * and conversation active_filing_id/state write, never a second,
+ * potentially-diverging implementation. Only performs the write — the
+ * caller checks `kind` and, for "resumed", calls
+ * resendPromptForResumedFiling afterward to actually deliver something.
+ *
+ * Always uses setActiveFilingAndState (not just setStateInTx), even though
+ * #8's own single-draft resume never needs to actually change
+ * active_filing_id (the draft being resumed is already the active one) —
+ * #36's multi-draft resume genuinely does need to, so one shared write
+ * covers both rather than two divergent ones.
+ */
+export async function applyResumeWrite(
+  deps: FilingWorkflowDeps,
+  tx: RepositoryTransaction,
+  conversationId: string,
+  draft: FilingRecord,
+): Promise<ResumeFilingResult> {
+  if (!SUPPORTED_FILING_STEPS.has(draft.currentStep)) {
+    // Do not guess or modify the filing (Part G) — nothing is written here.
+    return { kind: "unsupported-step" };
+  }
+
+  if (draft.currentStep === "FILING_FILED_START") {
+    const filedFiling = await recordFilingAsFiled(deps.filingRepo, tx, draft);
+    await deps.conversationRepo.setActiveFilingAndState(tx, conversationId, draft.id, "FILING_FILED");
+    return { kind: "resumed", resumedStep: "FILING_FILED", resumedFiling: filedFiling };
+  }
+
+  const legacyTranslation = LEGACY_DETAILS_START_TO_NAME_PENDING[draft.currentStep];
+  const isLegacyDetailsStart = legacyTranslation !== undefined;
+  const resumeState: ConversationState = legacyTranslation ?? (draft.currentStep as ConversationState);
+  if (isLegacyDetailsStart) {
+    await deps.filingRepo.setCurrentStep(tx, draft.id, resumeState);
+  }
+  await deps.conversationRepo.setActiveFilingAndState(tx, conversationId, draft.id, resumeState);
+  const resumedFiling = isLegacyDetailsStart ? { ...draft, currentStep: resumeState } : draft;
+  return { kind: "resumed", resumedStep: resumeState, resumedFiling, resumedNormalizedEnrolment: draft.advocateEnrolmentNormalized };
+}
+
+/**
+ * #9 Part I: resuming into ADVOCATE_ENROLMENT_CONFIRM must resend the
+ * confirmation template with the saved candidate, not the generic resumed
+ * text — the advocate needs to see the number again to act on
+ * Confirm/Edit/Save and exit. #31: resuming into any of the 5
+ * document-upload groups must likewise resend that group's own prompt.
+ * #10/#11: resuming into any of the complainant- or accused-details steps
+ * must likewise resend the exact pending field prompt or the review
+ * screen, not the generic resumed text. Shared by resumeDraft and #36's
+ * per-draft resume — see applyResumeWrite.
+ */
+export async function resendPromptForResumedFiling(
+  deps: FilingWorkflowDeps,
+  resumedStep: string,
+  resumedFiling: FilingRecord | undefined,
+  resumedNormalizedEnrolment: string | null | undefined,
+  sendInput: ResumeSendInput,
+): Promise<boolean> {
+  if (resumedStep === "ADVOCATE_ENROLMENT_CONFIRM" && resumedNormalizedEnrolment) {
+    return sendEnrolmentConfirmation(deps.enrolmentSenderDeps, sendInput, resumedNormalizedEnrolment);
+  }
+  if (FILING_DOCUMENT_SUPPORTED_STEPS.has(resumedStep)) {
+    return resendFilingDocumentPromptForResume(deps.filingSenderDeps, resumedStep, sendInput);
+  }
+  if (resumedFiling && COMPLAINANT_SUPPORTED_FILING_STEPS.has(resumedStep)) {
+    return resendComplainantPromptForResume(
+      {
+        conversationRepo: deps.conversationRepo,
+        filingRepo: deps.filingRepo,
+        partyRepo: deps.partyRepo,
+        outboundMessageRepo: deps.outboundMessageRepo,
+        complainantSenderDeps: deps.complainantSenderDeps,
+        mainMenuSenderDeps: deps.mainMenuSenderDeps,
+        accusedSenderDeps: deps.accusedSenderDeps,
+        withTransaction: deps.withTransaction,
+      },
+      resumedFiling,
+      sendInput,
+    );
+  }
+  if (resumedFiling && ACCUSED_SUPPORTED_FILING_STEPS.has(resumedStep)) {
+    return resendAccusedPromptForResume(
+      {
+        conversationRepo: deps.conversationRepo,
+        filingRepo: deps.filingRepo,
+        partyRepo: deps.partyRepo,
+        outboundMessageRepo: deps.outboundMessageRepo,
+        accusedSenderDeps: deps.accusedSenderDeps,
+        mainMenuSenderDeps: deps.mainMenuSenderDeps,
+        withTransaction: deps.withTransaction,
+      },
+      resumedFiling,
+      sendInput,
+    );
+  }
+  if (FILING_DETAILS_SUPPORTED_FILING_STEPS.has(resumedStep)) {
+    return resendFilingDetailsPromptForResume(
+      { filingDetailsSenderDeps: deps.filingDetailsSenderDeps, messagingClient: deps.filingSenderDeps.messagingClient, fromNumber: deps.filingSenderDeps.fromNumber },
+      resumedStep,
+      sendInput,
+    );
+  }
+  if (resumedFiling && FILING_REVIEW_SUPPORTED_FILING_STEPS.has(resumedStep)) {
+    return resendFilingReviewPromptForResume(
+      {
+        conversationRepo: deps.conversationRepo,
+        filingRepo: deps.filingRepo,
+        partyRepo: deps.partyRepo,
+        filingDocumentRepo: deps.filingDocumentRepo,
+        outboundMessageRepo: deps.outboundMessageRepo,
+        filingDetailsSenderDeps: deps.filingDetailsSenderDeps,
+        mainMenuSenderDeps: deps.mainMenuSenderDeps,
+        filingSignSenderDeps: deps.filingSignSenderDeps,
+        withTransaction: deps.withTransaction,
+      },
+      resumedFiling,
+      sendInput,
+    );
+  }
+  if (resumedFiling && FILING_SIGN_SUPPORTED_FILING_STEPS.has(resumedStep)) {
+    return resendFilingSignPromptForResume(
+      { messagingClient: deps.filingSenderDeps.messagingClient, fromNumber: deps.filingSenderDeps.fromNumber, filingSignSenderDeps: deps.filingSignSenderDeps },
+      resumedFiling,
+      sendInput,
+    );
+  }
+  if (resumedStep === "FILING_FILED" && resumedFiling) {
+    // #35: the legacy FILING_FILED_START branch above just filed this
+    // draft for the first time — send the same filed-acknowledgement +
+    // pay-fee actions the real cascade sends, not the generic resumed text.
+    const summaryDelivered = await sendFiledSummary(deps.filingCompletionSenderDeps, sendInput, resumedFiling);
+    const actionsDelivered = await sendFiledActions(deps.filingCompletionSenderDeps, sendInput);
+    return summaryDelivered && actionsDelivered;
+  }
+  return sendFilingPlainText(deps.filingSenderDeps, sendInput, RESUMED_TEXT[sendInput.language], "filing_resume_confirmation_send_failed");
 }
 
 /**
@@ -201,11 +366,7 @@ export async function handleDraftChoiceInput(deps: FilingWorkflowDeps, input: Fi
 
 async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): Promise<FilingWorkflowResult> {
   let kind: "resumed" | "unsupported-step" | "no-draft" | null = null;
-  let resumedStep: string | null = null;
-  let resumedNormalizedEnrolment: string | null = null;
-  // Captured so #10's resendComplainantPromptForResume can look up the
-  // party by filing id without a second findActiveDraft read after commit.
-  let resumedFiling: FilingRecord | null = null;
+  let resumeResult: ResumeFilingResult | null = null;
 
   const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
     if (locked.state !== "FILING_DRAFT_CHOICE") {
@@ -221,55 +382,20 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
       return { committed: true, sends: [{ messageType: "FILING_NOTICE" as const, dedupeSuffix: "filing-notice-redirect" }] };
     }
 
-    if (!SUPPORTED_FILING_STEPS.has(draft.currentStep)) {
-      // Do not guess or modify the filing (Part G) — nothing is committed,
-      // so no outbound record is needed for this no-op.
+    const result = await applyResumeWrite(deps, tx, locked.id, draft);
+    if (result.kind === "unsupported-step") {
       kind = "unsupported-step";
       return { committed: false };
     }
 
-    if (draft.currentStep === "FILING_FILED_START") {
-      // #35: unlike the pure step/state renames below, resuming a
-      // pre-existing FILING_FILED_START row actually files it now (diary
-      // number generated, status flipped to FILED) — the exact same
-      // recordFilingAsFiled helper the real OTP-valid cascade in
-      // filing-sign-workflow.ts uses, never a second, potentially-
-      // diverging implementation.
-      const filedFiling = await recordFilingAsFiled(deps.filingRepo, tx, draft);
-      await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_FILED");
-      kind = "resumed";
-      resumedStep = "FILING_FILED";
-      resumedFiling = filedFiling;
-      return { committed: true, sends: [{ messageType: "FILING_RESUMED" as const, dedupeSuffix: "resumed-filed" }] };
-    }
-
-    // #10/#11 Part A: neither COMPLAINANT_DETAILS_START nor
-    // ACCUSED_DETAILS_START is ever persisted going forward (see
-    // schema.ts) — any pre-existing row still at either value resumes as
-    // its effective *_NAME_PENDING equivalent. Both the filing's
-    // current_step and the conversation's state are corrected together
-    // here (Part B: "must move together in the same transaction") rather
-    // than leaving current_step stale until the next valid answer.
-    const LEGACY_DETAILS_START_TO_NAME_PENDING: Partial<Record<string, ConversationState>> = {
-      COMPLAINANT_DETAILS_START: "COMPLAINANT_NAME_PENDING",
-      ACCUSED_DETAILS_START: "ACCUSED_NAME_PENDING",
-      // #34: DRAFT_READY_START is never persisted going forward (see
-      // schema.ts) — a pre-existing row still at that value resumes as
-      // FILING_DRAFT_READY.
-      DRAFT_READY_START: "FILING_DRAFT_READY",
-    };
-    const legacyTranslation = LEGACY_DETAILS_START_TO_NAME_PENDING[draft.currentStep];
-    const isLegacyDetailsStart = legacyTranslation !== undefined;
-    const resumeState: ConversationState = legacyTranslation ?? (draft.currentStep as ConversationState);
-    if (isLegacyDetailsStart) {
-      await deps.filingRepo.setCurrentStep(tx, draft.id, resumeState);
-    }
-    await deps.conversationRepo.setStateInTx(tx, locked.id, resumeState);
     kind = "resumed";
-    resumedStep = resumeState;
-    resumedNormalizedEnrolment = draft.advocateEnrolmentNormalized;
-    resumedFiling = isLegacyDetailsStart ? { ...draft, currentStep: resumeState } : draft;
-    const dedupeSuffix = draft.currentStep === "ADVOCATE_ENROLMENT_CONFIRM" ? "resumed-enrolment-confirm" : "resumed";
+    resumeResult = result;
+    const dedupeSuffix =
+      draft.currentStep === "ADVOCATE_ENROLMENT_CONFIRM"
+        ? "resumed-enrolment-confirm"
+        : draft.currentStep === "FILING_FILED_START"
+          ? "resumed-filed"
+          : "resumed";
     return { committed: true, sends: [{ messageType: "FILING_RESUMED" as const, dedupeSuffix }] };
   });
 
@@ -293,86 +419,14 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
     return { delivered };
   }
 
-  // kind === "resumed". #9 Part I: resuming into ADVOCATE_ENROLMENT_CONFIRM
-  // must resend the confirmation template with the saved candidate, not the
-  // generic resumed text — the advocate needs to see the number again to
-  // act on Confirm/Edit/Save and exit. #31: resuming into any of the 5
-  // document-upload groups must likewise resend that group's own prompt.
-  // #10/#11: resuming into any of the complainant- or accused-details steps
-  // must likewise resend the exact pending field prompt or the review
-  // screen, not the generic resumed text.
-  let delivered: boolean;
-  if (resumedStep === "ADVOCATE_ENROLMENT_CONFIRM" && resumedNormalizedEnrolment) {
-    delivered = await sendEnrolmentConfirmation(deps.enrolmentSenderDeps, sendInput, resumedNormalizedEnrolment);
-  } else if (resumedStep && FILING_DOCUMENT_SUPPORTED_STEPS.has(resumedStep)) {
-    delivered = await resendFilingDocumentPromptForResume(deps.filingSenderDeps, resumedStep, sendInput);
-  } else if (resumedStep && resumedFiling && COMPLAINANT_SUPPORTED_FILING_STEPS.has(resumedStep)) {
-    delivered = await resendComplainantPromptForResume(
-      {
-        conversationRepo: deps.conversationRepo,
-        filingRepo: deps.filingRepo,
-        partyRepo: deps.partyRepo,
-        outboundMessageRepo: deps.outboundMessageRepo,
-        complainantSenderDeps: deps.complainantSenderDeps,
-        mainMenuSenderDeps: deps.mainMenuSenderDeps,
-        accusedSenderDeps: deps.accusedSenderDeps,
-        withTransaction: deps.withTransaction,
-      },
-      resumedFiling,
-      sendInput,
-    );
-  } else if (resumedStep && resumedFiling && ACCUSED_SUPPORTED_FILING_STEPS.has(resumedStep)) {
-    delivered = await resendAccusedPromptForResume(
-      {
-        conversationRepo: deps.conversationRepo,
-        filingRepo: deps.filingRepo,
-        partyRepo: deps.partyRepo,
-        outboundMessageRepo: deps.outboundMessageRepo,
-        accusedSenderDeps: deps.accusedSenderDeps,
-        mainMenuSenderDeps: deps.mainMenuSenderDeps,
-        withTransaction: deps.withTransaction,
-      },
-      resumedFiling,
-      sendInput,
-    );
-  } else if (resumedStep && FILING_DETAILS_SUPPORTED_FILING_STEPS.has(resumedStep)) {
-    delivered = await resendFilingDetailsPromptForResume(
-      { filingDetailsSenderDeps: deps.filingDetailsSenderDeps, messagingClient: deps.filingSenderDeps.messagingClient, fromNumber: deps.filingSenderDeps.fromNumber },
-      resumedStep,
-      sendInput,
-    );
-  } else if (resumedStep && resumedFiling && FILING_REVIEW_SUPPORTED_FILING_STEPS.has(resumedStep)) {
-    delivered = await resendFilingReviewPromptForResume(
-      {
-        conversationRepo: deps.conversationRepo,
-        filingRepo: deps.filingRepo,
-        partyRepo: deps.partyRepo,
-        filingDocumentRepo: deps.filingDocumentRepo,
-        outboundMessageRepo: deps.outboundMessageRepo,
-        filingDetailsSenderDeps: deps.filingDetailsSenderDeps,
-        mainMenuSenderDeps: deps.mainMenuSenderDeps,
-        filingSignSenderDeps: deps.filingSignSenderDeps,
-        withTransaction: deps.withTransaction,
-      },
-      resumedFiling,
-      sendInput,
-    );
-  } else if (resumedStep && resumedFiling && FILING_SIGN_SUPPORTED_FILING_STEPS.has(resumedStep)) {
-    delivered = await resendFilingSignPromptForResume(
-      { messagingClient: deps.filingSenderDeps.messagingClient, fromNumber: deps.filingSenderDeps.fromNumber, filingSignSenderDeps: deps.filingSignSenderDeps },
-      resumedFiling,
-      sendInput,
-    );
-  } else if (resumedStep === "FILING_FILED" && resumedFiling) {
-    // #35: the legacy FILING_FILED_START branch above just filed this
-    // draft for the first time — send the same filed-acknowledgement +
-    // pay-fee actions the real cascade sends, not the generic resumed text.
-    const summaryDelivered = await sendFiledSummary(deps.filingCompletionSenderDeps, sendInput, resumedFiling);
-    const actionsDelivered = await sendFiledActions(deps.filingCompletionSenderDeps, sendInput);
-    delivered = summaryDelivered && actionsDelivered;
-  } else {
-    delivered = await sendFilingPlainText(deps.filingSenderDeps, sendInput, RESUMED_TEXT[input.language], "filing_resume_confirmation_send_failed");
-  }
+  // kind === "resumed"
+  const delivered = await resendPromptForResumedFiling(
+    deps,
+    resumeResult!.resumedStep!,
+    resumeResult!.resumedFiling,
+    resumeResult!.resumedNormalizedEnrolment,
+    sendInput,
+  );
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
   return { delivered };
 }

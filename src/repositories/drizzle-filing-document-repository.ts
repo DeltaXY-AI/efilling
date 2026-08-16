@@ -37,4 +37,8 @@ export class DrizzleFilingDocumentRepository implements FilingDocumentRepository
   async listByFiling(tx: RepositoryTransaction, filingId: string): Promise<FilingDocumentRecord[]> {
     return (tx as Transaction).select().from(filingDocuments).where(eq(filingDocuments.filingId, filingId));
   }
+
+  async deleteByFiling(tx: RepositoryTransaction, filingId: string): Promise<void> {
+    await (tx as Transaction).delete(filingDocuments).where(eq(filingDocuments.filingId, filingId));
+  }
 }

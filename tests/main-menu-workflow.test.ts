@@ -7,6 +7,7 @@ import { InMemoryFilingDocumentRepository } from "../src/repositories/in-memory/
 import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
+import { createFakeDocumentStorageDeps } from "./helpers/fake-document-storage";
 
 const WHATSAPP_NUMBER = "whatsapp:+15005550006";
 const FROM_NUMBER = "whatsapp:+14155238886";
@@ -38,6 +39,10 @@ const FILING_SIGN_SENDER_DEPS_CONTENT_SIDS = {
 };
 const FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS = {
   payFeeActionsContentSid: { en: "HXffiledEn00000000000000000000000", ml: "HXffiledMl00000000000000000000000" },
+};
+const FILING_DRAFT_LIST_SENDER_DEPS_CONTENT_SIDS = {
+  draftListContentSid: { en: "HXfdlistEn0000000000000000000000000", ml: "HXfdlistMl0000000000000000000000000" },
+  draftDetailActionsContentSid: { en: "HXfddetailEn00000000000000000000000", ml: "HXfddetailMl00000000000000000000000" },
 };
 
 describe("handleInboundForMainMenu", () => {
@@ -73,46 +78,65 @@ describe("handleInboundForMainMenu", () => {
     };
     const mainMenuSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID };
 
+    const partyRepo = new InMemoryFilingPartyRepository();
+    const filingDocumentRepo = new InMemoryFilingDocumentRepository();
+    const filingRepo = new InMemoryFilingRepository(conversationRepo);
+    const filingWorkflowDeps = {
+      conversationRepo,
+      filingRepo,
+      partyRepo,
+      outboundMessageRepo: new InMemoryOutboundMessageRepository(),
+      filingSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        draftChoiceContentSid: DRAFT_CHOICE_CONTENT_SID,
+        noticeContentSid: NOTICE_CONTENT_SID,
+      },
+      mainMenuSenderDeps,
+      enrolmentSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        promptContentSid: ENROLMENT_PROMPT_CONTENT_SID,
+        confirmContentSid: ENROLMENT_CONFIRM_CONTENT_SID,
+      },
+      complainantSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
+        editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
+        rolePromptContentSid: COMPLAINANT_ROLE_CONTENT_SID,
+      },
+      accusedSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        reviewActionsContentSid: ACCUSED_REVIEW_CONTENT_SID,
+        editFieldsContentSid: ACCUSED_EDIT_FIELDS_CONTENT_SID,
+        entityTypeContentSid: ACCUSED_ENTITY_TYPE_CONTENT_SID,
+      },
+      filingDetailsSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS },
+      filingDocumentRepo,
+      filingSignSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_SIGN_SENDER_DEPS_CONTENT_SIDS },
+      filingCompletionSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS },
+      withTransaction: createInMemoryWithTransaction(),
+    };
+
     deps = {
       conversationRepo,
       mainMenuSenderDeps,
       languageWorkflowDeps,
-      filingWorkflowDeps: {
+      filingWorkflowDeps,
+      filingDraftListWorkflowDeps: {
         conversationRepo,
-        filingRepo: new InMemoryFilingRepository(conversationRepo),
-        partyRepo: new InMemoryFilingPartyRepository(),
+        filingRepo,
+        partyRepo,
+        filingDocumentRepo,
         outboundMessageRepo: new InMemoryOutboundMessageRepository(),
-        filingSenderDeps: {
-          messagingClient,
-          fromNumber: FROM_NUMBER,
-          draftChoiceContentSid: DRAFT_CHOICE_CONTENT_SID,
-          noticeContentSid: NOTICE_CONTENT_SID,
-        },
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        filingDraftListSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DRAFT_LIST_SENDER_DEPS_CONTENT_SIDS },
         mainMenuSenderDeps,
-        enrolmentSenderDeps: {
-          messagingClient,
-          fromNumber: FROM_NUMBER,
-          promptContentSid: ENROLMENT_PROMPT_CONTENT_SID,
-          confirmContentSid: ENROLMENT_CONFIRM_CONTENT_SID,
-        },
-        complainantSenderDeps: {
-          messagingClient,
-          fromNumber: FROM_NUMBER,
-          reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
-          editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
-          rolePromptContentSid: COMPLAINANT_ROLE_CONTENT_SID,
-        },
-        accusedSenderDeps: {
-          messagingClient,
-          fromNumber: FROM_NUMBER,
-          reviewActionsContentSid: ACCUSED_REVIEW_CONTENT_SID,
-          editFieldsContentSid: ACCUSED_EDIT_FIELDS_CONTENT_SID,
-          entityTypeContentSid: ACCUSED_ENTITY_TYPE_CONTENT_SID,
-        },
-        filingDetailsSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS },
-        filingDocumentRepo: new InMemoryFilingDocumentRepository(),
-        filingSignSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_SIGN_SENDER_DEPS_CONTENT_SIDS },
-        filingCompletionSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS },
+        blobStorage: createFakeDocumentStorageDeps().blobStorage,
+        filingWorkflowDeps,
         withTransaction: createInMemoryWithTransaction(),
       },
     };
@@ -206,33 +230,18 @@ describe("handleInboundForMainMenu", () => {
     expect(conversation).toMatchObject({ state: "MAIN_MENU" });
   });
 
-  it("keeps MAIN_MENU and redisplays after menu:my-cases, sending the stub text first (#29)", async () => {
+  it("#36: menu:my-cases moves to FILING_DRAFT_LIST and sends the sectioned list (no drafts/cases yet)", async () => {
     const result = await handleInboundForMainMenu(deps, baseInput({ selection: { buttonPayload: "menu:my-cases" } }));
 
     expect(result.delivered).toBe(true);
-    expect(messagingClient.sendText).toHaveBeenCalledWith(
-      expect.objectContaining({ body: expect.stringContaining("isn't ready yet") }),
-    );
     expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
-      expect.objectContaining({ contentSid: MAIN_MENU_CONTENT_SID.en }),
+      expect.objectContaining({
+        contentSid: FILING_DRAFT_LIST_SENDER_DEPS_CONTENT_SIDS.draftListContentSid.en,
+        contentVariables: expect.objectContaining({ "1": expect.stringContaining("don't have any drafts") }),
+      }),
     );
-
     const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-    expect(conversation).toMatchObject({ state: "MAIN_MENU" });
-  });
-
-  it("sends the Malayalam stub for menu:my-cases when the advocate is on the Malayalam menu (#29)", async () => {
-    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "ml", new Date());
-
-    const result = await handleInboundForMainMenu(deps, baseInput({ language: "ml", selection: { buttonPayload: "menu:my-cases" } }));
-
-    expect(result.delivered).toBe(true);
-    expect(messagingClient.sendText).toHaveBeenCalledWith(
-      expect.objectContaining({ body: expect.stringContaining("ലഭ്യമല്ല") }),
-    );
-    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
-      expect.objectContaining({ contentSid: MAIN_MENU_CONTENT_SID.ml }),
-    );
+    expect(conversation).toMatchObject({ state: "FILING_DRAFT_LIST" });
   });
 
   it("does not change state for unrecognized input, and redisplays the menu with a clarification", async () => {

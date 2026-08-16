@@ -40,4 +40,12 @@ export interface FilingDocumentRepository {
 
   /** Every document on this filing, across all groups — used for #31's Developer verification and, later, draft-discard cleanup (#36). */
   listByFiling(tx: RepositoryTransaction, filingId: string): Promise<FilingDocumentRecord[]>;
+
+  /**
+   * #36 — deletes every filing_documents row for this filing. Only the DB
+   * rows: the caller (filing-draft-list-workflow.ts) is responsible for
+   * deleting the underlying Blob files first, via BlobStorage.delete, since
+   * that's a separate, non-transactional I/O step.
+   */
+  deleteByFiling(tx: RepositoryTransaction, filingId: string): Promise<void>;
 }

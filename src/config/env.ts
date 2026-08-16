@@ -58,6 +58,11 @@ const envSchema = z.object({
   // #35.
   TWILIO_FILING_FILED_ACTIONS_SID_EN: z.string().min(1, "TWILIO_FILING_FILED_ACTIONS_SID_EN is required"),
   TWILIO_FILING_FILED_ACTIONS_SID_ML: z.string().min(1, "TWILIO_FILING_FILED_ACTIONS_SID_ML is required"),
+  // #36.
+  TWILIO_FILING_DRAFT_LIST_SID_EN: z.string().min(1, "TWILIO_FILING_DRAFT_LIST_SID_EN is required"),
+  TWILIO_FILING_DRAFT_LIST_SID_ML: z.string().min(1, "TWILIO_FILING_DRAFT_LIST_SID_ML is required"),
+  TWILIO_FILING_DRAFT_DETAIL_ACTIONS_SID_EN: z.string().min(1, "TWILIO_FILING_DRAFT_DETAIL_ACTIONS_SID_EN is required"),
+  TWILIO_FILING_DRAFT_DETAIL_ACTIONS_SID_ML: z.string().min(1, "TWILIO_FILING_DRAFT_DETAIL_ACTIONS_SID_ML is required"),
   PUBLIC_BASE_URL: z.string().url("PUBLIC_BASE_URL must be an absolute URL"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   // #31: durable storage for uploaded filing documents (Vercel Blob). Set
