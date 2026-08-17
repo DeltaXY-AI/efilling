@@ -7,16 +7,19 @@ import {
   wouldExceedMaximum,
   type FilingDocumentGroup,
 } from "../domain/filing-document";
+import { computeLimitationWindow, daysUntilIso, formatLimitationNoticeText } from "../domain/filing-details";
 import type { TwilioMessagingClient } from "../adapters/twilio/messaging-client";
 import type { ConversationRepository, ConversationState } from "../repositories/conversation-repository";
 import type { FilingDocumentRepository } from "../repositories/filing-document-repository";
-import type { FilingRepository } from "../repositories/filing-repository";
+import type { FilingPartyRepository } from "../repositories/filing-party-repository";
+import type { FilingRecord, FilingRepository, UpsertFilingFieldsInput } from "../repositories/filing-repository";
 import type { OutboundMessageRepository, OutboundMessageType } from "../repositories/outbound-message-repository";
 import type { RepositoryTransaction } from "../repositories/transaction";
 import type { ComplainantSenderDeps } from "./complainant-sender";
 import { sendComplainantRolePrompt } from "./complainant-sender";
-import { sendCourtPrompt, type FilingDetailsSenderDeps } from "./filing-details-sender";
+import { sendCourtPrompt, formatReturnReasonLabel, type FilingDetailsSenderDeps } from "./filing-details-sender";
 import { sendFilingPlainText } from "./filing-sender";
+import { formatIsoDateAsDisplay } from "../lib/format-ist-date";
 import type { SupportedLanguage } from "./main-menu-sender";
 import { storeFilingDocument, type FilingDocumentStorageDeps } from "./filing-document-storage";
 import { commitWithOutbound, finalizeOutbound } from "./transactional-outbound";
@@ -31,12 +34,16 @@ import type { FilingWorkflowResult } from "./filing-workflow";
  * handler shared by all 5 states via table lookups, thin exported wrappers,
  * and a resend-for-resume function consumed by filing-workflow.ts.
  *
- * Also implements #32 (Prototype parity — Phase 4, Option A — no OCR): once
- * the last (support) group is done, this same file sends the "got your
- * documents" acknowledgement (ALL_RECEIVED_TEXT below) and cascades straight
- * into COMPLAINANT_NAME_PENDING in the same transaction — there is no
- * separate "processing"/"extracted" state for #32 to add, matching how #9's
- * enrolment-recording message already works.
+ * Once the last (support) group is done, this same file sends the "got your
+ * documents" acknowledgement and cascades straight into
+ * COMPLAINANT_ROLE_PENDING in the same transaction — there is no separate
+ * "processing"/"extracted" state, matching how #9's enrolment-recording
+ * message already works. #32 originally scoped this as a plain
+ * acknowledgement with no reading step (this codebase had no OCR at all);
+ * #40 (document auto-extraction) reverses that, so if the cheque/memo/notice
+ * photos actually yielded anything, the acknowledgement is followed by a
+ * "here's what I read" summary before the plain one — see
+ * buildExtractionSummaryText below.
  *
  * Prompts/errors have no Content Template — sent with the same
  * `sendFilingPlainText` helper every other plain-text message in this
@@ -46,6 +53,8 @@ import type { FilingWorkflowResult } from "./filing-workflow";
 export interface FilingDocumentWorkflowDeps {
   conversationRepo: ConversationRepository;
   filingRepo: FilingRepository;
+  /** #40 — accused-party fullName is pre-filled here when the cheque photo's drawer name was read confidently. */
+  partyRepo: FilingPartyRepository;
   filingDocumentRepo: FilingDocumentRepository;
   /** Durable outbound intent, enqueued inside the same transaction as each committed state change — see commitWithOutbound in transactional-outbound.ts. */
   outboundMessageRepo: OutboundMessageRepository;
@@ -214,19 +223,117 @@ const UNRECOGNIZED_INPUT_TEXT: Record<SupportedLanguage, string> = {
   ml: 'ഈ രേഖ ഫോട്ടോ അല്ലെങ്കിൽ PDF ആയി അയക്കുക, അല്ലെങ്കിൽ ആവശ്യത്തിന് അയച്ചു കഴിഞ്ഞാൽ "കഴിഞ്ഞു" എന്ന് മറുപടി നൽകുക.',
 };
 
-// #32 (Prototype parity — Phase 4, Option A: no OCR): the prototype's
-// `uploadedAck` promises "I'm reading them now ... this usually takes under
-// a minute" — a promise this codebase cannot keep, since it has no
-// OCR/document-AI extraction step. That line is deliberately dropped; this
-// is an honest "received" acknowledgement followed by a direct handoff into
-// typed case-detail entry, not a "give me a moment" that leads nowhere.
-// ML wording is this codebase's own translation of the adjusted (non-OCR)
-// English above — the prototype's own Malayalam text for this screen
-// assumes the reading illusion and is not reusable verbatim here.
+// Sent instead of ALL_RECEIVED_TEXT (below) when at least one document
+// actually yielded something — #40's reversal of #32's original "no OCR"
+// decision, now backed by a real extraction step (see buildExtractionSummaryText).
+const READING_TEXT: Record<SupportedLanguage, string> = {
+  en: "✓ Got all your documents.\n\nReading them now — this usually takes under a minute.",
+  ml: "✓ നിങ്ങളുടെ എല്ലാ രേഖകളും ലഭിച്ചു.\n\nഇപ്പോൾ വായിക്കുന്നു — സാധാരണയായി ഒരു മിനിറ്റിനുള്ളിൽ പൂർത്തിയാകും.",
+};
+
+// The plain acknowledgement — unchanged from #32's original wording, still
+// used whenever nothing was actually extracted (no documentExtractor
+// configured, every extraction attempt failed, or the advocate used the
+// "sample"/demo-files shortcut, which has no real bytes to read).
 const ALL_RECEIVED_TEXT: Record<SupportedLanguage, string> = {
   en: "✓ Got all your documents.\n\nThanks - let's go through the case details next.",
   ml: "✓ നിങ്ങളുടെ എല്ലാ രേഖകളും ലഭിച്ചു.\n\nനന്ദി - അടുത്തതായി കേസിന്റെ വിവരങ്ങളിലേക്ക് കടക്കാം.",
 };
+
+const EXTRACTION_SUMMARY_HEADER: Record<SupportedLanguage, string> = {
+  en: "Done reading. Here's what I picked up — please check it in the next step and correct anything that's wrong:",
+  ml: "വായന പൂർത്തിയായി. ഇവയാണ് ഞാൻ കണ്ടെത്തിയത് — അടുത്ത ഘട്ടത്തിൽ ഇത് പരിശോധിച്ച് തെറ്റുള്ളത് തിരുത്തുക:",
+};
+
+const EXTRACTION_SUMMARY_DISCLOSURE: Record<SupportedLanguage, string> = {
+  en: "(Read using an AI assistant to help pre-fill the form. Demo only — not independently verified.)",
+  ml: "(ഫോം പൂരിപ്പിക്കാൻ സഹായിക്കുന്നതിന് ഒരു AI സഹായി ഉപയോഗിച്ചാണ് ഇത് വായിച്ചത്. ഡെമോ മാത്രം — സ്വതന്ത്രമായി പരിശോധിച്ചിട്ടില്ല.)",
+};
+
+const EXTRACTION_SUMMARY_LABEL: Record<SupportedLanguage, Record<string, string>> = {
+  en: {
+    chequeNumber: "Cheque number",
+    amount: "Amount",
+    chequeDate: "Cheque date",
+    bankBranch: "Bank and branch",
+    returnReason: "Return reason",
+    memoDate: "Memo date",
+    noticeDate: "Notice date",
+    serviceDate: "Notice served on",
+    accusedName: "Accused name",
+  },
+  ml: {
+    chequeNumber: "ചെക്ക് നമ്പർ",
+    amount: "തുക",
+    chequeDate: "ചെക്ക് തീയതി",
+    bankBranch: "ബാങ്കും ബ്രാഞ്ചും",
+    returnReason: "മടക്ക കാരണം",
+    memoDate: "മെമ്മോ തീയതി",
+    noticeDate: "നോട്ടീസ് തീയതി",
+    serviceDate: "നോട്ടീസ് നൽകിയ തീയതി",
+    accusedName: "എതിർകക്ഷിയുടെ പേര്",
+  },
+};
+
+/**
+ * #40 — renders the "here's what I read" summary from whatever was actually
+ * persisted (filing columns + the accused party's name), never from the
+ * current webhook body. Returns `null` when nothing at all was extracted —
+ * the caller then falls back to the plain ALL_RECEIVED_TEXT, exactly as if
+ * this feature didn't exist for this filing.
+ */
+function buildExtractionSummaryText(language: SupportedLanguage, filing: FilingRecord, accusedFullName: string | null): string | null {
+  const labels = EXTRACTION_SUMMARY_LABEL[language];
+  const lines: string[] = [];
+  if (filing.chequeNumber) lines.push(`• ${labels.chequeNumber}: ${filing.chequeNumber}`);
+  if (filing.chequeAmount) lines.push(`• ${labels.amount}: ₹${filing.chequeAmount}`);
+  if (filing.chequeDate) lines.push(`• ${labels.chequeDate}: ${formatIsoDateAsDisplay(filing.chequeDate)}`);
+  if (filing.bankBranch) lines.push(`• ${labels.bankBranch}: ${filing.bankBranch}`);
+  if (filing.returnReason) lines.push(`• ${labels.returnReason}: ${formatReturnReasonLabel(language, filing.returnReason)}`);
+  if (filing.memoDate) lines.push(`• ${labels.memoDate}: ${formatIsoDateAsDisplay(filing.memoDate)}`);
+  if (filing.noticeDate) lines.push(`• ${labels.noticeDate}: ${formatIsoDateAsDisplay(filing.noticeDate)}`);
+  if (filing.serviceDate) lines.push(`• ${labels.serviceDate}: ${formatIsoDateAsDisplay(filing.serviceDate)}`);
+  if (accusedFullName) lines.push(`• ${labels.accusedName}: ${accusedFullName}`);
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  // If the service date was itself read off the notice/proof-of-service
+  // photo, show the same S.138 limitation banner filing-details-workflow.ts
+  // shows when the advocate types it manually — no need to wait for them to
+  // reach that field just to learn the filing deadline.
+  const limitationLine = filing.serviceDate
+    ? (() => {
+        const window = computeLimitationWindow(filing.serviceDate as string);
+        const daysLeft = daysUntilIso(window.limitationDeadlineIso, new Date());
+        return formatLimitationNoticeText(window, daysLeft, language);
+      })()
+    : null;
+
+  return [
+    EXTRACTION_SUMMARY_HEADER[language],
+    "",
+    ...lines,
+    ...(limitationLine ? ["", limitationLine] : []),
+    "",
+    EXTRACTION_SUMMARY_DISCLOSURE[language],
+  ].join("\n");
+}
+
+/** #40 — writes whatever a single document's extraction returned onto the filing row and, for a cheque's drawer name, the accused party row. Best-effort: never touches a column extraction didn't itself return a value for. */
+async function applyExtractedFields(deps: FilingDocumentWorkflowDeps, filingId: string, extractedFields: Record<string, unknown>): Promise<void> {
+  const { accusedName, ...rest } = extractedFields;
+  const filingPatch = rest as UpsertFilingFieldsInput;
+  await deps.withTransaction(async (tx) => {
+    if (Object.keys(filingPatch).length > 0) {
+      await deps.filingRepo.upsertFilingFields(tx, filingId, filingPatch);
+    }
+    if (typeof accusedName === "string" && accusedName) {
+      await deps.partyRepo.upsertFields(tx, filingId, "ACCUSED", { fullName: accusedName });
+    }
+  });
+}
 
 function receivedAckText(group: FilingDocumentGroup, count: number, language: SupportedLanguage): string {
   const { max } = DOCUMENT_GROUP_LIMITS[group];
@@ -330,6 +437,17 @@ async function handleMediaMessages(
         originalTwilioMediaUrl: item.url,
       }),
     );
+
+    // #40: best-effort pre-fill from whatever this one photo yielded — never
+    // shown to the advocate here (no per-photo "I read X"), only surfaced
+    // once, in the cascade summary once the last (support) group is done
+    // (see buildExtractionSummaryText below). A later photo's non-empty
+    // result overwrites an earlier one's for the same field; an extraction
+    // never blanks out a field it didn't itself return a value for.
+    if (Object.keys(result.extractedFields).length > 0) {
+      await applyExtractedFields(deps, filingId, result.extractedFields);
+    }
+
     ackText = receivedAckText(group, currentCount + 1, input.language);
   }
 
@@ -401,6 +519,10 @@ async function handleContinueAction(deps: FilingDocumentWorkflowDeps, group: Fil
   const sendInput = sendInputFor(input);
   let sawActiveDraft = false;
   let minMet = true;
+  // #40 — decided inside the same transaction (from the filing/accused rows
+  // as they stand right now), so the extra outbound message is only ever
+  // enqueued when there's actually something to say.
+  let extractionSummaryText: string | null = null;
 
   const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
     if (locked.state !== GROUP_STATE[group]) {
@@ -420,6 +542,9 @@ async function handleContinueAction(deps: FilingDocumentWorkflowDeps, group: Fil
 
     const next = NEXT_GROUP[group];
     if (next === "complainant") {
+      const accused = await deps.partyRepo.findByFilingAndRole(tx, filing.id, "ACCUSED");
+      extractionSummaryText = buildExtractionSummaryText(input.language, filing, accused?.fullName ?? null);
+
       // #33 Part A: cascades into COMPLAINANT_ROLE_PENDING (the Complainant
       // screen's new first field), not COMPLAINANT_NAME_PENDING directly.
       await deps.filingRepo.setCurrentStep(tx, filing.id, "COMPLAINANT_ROLE_PENDING");
@@ -428,6 +553,7 @@ async function handleContinueAction(deps: FilingDocumentWorkflowDeps, group: Fil
         committed: true,
         sends: [
           { messageType: "FILING_DOC_ALL_RECEIVED" as const, dedupeSuffix: "filing-doc-all-received" },
+          ...(extractionSummaryText ? [{ messageType: "FILING_DOC_EXTRACTION_SUMMARY" as const, dedupeSuffix: "filing-doc-extraction-summary" }] : []),
           { messageType: "COMPLAINANT_ROLE_PROMPT" as const, dedupeSuffix: "complainant-role-prompt" },
         ],
       };
@@ -455,12 +581,24 @@ async function handleContinueAction(deps: FilingDocumentWorkflowDeps, group: Fil
 
   const next = NEXT_GROUP[group];
   if (next === "complainant") {
-    const allReceivedDelivered = await sendPlain(deps, sendInput, ALL_RECEIVED_TEXT[input.language], "filing_document_all_received_send_failed");
-    await finalizeOutbound(deps, commit.outboundIds[0], allReceivedDelivered);
+    let outboundIndex = 0;
+    const allReceivedDelivered = await sendPlain(
+      deps,
+      sendInput,
+      extractionSummaryText ? READING_TEXT[input.language] : ALL_RECEIVED_TEXT[input.language],
+      "filing_document_all_received_send_failed",
+    );
+    await finalizeOutbound(deps, commit.outboundIds[outboundIndex++], allReceivedDelivered);
+
+    let summaryDelivered = true;
+    if (extractionSummaryText) {
+      summaryDelivered = await sendPlain(deps, sendInput, extractionSummaryText, "filing_document_extraction_summary_send_failed");
+      await finalizeOutbound(deps, commit.outboundIds[outboundIndex++], summaryDelivered);
+    }
 
     const rolePromptDelivered = await sendComplainantRolePrompt(deps.complainantSenderDeps, sendInput);
-    await finalizeOutbound(deps, commit.outboundIds[1], rolePromptDelivered);
-    return { delivered: allReceivedDelivered && rolePromptDelivered };
+    await finalizeOutbound(deps, commit.outboundIds[outboundIndex++], rolePromptDelivered);
+    return { delivered: allReceivedDelivered && summaryDelivered && rolePromptDelivered };
   }
   if (next === "court") {
     const delivered = await sendCourtPrompt(deps.filingDetailsSenderDeps, sendInput);

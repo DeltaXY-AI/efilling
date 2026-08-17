@@ -25,7 +25,36 @@ const BASE_INPUT = {
 describe("storeFilingDocument", () => {
   it("stores successfully and returns the durable URL", async () => {
     const result = await storeFilingDocument(deps(), BASE_INPUT);
-    expect(result).toEqual({ ok: true, storageUrl: "https://blob.example/stored.jpg", contentType: "image/jpeg" });
+    expect(result).toEqual({ ok: true, storageUrl: "https://blob.example/stored.jpg", contentType: "image/jpeg", extractedFields: {} });
+  });
+
+  // #40 (document auto-extraction).
+  it("returns extractedFields: {} when no documentExtractor is configured, never attempting extraction", async () => {
+    const result = await storeFilingDocument(deps(), BASE_INPUT);
+    expect(result.ok && result.extractedFields).toEqual({});
+  });
+
+  it("runs the matching extractor for cheque/memo/notice groups and includes its result", async () => {
+    const visionClient = { extractStructured: async () => ({ chequeNumber: "000123", chequeDate: "12-03-2026", chequeAmount: "45,000", bankBranch: "Test Bank" }) };
+    const result = await storeFilingDocument(deps({ documentExtractor: { visionClient } }), BASE_INPUT);
+    expect(result).toEqual({
+      ok: true,
+      storageUrl: "https://blob.example/stored.jpg",
+      contentType: "image/jpeg",
+      extractedFields: { chequeNumber: "000123", chequeDate: "2026-03-12", chequeAmount: "45000", bankBranch: "Test Bank" },
+    });
+  });
+
+  it("never runs any extractor for the 'id' or 'support' groups, even with a documentExtractor configured", async () => {
+    const extractStructured = async () => ({ chequeNumber: "should-never-be-used" });
+    const result = await storeFilingDocument(deps({ documentExtractor: { visionClient: { extractStructured } } }), { ...BASE_INPUT, documentGroup: "id" as const });
+    expect(result.ok && result.extractedFields).toEqual({});
+  });
+
+  it("still succeeds and returns extractedFields: {} when the vision client returns null (extraction failure)", async () => {
+    const visionClient = { extractStructured: async () => null };
+    const result = await storeFilingDocument(deps({ documentExtractor: { visionClient } }), BASE_INPUT);
+    expect(result).toEqual({ ok: true, storageUrl: "https://blob.example/stored.jpg", contentType: "image/jpeg", extractedFields: {} });
   });
 
   it("rejects an unsupported content type before ever downloading", async () => {
@@ -82,6 +111,6 @@ describe("storeFilingDocument", () => {
       deps({ mediaDownloader: { download: async () => ({ buffer: Buffer.from("x"), contentType: "application/octet-stream" }) } }),
       BASE_INPUT,
     );
-    expect(result).toEqual({ ok: true, storageUrl: "https://blob.example/stored.jpg", contentType: "image/jpeg" });
+    expect(result).toEqual({ ok: true, storageUrl: "https://blob.example/stored.jpg", contentType: "image/jpeg", extractedFields: {} });
   });
 });

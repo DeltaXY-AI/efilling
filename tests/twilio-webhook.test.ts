@@ -173,6 +173,7 @@ function buildDeps(
     filingDocumentWorkflowDeps: {
       conversationRepo,
       filingRepo,
+      partyRepo,
       filingDocumentRepo,
       outboundMessageRepo,
       messagingClient,

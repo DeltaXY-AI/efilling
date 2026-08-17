@@ -74,7 +74,7 @@ export interface DraftListRow {
   description: string;
 }
 
-/** True once every required document group (#31's DOCUMENT_GROUP_ORDER) has met its minimum — a real, derived signal, never "details read from the documents" (this app has no OCR — #32). */
+/** True once every required document group (#31's DOCUMENT_GROUP_ORDER) has met its minimum — a real, derived signal, distinct from whether any field was auto-read from those documents (#40's separate, best-effort concern). */
 export function documentsComplete(countsByGroup: Partial<Record<FilingDocumentGroup, number>>): boolean {
   return DOCUMENT_GROUP_ORDER.every((group) => hasMetMinimum(group, countsByGroup[group] ?? 0));
 }

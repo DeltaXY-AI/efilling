@@ -1,6 +1,7 @@
 import {
   computeLimitationWindow,
   daysUntilIso,
+  formatLimitationNoticeText,
   isSkipSelection,
   parsePartPaymentSelection,
   parseReturnReasonSelection,
@@ -11,15 +12,16 @@ import {
   validateFilingDate,
   validateNarrative,
   type FilingDetailSelectionInput,
-  type LimitationWindow,
 } from "../domain/filing-details";
 import { formatIsoDateAsDisplay } from "../lib/format-ist-date";
 import type { TwilioMessagingClient } from "../adapters/twilio/messaging-client";
 import type { ConversationRepository, ConversationState } from "../repositories/conversation-repository";
-import type { FilingRepository, UpsertFilingFieldsInput } from "../repositories/filing-repository";
+import type { FilingRepository, FilingReturnReason, UpsertFilingFieldsInput } from "../repositories/filing-repository";
+import type { OutboundIntent } from "./transactional-outbound";
 import type { OutboundMessageRepository, OutboundMessageType } from "../repositories/outbound-message-repository";
 import type { RepositoryTransaction } from "../repositories/transaction";
 import {
+  formatReturnReasonLabel,
   sendPartPaymentPrompt,
   sendReturnReasonPrompt,
   sendWitnessPrompt,
@@ -244,6 +246,66 @@ export const FILING_DETAILS_SUPPORTED_FILING_STEPS: ReadonlySet<string> = new Se
   "FILING_WITNESS_PENDING",
 ]);
 
+// ---------------------------------------------------------------------------
+// Auto-fill suggestions (#40, document auto-extraction): when a field
+// already has a value pre-filled by reading the cheque/memo/notice photos,
+// its prompt says so, and replying "confirm"/"keep" advances without
+// re-typing it. A field with no pre-filled value behaves byte-for-byte the
+// same as it did before this feature existed.
+// ---------------------------------------------------------------------------
+
+const FIELD_TO_FILING_KEY: Record<TextFieldKey, keyof UpsertFilingFieldsInput> = {
+  chequeNumber: "chequeNumber",
+  chequeDate: "chequeDate",
+  amount: "chequeAmount",
+  bankBranch: "bankBranch",
+  memoDate: "memoDate",
+  noticeDate: "noticeDate",
+  serviceDate: "serviceDate",
+  story: "narrative",
+};
+
+const DATE_FIELDS: ReadonlySet<TextFieldKey> = new Set(["chequeDate", "memoDate", "noticeDate", "serviceDate"]);
+const CONFIRM_KEYWORDS: ReadonlySet<string> = new Set(["confirm", "keep"]);
+
+function displayValueFor(field: TextFieldKey, storedValue: string): string {
+  if (DATE_FIELDS.has(field)) return formatIsoDateAsDisplay(storedValue);
+  if (field === "amount") return `₹${storedValue}`;
+  return storedValue;
+}
+
+function suggestionSuffix(field: TextFieldKey, storedValue: string, language: SupportedLanguage): string {
+  const display = displayValueFor(field, storedValue);
+  return language === "ml"
+    ? `\n\nനിങ്ങളുടെ രേഖകളിൽ നിന്ന് സ്വയമേവ പൂരിപ്പിച്ചത്: ${display}\nഇത് നിലനിർത്താൻ "confirm" എന്ന് മറുപടി നൽകുക, അല്ലെങ്കിൽ ശരിയായ മൂല്യം ടൈപ്പ് ചെയ്യുക.`
+    : `\n\nAuto-filled from your documents: ${display}\nReply "confirm" to keep this, or type the correct value.`;
+}
+
+/** Renders a field's prompt with an auto-fill suggestion appended, if a value already exists for it — otherwise identical to PROMPT_TEXT[field][language]. */
+function promptTextWithSuggestion(field: TextFieldKey, language: SupportedLanguage, storedValue: string | null): string {
+  const base = PROMPT_TEXT[field][language];
+  return storedValue ? `${base}${suggestionSuffix(field, storedValue, language)}` : base;
+}
+
+function returnReasonSuggestionText(reason: FilingReturnReason, language: SupportedLanguage): string {
+  const label = formatReturnReasonLabel(language, reason);
+  return language === "ml"
+    ? `നിങ്ങളുടെ മടക്ക മെമ്മോയിൽ നിന്ന്, ഇത് ഇങ്ങനെ തോന്നുന്നു: "${label}" — സ്ഥിരീകരിക്കാൻ താഴെ നിന്ന് തിരഞ്ഞെടുക്കുക, അല്ലെങ്കിൽ ശരിയായത് തിരഞ്ഞെടുക്കുക.`
+    : `From your return memo, this looks like: "${label}" — select it below to confirm, or choose the correct one.`;
+}
+
+/** Reads whatever is currently stored for `field` on the active draft — used only when the advocate types "confirm"/"keep" (rare), so this extra read never happens on ordinary field entry. */
+async function currentFieldValue(deps: FilingDetailsWorkflowDeps, conversationId: string, field: TextFieldKey): Promise<string | null> {
+  const filing = await deps.withTransaction((tx) => deps.filingRepo.findActiveDraft(tx, conversationId));
+  if (!filing) return null;
+  const value = (filing as unknown as Record<string, unknown>)[FIELD_TO_FILING_KEY[field]];
+  return typeof value === "string" && value ? value : null;
+}
+
+function isTextFieldKey(value: NextTarget): value is TextFieldKey {
+  return value in PROMPT_TEXT;
+}
+
 export interface FieldValidationResult {
   valid: boolean;
   patch?: UpsertFilingFieldsInput;
@@ -288,15 +350,6 @@ async function sendValidationError(deps: FilingDetailsWorkflowDeps, sendInput: S
   return sendFilingPlainText(deps, sendInput, ERROR_TEXT[field][sendInput.language], `filing_details_${field}_validation_error_send_failed`);
 }
 
-/** Surfaced once, right after the notice-served date is entered — see domain/filing-details.ts's computeLimitationWindow for the underlying S.138 NI Act calculation. */
-function limitationNoticeText(window: LimitationWindow, daysLeft: number, language: SupportedLanguage): string {
-  const from = formatIsoDateAsDisplay(window.causeOfActionDateIso);
-  const to = formatIsoDateAsDisplay(window.limitationDeadlineIso);
-  return language === "ml"
-    ? `📅 കാലപരിധി: നിങ്ങളുടെ പരാതി ${from} നും ${to} നും ഇടയിൽ ഫയൽ ചെയ്യണം. ${daysLeft} ദിവസം ബാക്കിയുണ്ട്.`
-    : `📅 Limitation: your complaint must be filed between ${from} and ${to}. You have ${daysLeft} days left.`;
-}
-
 function nextStateFor(next: NextTarget): ConversationState {
   if (next === "return-reason") return "FILING_RETURN_REASON_PENDING";
   if (next === "part-payment") return "FILING_PART_PAYMENT_PENDING";
@@ -316,14 +369,32 @@ async function handleTextFieldInput(deps: FilingDetailsWorkflowDeps, field: Text
     return { delivered: await sendValidationError(deps, sendInput, field) };
   }
 
-  const validation = validateField(field, input.text);
-  if (!validation.valid || !validation.patch) {
-    return { delivered: await sendValidationError(deps, sendInput, field) };
+  // #40: "confirm"/"keep" only ever means something when this field already
+  // has a value pre-filled from document extraction — otherwise it's just
+  // ordinary (invalid) typed text, validated exactly as before this feature
+  // existed.
+  let patch: UpsertFilingFieldsInput | undefined;
+  if (CONFIRM_KEYWORDS.has(input.text.trim().toLowerCase())) {
+    const currentValue = await currentFieldValue(deps, input.conversationId, field);
+    if (currentValue) {
+      patch = { [FIELD_TO_FILING_KEY[field]]: currentValue } as UpsertFilingFieldsInput;
+    }
   }
-  const patch = validation.patch;
+  if (!patch) {
+    const validation = validateField(field, input.text);
+    if (!validation.valid || !validation.patch) {
+      return { delivered: await sendValidationError(deps, sendInput, field) };
+    }
+    patch = validation.patch;
+  }
 
   const next = NEXT_FIELD[field];
   const nextState = nextStateFor(next);
+  // Captured inside the commit below, from the filing row as it stands
+  // before this round's patch — accurate for `next`'s column since it's
+  // never the same column `field` just wrote to.
+  let nextFieldSuggestion: string | null = null;
+  let returnReasonSuggestion: FilingReturnReason | null = null;
 
   const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
     if (locked.state !== LINEAR_PENDING_STATE[field]) {
@@ -340,8 +411,19 @@ async function handleTextFieldInput(deps: FilingDetailsWorkflowDeps, field: Text
     await deps.filingRepo.setCurrentStep(tx, filing.id, nextState);
     await deps.conversationRepo.setStateInTx(tx, locked.id, nextState);
 
+    if (isTextFieldKey(next)) {
+      const rawNextValue = (filing as unknown as Record<string, unknown>)[FIELD_TO_FILING_KEY[next]];
+      nextFieldSuggestion = typeof rawNextValue === "string" && rawNextValue ? rawNextValue : null;
+    }
+
     if (next === "return-reason") {
-      return { committed: true, sends: [{ messageType: "FILING_RETURN_REASON_PROMPT" as const, dedupeSuffix: "return-reason-prompt" }] };
+      returnReasonSuggestion = filing.returnReason;
+      const sends: OutboundIntent[] = [];
+      if (returnReasonSuggestion) {
+        sends.push({ messageType: "FILING_RETURN_REASON_SUGGESTION" as const, dedupeSuffix: "return-reason-suggestion" });
+      }
+      sends.push({ messageType: "FILING_RETURN_REASON_PROMPT" as const, dedupeSuffix: "return-reason-prompt" });
+      return { committed: true, sends };
     }
     if (field === "serviceDate") {
       // The limitation window is computed from this exact field, so it's
@@ -373,9 +455,20 @@ async function handleTextFieldInput(deps: FilingDetailsWorkflowDeps, field: Text
   }
 
   if (next === "return-reason") {
+    let outboundIndex = 0;
+    let suggestionDelivered = true;
+    if (returnReasonSuggestion) {
+      suggestionDelivered = await sendFilingPlainText(
+        deps,
+        sendInput,
+        returnReasonSuggestionText(returnReasonSuggestion, input.language),
+        "filing_return_reason_suggestion_send_failed",
+      );
+      await finalizeOutbound(deps, commit.outboundIds[outboundIndex++], suggestionDelivered);
+    }
     const delivered = await sendReturnReasonPrompt(deps.filingDetailsSenderDeps, sendInput);
-    await finalizeOutbound(deps, commit.outboundIds[0], delivered);
-    return { delivered };
+    await finalizeOutbound(deps, commit.outboundIds[outboundIndex++], delivered);
+    return { delivered: suggestionDelivered && delivered };
   }
   if (field === "serviceDate" && typeof patch.serviceDate === "string") {
     const window = computeLimitationWindow(patch.serviceDate);
@@ -383,7 +476,7 @@ async function handleTextFieldInput(deps: FilingDetailsWorkflowDeps, field: Text
     const noticeDelivered = await sendFilingPlainText(
       deps,
       sendInput,
-      limitationNoticeText(window, daysLeft, input.language),
+      formatLimitationNoticeText(window, daysLeft, input.language),
       "filing_limitation_notice_send_failed",
     );
     await finalizeOutbound(deps, commit.outboundIds[0], noticeDelivered);
@@ -406,7 +499,12 @@ async function handleTextFieldInput(deps: FilingDetailsWorkflowDeps, field: Text
     return { delivered };
   }
 
-  const delivered = await sendFilingPlainText(deps, sendInput, PROMPT_TEXT[next][input.language], `filing_details_${next}_prompt_send_failed`);
+  const delivered = await sendFilingPlainText(
+    deps,
+    sendInput,
+    promptTextWithSuggestion(next, input.language, nextFieldSuggestion),
+    `filing_details_${next}_prompt_send_failed`,
+  );
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
   return { delivered };
 }
@@ -440,10 +538,17 @@ export function handleFilingStoryInput(deps: FilingDetailsWorkflowDeps, input: F
  * Sends the cheque-number prompt on its own — used by accused-workflow.ts's
  * confirmAccused to cascade straight from ACCUSED_CONFIRM into
  * FILING_CHEQUE_NUMBER_PENDING (#33 Part C), which only needs the minimal
- * messaging shape, not the rest of FilingDetailsWorkflowDeps.
+ * messaging shape, not the rest of FilingDetailsWorkflowDeps. `suggestedChequeNumber`
+ * (#40) is whatever the cheque photo's own number extraction already wrote
+ * onto the filing row, if any — the caller reads it off the same
+ * already-fetched FilingRecord, no second lookup here.
  */
-export function sendFilingChequeNumberPrompt(deps: { messagingClient: FilingDetailsWorkflowDeps["messagingClient"]; fromNumber: string }, input: SendFilingDetailsMessageInput): Promise<boolean> {
-  return sendFilingPlainText(deps, input, PROMPT_TEXT.chequeNumber[input.language], "filing_cheque_number_prompt_send_failed");
+export function sendFilingChequeNumberPrompt(
+  deps: { messagingClient: FilingDetailsWorkflowDeps["messagingClient"]; fromNumber: string },
+  input: SendFilingDetailsMessageInput,
+  suggestedChequeNumber?: string | null,
+): Promise<boolean> {
+  return sendFilingPlainText(deps, input, promptTextWithSuggestion("chequeNumber", input.language, suggestedChequeNumber ?? null), "filing_cheque_number_prompt_send_failed");
 }
 
 // ---------------------------------------------------------------------------
@@ -570,9 +675,16 @@ export async function handleFilingWitnessInput(deps: FilingDetailsWorkflowDeps, 
 // Resume support for #8's filing-workflow.ts.
 // ---------------------------------------------------------------------------
 
-/** Resends whatever the advocate should see for a draft resumed into one of Parts C/D's steps — the exact pending field prompt or selection template. Read-only: never mutates anything. */
+/**
+ * Resends whatever the advocate should see for a draft resumed into one of
+ * Parts C/D's steps — the exact pending field prompt or selection template.
+ * Read-only: never mutates anything. `filing` (#40) is the same FilingRecord
+ * filing-workflow.ts already loaded to resume the draft — read straight off
+ * it for the auto-fill suggestion line, never a second lookup here.
+ */
 export async function resendFilingDetailsPromptForResume(
   deps: { filingDetailsSenderDeps: FilingDetailsSenderDeps; messagingClient: FilingDetailsWorkflowDeps["messagingClient"]; fromNumber: string },
+  filing: { chequeNumber: string | null; chequeDate: string | null; chequeAmount: string | null; bankBranch: string | null; memoDate: string | null; noticeDate: string | null; serviceDate: string | null; narrative: string | null } | undefined,
   currentStep: string,
   sendInput: SendFilingDetailsMessageInput,
 ): Promise<boolean> {
@@ -588,7 +700,13 @@ export async function resendFilingDetailsPromptForResume(
 
   const field = RESUMABLE_STEP_TO_FIELD[currentStep];
   if (field) {
-    return sendFilingPlainText(deps, sendInput, PROMPT_TEXT[field][sendInput.language], `filing_details_${field}_resume_prompt_send_failed`);
+    const storedValue = filing ? ((filing as unknown as Record<string, unknown>)[FIELD_TO_FILING_KEY[field]] as string | null) : null;
+    return sendFilingPlainText(
+      deps,
+      sendInput,
+      promptTextWithSuggestion(field, sendInput.language, storedValue),
+      `filing_details_${field}_resume_prompt_send_failed`,
+    );
   }
 
   // Unreachable given filing-workflow.ts only calls this for steps in FILING_DETAILS_SUPPORTED_FILING_STEPS.

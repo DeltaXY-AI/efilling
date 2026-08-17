@@ -290,4 +290,106 @@ describe("filing-details-workflow", () => {
       expect(filingRepo.findById(filingId)).toMatchObject({ chequeNumber: null });
     });
   });
+
+  /**
+   * #40 (document auto-extraction): once a field is already pre-filled
+   * (simulating a value the cheque/memo/notice photos yielded before the
+   * advocate ever reaches this screen), its prompt says so, "confirm"/"keep"
+   * advances without re-typing it, and typing a real value still overrides
+   * it exactly as before this feature existed.
+   */
+  describe("auto-fill suggestions (#40)", () => {
+    it("shows the auto-filled value in the next prompt when one is already stored", async () => {
+      await filingRepo.upsertFilingFields(undefined, filingId, { chequeDate: "2026-03-12" });
+
+      const result = await handleFilingChequeNumberInput(deps, fieldEvent({ text: "004512" }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining('Auto-filled from your documents: 12-03-2026') }),
+      );
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining('Reply "confirm"') }));
+    });
+
+    it("shows no suggestion line when nothing is pre-filled (unchanged from before this feature)", async () => {
+      const result = await handleFilingChequeNumberInput(deps, fieldEvent({ text: "004512" }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.not.stringContaining("Auto-filled") }));
+    });
+
+    it('replying "confirm" keeps the pre-filled value and advances, without re-validating typed text', async () => {
+      await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_CHEQUE_DATE_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "FILING_CHEQUE_DATE_PENDING");
+      await filingRepo.upsertFilingFields(undefined, filingId, { chequeDate: "2026-03-12" });
+
+      const result = await handleFilingChequeDateInput(deps, fieldEvent({ text: "confirm" }));
+
+      expect(result.delivered).toBe(true);
+      expect(filingRepo.findById(filingId)).toMatchObject({ chequeDate: "2026-03-12", currentStep: "FILING_AMOUNT_PENDING" });
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "FILING_AMOUNT_PENDING" });
+    });
+
+    it('"keep" is treated the same as "confirm"', async () => {
+      await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_CHEQUE_DATE_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "FILING_CHEQUE_DATE_PENDING");
+      await filingRepo.upsertFilingFields(undefined, filingId, { chequeDate: "2026-03-12" });
+
+      const result = await handleFilingChequeDateInput(deps, fieldEvent({ text: "Keep" }));
+
+      expect(result.delivered).toBe(true);
+      expect(filingRepo.findById(filingId)).toMatchObject({ chequeDate: "2026-03-12", currentStep: "FILING_AMOUNT_PENDING" });
+    });
+
+    it('typing "confirm" with nothing pre-filled is treated as ordinary (invalid) text, not a silent no-op', async () => {
+      const result = await handleFilingChequeNumberInput(deps, fieldEvent({ text: "confirm" }));
+
+      expect(result.delivered).toBe(true);
+      // chequeNumber has no length/format restriction that "confirm" itself
+      // would fail — so it's accepted as a literal cheque number, same as
+      // any other typed text would be. The important guarantee is that
+      // nothing crashed or silently no-opped.
+      expect(filingRepo.findById(filingId)).toMatchObject({ chequeNumber: "confirm", currentStep: "FILING_CHEQUE_DATE_PENDING" });
+    });
+
+    it("a typed override replaces the pre-filled value instead of keeping it", async () => {
+      await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_CHEQUE_DATE_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "FILING_CHEQUE_DATE_PENDING");
+      await filingRepo.upsertFilingFields(undefined, filingId, { chequeDate: "2026-03-12" });
+
+      const result = await handleFilingChequeDateInput(deps, fieldEvent({ text: "15-03-2026" }));
+
+      expect(result.delivered).toBe(true);
+      expect(filingRepo.findById(filingId)).toMatchObject({ chequeDate: "2026-03-15" });
+    });
+
+    it("prepends a suggestion line before the return-reason template when a reason was already extracted", async () => {
+      await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_BANK_BRANCH_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "FILING_BANK_BRANCH_PENDING");
+      await filingRepo.upsertFilingFields(undefined, filingId, { returnReason: "funds" });
+
+      const result = await handleFilingBankBranchInput(deps, fieldEvent({ text: "Skip" }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("Funds insufficient") }),
+      );
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: FILING_DETAILS_CONTENT_SIDS.returnReasonContentSid.en }),
+      );
+    });
+
+    it("sends no suggestion line before the return-reason template when nothing was extracted", async () => {
+      await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_BANK_BRANCH_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "FILING_BANK_BRANCH_PENDING");
+
+      await handleFilingBankBranchInput(deps, fieldEvent({ text: "Skip" }));
+
+      expect(messagingClient.sendText).not.toHaveBeenCalled();
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: FILING_DETAILS_CONTENT_SIDS.returnReasonContentSid.en }),
+      );
+    });
+  });
 });
