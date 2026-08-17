@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_defect_days_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "കാലതാമസം (ദിവസം)",
+      "actions": [
+        { "title": "2 ദിവസം", "id": "filing:delay-2" },
+        { "title": "3 ദിവസം", "id": "filing:delay-3" },
+        { "title": "5 ദിവസം", "id": "filing:delay-5" }
+      ]
+    }
+  }
+}

@@ -42,6 +42,14 @@ const FILING_DETAILS_CONTENT_SIDS = {
 };
 const FILING_SIGN_CONTENT_SIDS = { draftReadyActionsContentSid: { en: "HXfdraftreadyEn0000000000000000000", ml: "HXfdraftreadyMl0000000000000000000" } };
 const FILING_COMPLETION_CONTENT_SIDS = { payFeeActionsContentSid: { en: "HXffiledEn00000000000000000000000", ml: "HXffiledMl00000000000000000000000" } };
+const CASE_STATUS_ACTIONS_CONTENT_SID = { en: "HXcasestatEn0000000000000000000000", ml: "HXcasestatMl0000000000000000000000" };
+const FILING_DEFECT_CONTENT_SIDS = {
+  caseStatusActionsContentSid: CASE_STATUS_ACTIONS_CONTENT_SID,
+  defectAlertActionsContentSid: { en: "HXdalertEn0000000000000000000000000", ml: "HXdalertMl0000000000000000000000000" },
+  delayDaysContentSid: { en: "HXddaysEn00000000000000000000000000", ml: "HXddaysMl00000000000000000000000000" },
+  defectReviewActionsContentSid: { en: "HXdreviewEn000000000000000000000000", ml: "HXdreviewMl000000000000000000000000" },
+  defectSentActionsContentSid: { en: "HXdsentEn0000000000000000000000000", ml: "HXdsentMl0000000000000000000000000" },
+};
 
 /** Covers #36 (Prototype parity — Phase 8): "My cases" — the sectioned list, per-draft detail card, resume, and discard. */
 describe("filing-draft-list-workflow", () => {
@@ -121,9 +129,11 @@ describe("filing-draft-list-workflow", () => {
         fromNumber: FROM_NUMBER,
         draftListContentSid: DRAFT_LIST_CONTENT_SID,
         draftDetailActionsContentSid: DRAFT_DETAIL_ACTIONS_CONTENT_SID,
+        caseStatusActionsContentSid: CASE_STATUS_ACTIONS_CONTENT_SID,
       },
       mainMenuSenderDeps,
       blobStorage,
+      filingDefectSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DEFECT_CONTENT_SIDS },
       filingWorkflowDeps,
       withTransaction: createInMemoryWithTransaction(),
     };
@@ -197,7 +207,7 @@ describe("filing-draft-list-workflow", () => {
       expect(conversation).toMatchObject({ state: "FILING_DRAFT_DETAIL", activeFilingId: filingId });
     });
 
-    it("picking a filed case's row is read-only — no state change, sends the case status then the list again", async () => {
+    it("picking a filed case's row moves to FILING_DRAFT_DETAIL (#37: so its new 'Simulate scrutiny defects' action has a filing to act on) and sends the case status + actions — no filing fields are edited", async () => {
       const filing = await filingRepo.createDraft(undefined, { conversationId, language: "en", role: "COMPLAINANT_ADVOCATE", testNoticeVersion: "v1" });
       await partyRepo.upsertFields(undefined, filing.id, "ACCUSED", { fullName: "Suresh Nair" });
       const filedAt = new Date();
@@ -210,8 +220,10 @@ describe("filing-draft-list-workflow", () => {
 
       expect(result.delivered).toBe(true);
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "FILING_DRAFT_LIST" });
+      expect(conversation).toMatchObject({ state: "FILING_DRAFT_DETAIL", activeFilingId: filing.id });
       expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("Suresh Nair") }));
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: CASE_STATUS_ACTIONS_CONTENT_SID.en }));
+      expect(filingRepo.findById(filing.id)).toMatchObject({ status: "FILED", selectedCourt: filing.selectedCourt });
     });
 
     it("nav:main-menu moves to MAIN_MENU", async () => {
@@ -318,6 +330,54 @@ describe("filing-draft-list-workflow", () => {
       expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("Rajesh Menon") }));
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       expect(conversation).toMatchObject({ state: "FILING_DRAFT_DETAIL" });
+    });
+  });
+
+  describe("FILING_DRAFT_DETAIL — FILED case status screen (#37)", () => {
+    let filedFilingId: string;
+
+    beforeEach(async () => {
+      const filing = await filingRepo.createDraft(undefined, { conversationId, language: "en", role: "COMPLAINANT_ADVOCATE", testNoticeVersion: "v1" });
+      filedFilingId = filing.id;
+      await partyRepo.upsertFields(undefined, filedFilingId, "COMPLAINANT", { fullName: "Anitha Joseph" });
+      await partyRepo.upsertFields(undefined, filedFilingId, "ACCUSED", { fullName: "Rajesh Menon" });
+      const filedAt = new Date();
+      const diaryNumber = await filingRepo.nextDiaryNumber(undefined, filedAt);
+      await filingRepo.recordFiled(undefined, filedFilingId, { diaryNumber, filedAt });
+      await conversationRepo.setActiveFilingAndState(undefined, conversationId, filedFilingId, "FILING_DRAFT_DETAIL");
+    });
+
+    it("unrecognized input redisplays the case status + its actions, not the draft card", async () => {
+      const result = await handleFilingDraftDetailInput(deps, baseInput({ selection: { body: "asdf" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("Rajesh Menon") }));
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: CASE_STATUS_ACTIONS_CONTENT_SID.en }));
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "FILING_DRAFT_DETAIL" });
+    });
+
+    it("nav:main-menu moves to MAIN_MENU without touching the filing", async () => {
+      const result = await handleFilingDraftDetailInput(deps, baseInput({ selection: { buttonPayload: "nav:main-menu" } }));
+
+      expect(result.delivered).toBe(true);
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "MAIN_MENU" });
+      expect(filingRepo.findById(filedFilingId)).toMatchObject({ status: "FILED" });
+    });
+
+    it("filing:simulate-defects cascades into FILING_DEFECT_ALERT — records defectNotifiedAt and sends the alert + fixed defect list + action", async () => {
+      const result = await handleFilingDraftDetailInput(deps, baseInput({ selection: { buttonPayload: "filing:simulate-defects" } }));
+
+      expect(result.delivered).toBe(true);
+      const filing = filingRepo.findById(filedFilingId);
+      expect(filing).toMatchObject({ currentStep: "FILING_DEFECT_ALERT" });
+      expect(filing?.defectNotifiedAt).toBeInstanceOf(Date);
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "FILING_DEFECT_ALERT", activeFilingId: filedFilingId });
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("Anitha Joseph vs Rajesh Menon") }));
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("3 defects") }));
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: FILING_DEFECT_CONTENT_SIDS.defectAlertActionsContentSid.en }));
     });
   });
 

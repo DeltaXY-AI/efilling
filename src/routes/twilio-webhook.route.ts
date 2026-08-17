@@ -99,6 +99,18 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
     fromNumber: env.TWILIO_WHATSAPP_FROM,
     draftListContentSid: { en: env.TWILIO_FILING_DRAFT_LIST_SID_EN, ml: env.TWILIO_FILING_DRAFT_LIST_SID_ML },
     draftDetailActionsContentSid: { en: env.TWILIO_FILING_DRAFT_DETAIL_ACTIONS_SID_EN, ml: env.TWILIO_FILING_DRAFT_DETAIL_ACTIONS_SID_ML },
+    caseStatusActionsContentSid: { en: env.TWILIO_CASE_STATUS_ACTIONS_SID_EN, ml: env.TWILIO_CASE_STATUS_ACTIONS_SID_ML },
+  };
+
+  // #37.
+  const filingDefectSenderDeps = {
+    messagingClient,
+    fromNumber: env.TWILIO_WHATSAPP_FROM,
+    caseStatusActionsContentSid: { en: env.TWILIO_CASE_STATUS_ACTIONS_SID_EN, ml: env.TWILIO_CASE_STATUS_ACTIONS_SID_ML },
+    defectAlertActionsContentSid: { en: env.TWILIO_DEFECT_ALERT_ACTIONS_SID_EN, ml: env.TWILIO_DEFECT_ALERT_ACTIONS_SID_ML },
+    delayDaysContentSid: { en: env.TWILIO_DEFECT_DAYS_SID_EN, ml: env.TWILIO_DEFECT_DAYS_SID_ML },
+    defectReviewActionsContentSid: { en: env.TWILIO_DEFECT_REVIEW_ACTIONS_SID_EN, ml: env.TWILIO_DEFECT_REVIEW_ACTIONS_SID_ML },
+    defectSentActionsContentSid: { en: env.TWILIO_DEFECT_SENT_ACTIONS_SID_EN, ml: env.TWILIO_DEFECT_SENT_ACTIONS_SID_ML },
   };
 
   return {
@@ -235,6 +247,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       filingDraftListSenderDeps,
       mainMenuSenderDeps,
       blobStorage: documentStorageDeps.blobStorage,
+      filingDefectSenderDeps,
       filingWorkflowDeps: {
         conversationRepo,
         filingRepo,
@@ -256,6 +269,19 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
         filingCompletionSenderDeps,
         withTransaction,
       },
+      withTransaction,
+    },
+    filingDefectWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      partyRepo,
+      filingDocumentRepo,
+      outboundMessageRepo,
+      messagingClient,
+      fromNumber: env.TWILIO_WHATSAPP_FROM,
+      documentStorageDeps,
+      filingDefectSenderDeps,
+      mainMenuSenderDeps,
       withTransaction,
     },
   };

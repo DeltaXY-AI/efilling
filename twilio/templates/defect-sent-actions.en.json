@@ -1,0 +1,10 @@
+{
+  "friendly_name": "oncourts_defect_sent_actions_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "What would you like to do next?",
+      "actions": [{ "title": "Main menu", "id": "nav:main-menu" }]
+    }
+  }
+}

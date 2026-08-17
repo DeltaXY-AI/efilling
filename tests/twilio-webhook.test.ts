@@ -48,6 +48,14 @@ const FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS = {
 const FILING_DRAFT_LIST_SENDER_DEPS_CONTENT_SIDS = {
   draftListContentSid: { en: env.TWILIO_FILING_DRAFT_LIST_SID_EN, ml: env.TWILIO_FILING_DRAFT_LIST_SID_ML },
   draftDetailActionsContentSid: { en: env.TWILIO_FILING_DRAFT_DETAIL_ACTIONS_SID_EN, ml: env.TWILIO_FILING_DRAFT_DETAIL_ACTIONS_SID_ML },
+  caseStatusActionsContentSid: { en: env.TWILIO_CASE_STATUS_ACTIONS_SID_EN, ml: env.TWILIO_CASE_STATUS_ACTIONS_SID_ML },
+};
+const FILING_DEFECT_SENDER_DEPS_CONTENT_SIDS = {
+  caseStatusActionsContentSid: { en: env.TWILIO_CASE_STATUS_ACTIONS_SID_EN, ml: env.TWILIO_CASE_STATUS_ACTIONS_SID_ML },
+  defectAlertActionsContentSid: { en: env.TWILIO_DEFECT_ALERT_ACTIONS_SID_EN, ml: env.TWILIO_DEFECT_ALERT_ACTIONS_SID_ML },
+  delayDaysContentSid: { en: env.TWILIO_DEFECT_DAYS_SID_EN, ml: env.TWILIO_DEFECT_DAYS_SID_ML },
+  defectReviewActionsContentSid: { en: env.TWILIO_DEFECT_REVIEW_ACTIONS_SID_EN, ml: env.TWILIO_DEFECT_REVIEW_ACTIONS_SID_ML },
+  defectSentActionsContentSid: { en: env.TWILIO_DEFECT_SENT_ACTIONS_SID_EN, ml: env.TWILIO_DEFECT_SENT_ACTIONS_SID_ML },
 };
 
 function sign(params: Record<string, string>): string {
@@ -232,7 +240,21 @@ function buildDeps(
       filingDraftListSenderDeps,
       mainMenuSenderDeps,
       blobStorage: createFakeDocumentStorageDeps().blobStorage,
+      filingDefectSenderDeps: { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, ...FILING_DEFECT_SENDER_DEPS_CONTENT_SIDS },
       filingWorkflowDeps,
+      withTransaction: createInMemoryWithTransaction(),
+    },
+    filingDefectWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      partyRepo,
+      filingDocumentRepo,
+      outboundMessageRepo,
+      messagingClient,
+      fromNumber: env.TWILIO_WHATSAPP_FROM,
+      documentStorageDeps: createFakeDocumentStorageDeps(),
+      filingDefectSenderDeps: { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, ...FILING_DEFECT_SENDER_DEPS_CONTENT_SIDS },
+      mainMenuSenderDeps,
       withTransaction: createInMemoryWithTransaction(),
     },
   };

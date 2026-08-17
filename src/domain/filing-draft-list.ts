@@ -132,3 +132,39 @@ export function parseDraftDetailAction(input: DraftListSelectionInput): DraftDet
   }
   return null;
 }
+
+/**
+ * #37 — FILING_DRAFT_DETAIL's other shape: a FILED case's read-only status
+ * screen (#36), now with one demo action added, "Simulate scrutiny
+ * defects" — never confused with DraftDetailAction above, which only ever
+ * applies to a DRAFT filing. filing-draft-list-workflow.ts's
+ * handleFilingDraftDetailInput branches on the underlying filing's status
+ * to pick which of these two action sets applies.
+ */
+export type CaseDetailAction = "filing:simulate-defects" | "nav:main-menu";
+
+const CASE_DETAIL_ACTIONS: ReadonlySet<string> = new Set(["filing:simulate-defects", "nav:main-menu"]);
+
+const CASE_DETAIL_TEXT_TO_ACTION: Record<string, CaseDetailAction> = {
+  "1": "filing:simulate-defects",
+  "simulate scrutiny defects": "filing:simulate-defects",
+  "സ്ക്രൂട്ടിനി ന്യൂനതകൾ അനുകരിക്കുക": "filing:simulate-defects",
+  "2": "nav:main-menu",
+  "main menu": "nav:main-menu",
+  "പ്രധാന മെനു": "nav:main-menu",
+};
+
+/** Resolves a FILED case's status-screen action, with the same stable-ID-authoritative rule as parseDraftListSelection. */
+export function parseCaseDetailAction(input: DraftListSelectionInput): CaseDetailAction | null {
+  const stableId = (input.buttonPayload || "").trim();
+  if (stableId) {
+    return CASE_DETAIL_ACTIONS.has(stableId) ? (stableId as CaseDetailAction) : null;
+  }
+
+  for (const candidate of [(input.body || "").trim().toLowerCase(), (input.buttonText || "").trim().toLowerCase()]) {
+    if (candidate in CASE_DETAIL_TEXT_TO_ACTION) {
+      return CASE_DETAIL_TEXT_TO_ACTION[candidate];
+    }
+  }
+  return null;
+}

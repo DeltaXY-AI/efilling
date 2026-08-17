@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_case_status_actions_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "എന്താണ് ചെയ്യേണ്ടത്?",
+      "actions": [
+        { "title": "ന്യൂനതകൾ അനുകരിക്കുക", "id": "filing:simulate-defects" },
+        { "title": "പ്രധാന മെനു", "id": "nav:main-menu" }
+      ]
+    }
+  }
+}

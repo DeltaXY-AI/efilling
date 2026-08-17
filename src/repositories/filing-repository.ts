@@ -46,6 +46,12 @@ export interface FilingRecord {
   /** #35 Part B — set together when the simulated fee payment is recorded (see recordFeePaid). courtFeeTransactionId is a fabricated demo value — no real payment gateway is ever called. */
   courtFeePaidAt: Date | null;
   courtFeeTransactionId: string | null;
+  /** #37 Part B — the scrutiny-defect correction flow (see schema.ts for the full rationale). */
+  defectNotifiedAt: Date | null;
+  defectCorrectedChequeNumber: string | null;
+  defectDelayReason: string | null;
+  defectDelayDays: number | null;
+  defectResubmittedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -84,6 +90,12 @@ export interface UpsertFilingFieldsInput {
   narrative?: string;
   witnessPresent?: boolean;
   selectedCourt?: string;
+  /** #37 Part B — the scrutiny-defect correction flow. */
+  defectNotifiedAt?: Date;
+  defectCorrectedChequeNumber?: string;
+  defectDelayReason?: string;
+  defectDelayDays?: number;
+  defectResubmittedAt?: Date;
 }
 
 /**

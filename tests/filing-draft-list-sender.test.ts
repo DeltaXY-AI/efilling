@@ -15,6 +15,7 @@ import type { FilingRecord } from "../src/repositories/filing-repository";
 const FROM_NUMBER = "whatsapp:+14155238886";
 const DRAFT_LIST_CONTENT_SID = { en: "HXfdlistEn0000000000000000000000000", ml: "HXfdlistMl0000000000000000000000000" };
 const DRAFT_DETAIL_ACTIONS_CONTENT_SID = { en: "HXfddetailEn00000000000000000000000", ml: "HXfddetailMl00000000000000000000000" };
+const CASE_STATUS_ACTIONS_CONTENT_SID = { en: "HXcasestatEn0000000000000000000000", ml: "HXcasestatMl0000000000000000000000" };
 
 function baseFiling(overrides: Partial<FilingRecord> = {}): FilingRecord {
   const now = new Date("2026-04-18T00:00:00Z");
@@ -48,6 +49,11 @@ function baseFiling(overrides: Partial<FilingRecord> = {}): FilingRecord {
     filedAt: null,
     courtFeePaidAt: null,
     courtFeeTransactionId: null,
+    defectNotifiedAt: null,
+    defectCorrectedChequeNumber: null,
+    defectDelayReason: null,
+    defectDelayDays: null,
+    defectResubmittedAt: null,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -184,6 +190,7 @@ describe("sendDraftListMessage / sendDraftCardMessage", () => {
       fromNumber: FROM_NUMBER,
       draftListContentSid: DRAFT_LIST_CONTENT_SID,
       draftDetailActionsContentSid: DRAFT_DETAIL_ACTIONS_CONTENT_SID,
+      caseStatusActionsContentSid: CASE_STATUS_ACTIONS_CONTENT_SID,
     };
   }
 

@@ -83,6 +83,11 @@ export class InMemoryFilingRepository implements FilingRepository {
       filedAt: null,
       courtFeePaidAt: null,
       courtFeeTransactionId: null,
+      defectNotifiedAt: null,
+      defectCorrectedChequeNumber: null,
+      defectDelayReason: null,
+      defectDelayDays: null,
+      defectResubmittedAt: null,
       createdAt: now,
       updatedAt: now,
     };

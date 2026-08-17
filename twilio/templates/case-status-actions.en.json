@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_case_status_actions_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "What would you like to do?",
+      "actions": [
+        { "title": "Simulate scrutiny defects", "id": "filing:simulate-defects" },
+        { "title": "Main menu", "id": "nav:main-menu" }
+      ]
+    }
+  }
+}

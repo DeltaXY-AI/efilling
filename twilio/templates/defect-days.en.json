@@ -1,0 +1,14 @@
+{
+  "friendly_name": "oncourts_defect_days_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Days of delay",
+      "actions": [
+        { "title": "2 days", "id": "filing:delay-2" },
+        { "title": "3 days", "id": "filing:delay-3" },
+        { "title": "5 days", "id": "filing:delay-5" }
+      ]
+    }
+  }
+}
