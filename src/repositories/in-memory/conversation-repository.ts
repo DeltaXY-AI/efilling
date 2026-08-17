@@ -61,7 +61,7 @@ export class InMemoryConversationRepository implements ConversationRepository {
     const release = await this.mutex.acquire(conversationId);
     handle.releases.push(release);
 
-    const record = this.findById(conversationId);
+    const record = await this.findById(conversationId);
     if (!record) {
       throw new ConversationNotFoundError(conversationId);
     }
@@ -71,7 +71,7 @@ export class InMemoryConversationRepository implements ConversationRepository {
   }
 
   async setStateInTx(_tx: RepositoryTransaction, conversationId: string, state: ConversationState): Promise<void> {
-    this.updateById(conversationId, { state });
+    await this.updateById(conversationId, { state });
   }
 
   async setActiveFilingAndState(
@@ -80,15 +80,15 @@ export class InMemoryConversationRepository implements ConversationRepository {
     activeFilingId: string,
     state: ConversationState,
   ): Promise<void> {
-    this.updateById(conversationId, { activeFilingId, state });
+    await this.updateById(conversationId, { activeFilingId, state });
   }
 
   async resetForRestartInTx(_tx: RepositoryTransaction, conversationId: string): Promise<void> {
-    this.updateById(conversationId, { language: null, state: "AWAITING_LANGUAGE", activeFilingId: null });
+    await this.updateById(conversationId, { language: null, state: "AWAITING_LANGUAGE", activeFilingId: null });
   }
 
-  /** Test-wiring helper (not part of the ConversationRepository interface) so in-memory FilingRepository can resolve the authoritative active-draft pointer, mirroring how the real DB joins through conversations.active_filing_id. */
-  findById(conversationId: string): ConversationRecord | null {
+  /** #38 — part of the ConversationRepository interface (see conversation-repository.ts). Was previously a synchronous test-only helper; used internally by lockById/updateById below, and now also by the send-hearing-reminders script. */
+  async findById(conversationId: string): Promise<ConversationRecord | null> {
     for (const record of this.byWhatsappNumber.values()) {
       if (record.id === conversationId) {
         return record;
@@ -107,8 +107,8 @@ export class InMemoryConversationRepository implements ConversationRepository {
     return updated;
   }
 
-  private updateById(conversationId: string, patch: Partial<ConversationRecord>): ConversationRecord {
-    const existing = this.findById(conversationId);
+  private async updateById(conversationId: string, patch: Partial<ConversationRecord>): Promise<ConversationRecord> {
+    const existing = await this.findById(conversationId);
     if (!existing) {
       throw new ConversationNotFoundError(conversationId);
     }

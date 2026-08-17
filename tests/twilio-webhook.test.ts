@@ -57,6 +57,9 @@ const FILING_DEFECT_SENDER_DEPS_CONTENT_SIDS = {
   defectReviewActionsContentSid: { en: env.TWILIO_DEFECT_REVIEW_ACTIONS_SID_EN, ml: env.TWILIO_DEFECT_REVIEW_ACTIONS_SID_ML },
   defectSentActionsContentSid: { en: env.TWILIO_DEFECT_SENT_ACTIONS_SID_EN, ml: env.TWILIO_DEFECT_SENT_ACTIONS_SID_ML },
 };
+const HEARING_SENDER_DEPS_CONTENT_SIDS = {
+  hearingReminderActionsContentSid: { en: env.TWILIO_HEARING_REMINDER_ACTIONS_SID_EN, ml: env.TWILIO_HEARING_REMINDER_ACTIONS_SID_ML },
+};
 
 function sign(params: Record<string, string>): string {
   return getExpectedTwilioSignature(env.TWILIO_AUTH_TOKEN, WEBHOOK_URL, params);
@@ -255,6 +258,13 @@ function buildDeps(
       documentStorageDeps: createFakeDocumentStorageDeps(),
       filingDefectSenderDeps: { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, ...FILING_DEFECT_SENDER_DEPS_CONTENT_SIDS },
       mainMenuSenderDeps,
+      withTransaction: createInMemoryWithTransaction(),
+    },
+    hearingWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      outboundMessageRepo,
+      hearingSenderDeps: { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, ...HEARING_SENDER_DEPS_CONTENT_SIDS },
       withTransaction: createInMemoryWithTransaction(),
     },
   };

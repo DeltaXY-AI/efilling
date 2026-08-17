@@ -75,6 +75,11 @@ const envSchema = z.object({
   TWILIO_DEFECT_REVIEW_ACTIONS_SID_ML: z.string().min(1, "TWILIO_DEFECT_REVIEW_ACTIONS_SID_ML is required"),
   TWILIO_DEFECT_SENT_ACTIONS_SID_EN: z.string().min(1, "TWILIO_DEFECT_SENT_ACTIONS_SID_EN is required"),
   TWILIO_DEFECT_SENT_ACTIONS_SID_ML: z.string().min(1, "TWILIO_DEFECT_SENT_ACTIONS_SID_ML is required"),
+  // #38: the proactive hearing-reminder's will-attend/seek-adjournment
+  // actions. MUST be an approved WhatsApp Message Template before use on
+  // any non-Sandbox number — see hearing-sender.ts.
+  TWILIO_HEARING_REMINDER_ACTIONS_SID_EN: z.string().min(1, "TWILIO_HEARING_REMINDER_ACTIONS_SID_EN is required"),
+  TWILIO_HEARING_REMINDER_ACTIONS_SID_ML: z.string().min(1, "TWILIO_HEARING_REMINDER_ACTIONS_SID_ML is required"),
   PUBLIC_BASE_URL: z.string().url("PUBLIC_BASE_URL must be an absolute URL"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   // #31: durable storage for uploaded filing documents (Vercel Blob). Set

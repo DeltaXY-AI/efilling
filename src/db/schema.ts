@@ -164,6 +164,17 @@ export const conversationStateEnum = pgEnum("conversation_state", [
   "FILING_DEFECT_3",
   "FILING_DEFECT_REVIEW",
   "FILING_DEFECT_SENT",
+  // #38 (Prototype parity - Phase 10): the adjournment side-conversation's
+  // 2 free-text steps. Scope decision (confirmed): "hearing:will-attend" is
+  // recognized globally (like "restart") and never touches this column at
+  // all — there is nothing to "return to" since it was never changed. Only
+  // choosing to seek an adjournment temporarily borrows the conversation
+  // (mirrors every other action-driven state in this codebase); once
+  // adjFiled is sent, it returns to MAIN_MENU, not an attempt to resume an
+  // arbitrary prior mid-form step (no column exists to record one — see
+  // filings' new columns below, which are the full extent of Part B).
+  "HEARING_ADJOURN_GROUND_PENDING",
+  "HEARING_ADJOURN_DATE_PENDING",
 ]);
 export const webhookEventStatusEnum = pgEnum("webhook_event_status", ["processing", "processed", "failed"]);
 export const filingRoleEnum = pgEnum("filing_role", ["COMPLAINANT_ADVOCATE"]);
@@ -178,6 +189,10 @@ export const filingStatusEnum = pgEnum("filing_status", ["DRAFT", "SUBMITTED", "
 // (TEST-000001-2026 etc.) — atomic via Postgres' own nextval(), so two
 // concurrent filings can never be allotted the same number.
 export const diaryNumberSeq = pgSequence("diary_number_seq", { startWith: 1, increment: 1 });
+// #38: mirrors diaryNumberSeq exactly, behind the generated adjournment IA
+// numbers (TEST-IA-000001-2026 etc.) — the prototype's own adjFiled hardcodes
+// a single "IA 327/2026" shared by every advocate; this app never does.
+export const iaNumberSeq = pgSequence("ia_number_seq", { startWith: 1, increment: 1 });
 // Never VERIFIED — no Bar Council integration exists (#9 Part B). Nullable
 // on the filings table: no value until a candidate has been typed.
 export const advocateEnrolmentStatusEnum = pgEnum("advocate_enrolment_status", ["PENDING_CONFIRMATION", "RECORDED_UNVERIFIED"]);
@@ -294,6 +309,16 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "FILING_DEFECT_REVIEW_ACTIONS",
   "FILING_DEFECT_SENT_MESSAGE",
   "FILING_DEFECT_SENT_ACTIONS",
+  // #38 (Prototype parity - Phase 10): the proactive hearing reminder (sent
+  // by the send-hearing-reminders script, never an inbound-triggered
+  // commitWithOutbound write — see that script's own dedupe-key comment),
+  // the attend acknowledgement, the adjournment intro/date prompts, and the
+  // filed-IA acknowledgement.
+  "HEARING_REMINDER_MESSAGE",
+  "HEARING_ATTEND_OK_MESSAGE",
+  "HEARING_ADJOURN_INTRO_MESSAGE",
+  "HEARING_ADJOURN_DATE_PROMPT",
+  "HEARING_ADJOURN_FILED_MESSAGE",
 ]);
 export const outboundMessageStatusEnum = pgEnum("outbound_message_status", ["pending", "sent", "failed"]);
 
@@ -385,6 +410,19 @@ export const filings = pgTable(
     defectDelayReason: text("defect_delay_reason"),
     defectDelayDays: integer("defect_delay_days"),
     defectResubmittedAt: timestamp("defect_resubmitted_at", { withTimezone: true }),
+    // #38 Part B — the hearing-reminder and adjournment-request flow.
+    // nextHearingDate is TEST-ONLY: no real court-calendar integration
+    // exists (out of scope), so it is only ever set by the
+    // set-test-hearing-date script, never a real listing feed. Kept a plain
+    // `text` column for hearingAttendance, exactly matching Part B's literal
+    // SQL (TEXT, not an enum) — its 2 valid values ("attending" |
+    // "adjournment_requested") are enforced at the application layer only
+    // (see repositories/filing-repository.ts's HearingAttendance type).
+    nextHearingDate: timestamp("next_hearing_date", { withTimezone: true }),
+    hearingAttendance: text("hearing_attendance"),
+    adjournmentGround: text("adjournment_ground"),
+    adjournmentRequestedDate: date("adjournment_requested_date", { mode: "string" }),
+    adjournmentIaNumber: text("adjournment_ia_number"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

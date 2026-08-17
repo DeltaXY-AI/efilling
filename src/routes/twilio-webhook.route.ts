@@ -113,6 +113,13 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
     defectSentActionsContentSid: { en: env.TWILIO_DEFECT_SENT_ACTIONS_SID_EN, ml: env.TWILIO_DEFECT_SENT_ACTIONS_SID_ML },
   };
 
+  // #38.
+  const hearingSenderDeps = {
+    messagingClient,
+    fromNumber: env.TWILIO_WHATSAPP_FROM,
+    hearingReminderActionsContentSid: { en: env.TWILIO_HEARING_REMINDER_ACTIONS_SID_EN, ml: env.TWILIO_HEARING_REMINDER_ACTIONS_SID_ML },
+  };
+
   return {
     conversationRepo,
     processedWebhookRepo: new DrizzleProcessedWebhookRepository(),
@@ -282,6 +289,13 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       documentStorageDeps,
       filingDefectSenderDeps,
       mainMenuSenderDeps,
+      withTransaction,
+    },
+    hearingWorkflowDeps: {
+      conversationRepo,
+      filingRepo,
+      outboundMessageRepo,
+      hearingSenderDeps,
       withTransaction,
     },
   };

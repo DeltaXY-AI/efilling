@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_hearing_reminder_actions_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "നിങ്ങൾ ഹാജരാകുമോ?",
+      "actions": [
+        { "title": "അതെ, ഹാജരാകും", "id": "hearing:will-attend" },
+        { "title": "മാറ്റിവയ്ക്കൽ അപേക്ഷ", "id": "hearing:seek-adjournment" }
+      ]
+    }
+  }
+}

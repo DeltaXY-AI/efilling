@@ -1,9 +1,11 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { istDayRangeUtc } from "../domain/hearing";
 import type { Transaction } from "../db/client";
 import { conversations, filings } from "../db/schema";
 import {
   FilingNotFoundError,
   formatDiaryNumber,
+  formatIaNumber,
   type CreateDraftInput,
   type FilingRecord,
   type FilingRepository,
@@ -11,6 +13,19 @@ import {
   type UpsertFilingFieldsInput,
 } from "./filing-repository";
 import type { RepositoryTransaction } from "./transaction";
+
+/**
+ * #38: `filings.hearing_attendance` is a plain `text` column at the DB
+ * level (matching the issue's literal Part B schema, not a pg enum), so
+ * Drizzle infers it as `string | null` — narrower than FilingRecord's own
+ * `HearingAttendance | null`. This narrows every raw row this repository
+ * returns; the column's only ever written through `HearingAttendance`-typed
+ * application code (see filing-repository.ts's UpsertFilingFieldsInput), so
+ * the narrowing is safe, not just asserted.
+ */
+function toFilingRecord<T extends { hearingAttendance: string | null }>(row: T): T & { hearingAttendance: FilingRecord["hearingAttendance"] } {
+  return row as T & { hearingAttendance: FilingRecord["hearingAttendance"] };
+}
 
 const ADVOCATE_ENROLMENT_PENDING_STEP = "ADVOCATE_ENROLMENT_PENDING";
 const ADVOCATE_ENROLMENT_CONFIRM_STEP = "ADVOCATE_ENROLMENT_CONFIRM";
@@ -42,7 +57,7 @@ export class DrizzleFilingRepository implements FilingRepository {
       .where(and(eq(filings.id, conversationRow.activeFilingId), eq(filings.status, "DRAFT")))
       .limit(1);
 
-    return filing ?? null;
+    return filing ? toFilingRecord(filing) : null;
   }
 
   async createDraft(tx: RepositoryTransaction, input: CreateDraftInput): Promise<FilingRecord> {
@@ -59,7 +74,7 @@ export class DrizzleFilingRepository implements FilingRepository {
       })
       .returning();
 
-    return row;
+    return toFilingRecord(row);
   }
 
   async recordNoticeAcceptance(tx: RepositoryTransaction, filingId: string, acceptedAt: Date): Promise<void> {
@@ -75,7 +90,7 @@ export class DrizzleFilingRepository implements FilingRepository {
     if (!row) {
       throw new FilingNotFoundError(filingId);
     }
-    return row;
+    return toFilingRecord(row);
   }
 
   async saveEnrolmentCandidate(tx: RepositoryTransaction, filingId: string, input: SaveEnrolmentCandidateInput): Promise<void> {
@@ -159,7 +174,7 @@ export class DrizzleFilingRepository implements FilingRepository {
     }
 
     const [filing] = await t.select().from(filings).where(eq(filings.id, conversationRow.activeFilingId)).limit(1);
-    return filing ?? null;
+    return filing ? toFilingRecord(filing) : null;
   }
 
   async nextDiaryNumber(tx: RepositoryTransaction, filedAt: Date): Promise<string> {
@@ -188,10 +203,26 @@ export class DrizzleFilingRepository implements FilingRepository {
   }
 
   async listByConversation(tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord[]> {
-    return (tx as Transaction)
+    const rows = await (tx as Transaction)
       .select()
       .from(filings)
       .where(eq(filings.conversationId, conversationId))
       .orderBy(desc(filings.createdAt));
+    return rows.map(toFilingRecord);
+  }
+
+  async findFiledWithHearingOn(tx: RepositoryTransaction, istDate: string): Promise<FilingRecord[]> {
+    const { start, end } = istDayRangeUtc(istDate);
+    const rows = await (tx as Transaction)
+      .select()
+      .from(filings)
+      .where(and(eq(filings.status, "FILED"), gte(filings.nextHearingDate, start), lt(filings.nextHearingDate, end)));
+    return rows.map(toFilingRecord);
+  }
+
+  async nextIaNumber(tx: RepositoryTransaction, filedAt: Date): Promise<string> {
+    const result = await (tx as Transaction).execute(sql`select nextval('ia_number_seq') as val`);
+    const sequence = Number((result.rows[0] as { val: string }).val);
+    return formatIaNumber(sequence, filedAt);
   }
 }

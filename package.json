@@ -36,7 +36,11 @@
     "twilio:filing-draft-list:create": "tsx --env-file=.env twilio/scripts/create-filing-draft-list-templates.ts",
     "twilio:filing-draft-list:verify": "tsx --env-file=.env twilio/scripts/verify-filing-draft-list-templates.ts",
     "twilio:filing-defect:create": "tsx --env-file=.env twilio/scripts/create-filing-defect-templates.ts",
-    "twilio:filing-defect:verify": "tsx --env-file=.env twilio/scripts/verify-filing-defect-templates.ts"
+    "twilio:filing-defect:verify": "tsx --env-file=.env twilio/scripts/verify-filing-defect-templates.ts",
+    "twilio:hearing:create": "tsx --env-file=.env twilio/scripts/create-hearing-templates.ts",
+    "twilio:hearing:verify": "tsx --env-file=.env twilio/scripts/verify-hearing-templates.ts",
+    "hearing:send-reminders": "tsx --env-file=.env src/scripts/send-hearing-reminders.ts",
+    "hearing:set-test-date": "tsx --env-file=.env src/scripts/set-test-hearing-date.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
