@@ -43,7 +43,16 @@ import type { FilingWorkflowResult } from "./filing-workflow";
  * conversations.active_filing_id, which already means something else —
  * the in-progress DRAFT, if any, which must never be disturbed by a
  * hearing response): the one FILED filing for this conversation matching
- * the expected pre-condition for each step (see each handler below).
+ * the expected pre-condition for each step, locked before being mutated
+ * (see lockAwaitingReminderResponse/lockAwaitingAdjournment below).
+ *
+ * Being globally-recognized cuts both ways: a bare "1"/"2" text reply is
+ * ALSO the numbered-fallback convention nearly every other screen in this
+ * codebase uses for its own primary action. inbound-router.ts only honors
+ * an ambiguous text-only match once hasAwaitingReminderResponse (below)
+ * confirms a reminder is genuinely pending for that conversation — a
+ * stable button tap (the reminder Content Template's own payload) is
+ * dispatched unconditionally, since no other screen issues those ids.
  */
 
 export interface HearingWorkflowDeps {
@@ -76,7 +85,7 @@ function sendInputFor(input: { whatsappNumber: string; language: SupportedLangua
   return { to: input.whatsappNumber, language: input.language, correlationId: input.messageId };
 }
 
-/** The one FILED filing for this conversation still awaiting a response to its reminder — soonest hearing first, a deterministic tie-break for the (rare, demo-scope) case of more than one pending reminder at once. */
+/** The one FILED filing for this conversation still awaiting a response to its reminder — soonest hearing first, a deterministic tie-break for the (rare, demo-scope) case of more than one pending reminder at once. Read-only: never locks, since a stale read here only ever widens (never narrows) what the caller then re-verifies under lock — see lockAwaitingReminderResponse. */
 async function findAwaitingReminderResponse(filingRepo: FilingRepository, tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord | null> {
   const filings = await filingRepo.listByConversation(tx, conversationId);
   const candidates = filings
@@ -85,7 +94,40 @@ async function findAwaitingReminderResponse(filingRepo: FilingRepository, tx: Re
   return candidates[0] ?? null;
 }
 
-/** The one filing mid-adjournment for this conversation, at the given sub-step (mirrors filing-defect-workflow.ts's column-presence-as-sub-state pattern). */
+/**
+ * Re-reads and locks the candidate filing found by findAwaitingReminderResponse
+ * (`SELECT ... FOR UPDATE`, mirroring every other workflow's lockById-before-
+ * mutate discipline — e.g. filing-defect-workflow.ts), then re-verifies the
+ * same precondition against the freshly-locked row: a concurrent write
+ * between the unlocked read above and acquiring the lock (e.g. two inbound
+ * webhooks racing for the same reminder) must never let both branches treat
+ * the filing as still awaiting a response.
+ */
+async function lockAwaitingReminderResponse(filingRepo: FilingRepository, tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord | null> {
+  const candidate = await findAwaitingReminderResponse(filingRepo, tx, conversationId);
+  if (!candidate) {
+    return null;
+  }
+  const locked = await filingRepo.lockById(tx, candidate.id);
+  return locked.status === "FILED" && locked.hearingAttendance === null && locked.nextHearingDate !== null ? locked : null;
+}
+
+/**
+ * #38 — read-only existence check for inbound-router.ts's global dispatch
+ * gate: an ambiguous text-only match (e.g. a bare "1"/"2", which collides
+ * with the numbered-fallback convention nearly every other screen in this
+ * codebase also uses) must only be treated as a hearing response when a
+ * reminder is genuinely pending for this conversation — never on a stable
+ * button tap alone that the reminder's own Content Template would never
+ * produce for any other screen. See inbound-router.ts's own comment for the
+ * full rationale.
+ */
+export async function hasAwaitingReminderResponse(deps: HearingWorkflowDeps, conversationId: string): Promise<boolean> {
+  const filing = await deps.withTransaction((tx) => findAwaitingReminderResponse(deps.filingRepo, tx, conversationId));
+  return filing !== null;
+}
+
+/** The one filing mid-adjournment for this conversation, at the given sub-step (mirrors filing-defect-workflow.ts's column-presence-as-sub-state pattern). Read-only — see lockAwaitingAdjournment for the locked re-check before any mutation. */
 async function findAwaitingAdjournment(
   filingRepo: FilingRepository,
   tx: RepositoryTransaction,
@@ -100,6 +142,20 @@ async function findAwaitingAdjournment(
         (step === "ground" ? f.adjournmentGround === null : f.adjournmentGround !== null && f.adjournmentIaNumber === null),
     ) ?? null
   );
+}
+
+function stillAwaitingAdjournment(filing: FilingRecord, step: "ground" | "date"): boolean {
+  return filing.hearingAttendance === "adjournment_requested" && (step === "ground" ? filing.adjournmentGround === null : filing.adjournmentGround !== null && filing.adjournmentIaNumber === null);
+}
+
+/** Mirrors lockAwaitingReminderResponse: locks the candidate row and re-verifies the same precondition against the freshly-locked read. */
+async function lockAwaitingAdjournment(filingRepo: FilingRepository, tx: RepositoryTransaction, conversationId: string, step: "ground" | "date"): Promise<FilingRecord | null> {
+  const candidate = await findAwaitingAdjournment(filingRepo, tx, conversationId, step);
+  if (!candidate) {
+    return null;
+  }
+  const locked = await filingRepo.lockById(tx, candidate.id);
+  return stillAwaitingAdjournment(locked, step) ? locked : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +173,7 @@ export async function handleHearingReminderAction(deps: HearingWorkflowDeps, inp
   if (action === "hearing:will-attend") {
     let attended = false;
     const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
-      const filing = await findAwaitingReminderResponse(deps.filingRepo, tx, locked.id);
+      const filing = await lockAwaitingReminderResponse(deps.filingRepo, tx, locked.id);
       if (!filing) {
         return { committed: false };
       }
@@ -140,7 +196,7 @@ export async function handleHearingReminderAction(deps: HearingWorkflowDeps, inp
   // hearing:seek-adjournment
   let opened = false;
   const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
-    const filing = await findAwaitingReminderResponse(deps.filingRepo, tx, locked.id);
+    const filing = await lockAwaitingReminderResponse(deps.filingRepo, tx, locked.id);
     if (!filing) {
       return { committed: false };
     }
@@ -178,7 +234,7 @@ export async function handleHearingAdjournGroundInput(deps: HearingWorkflowDeps,
     if (locked.state !== "HEARING_ADJOURN_GROUND_PENDING") {
       return { committed: false };
     }
-    const filing = await findAwaitingAdjournment(deps.filingRepo, tx, locked.id, "ground");
+    const filing = await lockAwaitingAdjournment(deps.filingRepo, tx, locked.id, "ground");
     if (!filing) {
       return { committed: false };
     }
@@ -216,7 +272,7 @@ export async function handleHearingAdjournDateInput(deps: HearingWorkflowDeps, i
     if (locked.state !== "HEARING_ADJOURN_DATE_PENDING") {
       return { committed: false };
     }
-    const filing = await findAwaitingAdjournment(deps.filingRepo, tx, locked.id, "date");
+    const filing = await lockAwaitingAdjournment(deps.filingRepo, tx, locked.id, "date");
     if (!filing) {
       return { committed: false };
     }

@@ -96,7 +96,7 @@ import {
   type FilingDefectWorkflowDeps,
 } from "./filing-defect-workflow";
 import { parseHearingReminderAction } from "../domain/hearing";
-import { handleHearingAdjournDateInput, handleHearingAdjournGroundInput, handleHearingReminderAction, type HearingWorkflowDeps } from "./hearing-workflow";
+import { handleHearingAdjournDateInput, handleHearingAdjournGroundInput, handleHearingReminderAction, hasAwaitingReminderResponse, type HearingWorkflowDeps } from "./hearing-workflow";
 import type { ConversationRepository } from "../repositories/conversation-repository";
 import { logWorkflowError } from "../lib/logger";
 import type { InboundMedia } from "../types/inbound-message";
@@ -315,14 +315,32 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
   // scope-decided to never interrupt it. "hearing:seek-adjournment" does
   // move the conversation into HEARING_ADJOURN_GROUND_PENDING, but that
   // transition itself is still only reachable via this same global check.
-  if (parseHearingReminderAction(selection)) {
-    return handleHearingReminderAction(deps.hearingWorkflowDeps, {
-      conversationId: conversation.id,
-      whatsappNumber: input.whatsappNumber,
-      messageId: input.messageId,
-      language,
-      selection,
-    });
+  //
+  // A stable button tap (a real reminder Content Template payload, e.g.
+  // "hearing:will-attend") is dispatched unconditionally — no other screen
+  // in this codebase issues those exact payload ids, so there is no
+  // ambiguity to resolve. A TEXT-ONLY match is a different story: "1"/"2"
+  // (and similar short fallbacks) are also the numbered-reply convention
+  // nearly every other screen in this app uses for its own primary action
+  // (main menu, return-reason, pay-fee, defect review, ...). Treating a
+  // bare "1" as a hearing response whenever no reminder was ever sent would
+  // silently swallow the advocate's real reply to whatever they're actually
+  // looking at — so a text-only match is only honored once we've confirmed
+  // a reminder is genuinely pending for this conversation; otherwise this
+  // falls through to normal per-state dispatch below, exactly like any
+  // other unrecognized input would.
+  const hearingReminderAction = parseHearingReminderAction(selection);
+  if (hearingReminderAction) {
+    const isStableButtonTap = Boolean((input.buttonPayload || "").trim());
+    if (isStableButtonTap || (await hasAwaitingReminderResponse(deps.hearingWorkflowDeps, conversation.id))) {
+      return handleHearingReminderAction(deps.hearingWorkflowDeps, {
+        conversationId: conversation.id,
+        whatsappNumber: input.whatsappNumber,
+        messageId: input.messageId,
+        language,
+        selection,
+      });
+    }
   }
 
   if (conversation.state === "MAIN_MENU") {
