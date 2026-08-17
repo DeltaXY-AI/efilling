@@ -380,6 +380,32 @@ describe("filing-details-workflow", () => {
       );
     });
 
+    it('confirming a pre-filled service date shows the limitation banner only once, not a second time on top of the extraction cascade', async () => {
+      await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_SERVICE_DATE_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "FILING_SERVICE_DATE_PENDING");
+      await filingRepo.upsertFilingFields(undefined, filingId, { serviceDate: "2026-03-28" });
+
+      const result = await handleFilingServiceDateInput(deps, fieldEvent({ text: "confirm" }));
+
+      expect(result.delivered).toBe(true);
+      expect(filingRepo.findById(filingId)).toMatchObject({ serviceDate: "2026-03-28", currentStep: "FILING_PART_PAYMENT_PENDING" });
+      const bodies = messagingClient.sendText.mock.calls.map((call) => call[0].body);
+      expect(bodies.some((body) => /Limitation:/i.test(body))).toBe(false);
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: FILING_DETAILS_CONTENT_SIDS.partPaymentContentSid.en }),
+      );
+    });
+
+    it("still shows the limitation banner when the service date is freshly typed (not confirmed)", async () => {
+      await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_SERVICE_DATE_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "FILING_SERVICE_DATE_PENDING");
+
+      const result = await handleFilingServiceDateInput(deps, fieldEvent({ text: "28-03-2026" }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("Limitation:") }));
+    });
+
     it("sends no suggestion line before the return-reason template when nothing was extracted", async () => {
       await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_BANK_BRANCH_PENDING", new Date());
       await filingRepo.setCurrentStep(undefined, filingId, "FILING_BANK_BRANCH_PENDING");

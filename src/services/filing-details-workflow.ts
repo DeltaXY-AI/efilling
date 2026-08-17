@@ -374,10 +374,12 @@ async function handleTextFieldInput(deps: FilingDetailsWorkflowDeps, field: Text
   // ordinary (invalid) typed text, validated exactly as before this feature
   // existed.
   let patch: UpsertFilingFieldsInput | undefined;
+  let usedConfirmShortcut = false;
   if (CONFIRM_KEYWORDS.has(input.text.trim().toLowerCase())) {
     const currentValue = await currentFieldValue(deps, input.conversationId, field);
     if (currentValue) {
       patch = { [FIELD_TO_FILING_KEY[field]]: currentValue } as UpsertFilingFieldsInput;
+      usedConfirmShortcut = true;
     }
   }
   if (!patch) {
@@ -428,13 +430,21 @@ async function handleTextFieldInput(deps: FilingDetailsWorkflowDeps, field: Text
     if (field === "serviceDate") {
       // The limitation window is computed from this exact field, so it's
       // surfaced right after — before the part-payment prompt, never
-      // replacing it.
+      // replacing it. #40: skipped when this round is a "confirm"/"keep" of
+      // an already-pre-filled service date — that value can only have come
+      // from document extraction, and extraction's own cascade
+      // (filing-document-workflow.ts's buildExtractionSummaryText) already
+      // showed this exact window once, right after the documents were
+      // uploaded. Only a genuinely new/changed date (typed, not confirmed)
+      // re-shows it.
       return {
         committed: true,
-        sends: [
-          { messageType: "FILING_LIMITATION_NOTICE" as const, dedupeSuffix: "limitation-notice" },
-          { messageType: "FILING_PART_PAYMENT_PROMPT" as const, dedupeSuffix: "part-payment-prompt" },
-        ],
+        sends: usedConfirmShortcut
+          ? [{ messageType: "FILING_PART_PAYMENT_PROMPT" as const, dedupeSuffix: "part-payment-prompt" }]
+          : [
+              { messageType: "FILING_LIMITATION_NOTICE" as const, dedupeSuffix: "limitation-notice" },
+              { messageType: "FILING_PART_PAYMENT_PROMPT" as const, dedupeSuffix: "part-payment-prompt" },
+            ],
       };
     }
     if (next === "witness") {
@@ -471,6 +481,13 @@ async function handleTextFieldInput(deps: FilingDetailsWorkflowDeps, field: Text
     return { delivered: suggestionDelivered && delivered };
   }
   if (field === "serviceDate" && typeof patch.serviceDate === "string") {
+    if (usedConfirmShortcut) {
+      // Already shown once in the extraction cascade — see the matching
+      // comment in the commit callback above.
+      const promptDelivered = await sendPartPaymentPrompt(deps.filingDetailsSenderDeps, sendInput);
+      await finalizeOutbound(deps, commit.outboundIds[0], promptDelivered);
+      return { delivered: promptDelivered };
+    }
     const window = computeLimitationWindow(patch.serviceDate);
     const daysLeft = daysUntilIso(window.limitationDeadlineIso, new Date());
     const noticeDelivered = await sendFilingPlainText(
