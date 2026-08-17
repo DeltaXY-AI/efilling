@@ -9,6 +9,67 @@
  */
 
 // ---------------------------------------------------------------------------
+// S.138 limitation window — surfaced right after the notice-served date is
+// entered (that date is what the whole window is computed from). The
+// prototype computes and shows this from an auto-extracted notice date;
+// this codebase has no OCR (#32's own scope decision), so it's shown once
+// the advocate has typed the date instead. Informational only — this pilot
+// never blocks filing past the deadline, matching every other "recorded but
+// not verified/enforced" disclosure already in this app.
+// ---------------------------------------------------------------------------
+
+export interface LimitationWindow {
+  /** Cause of action — the day after the 15-day statutory notice period (S.138 NI Act) expires. */
+  causeOfActionDateIso: string;
+  /** One calendar month after the cause of action — the outer limit to file, per Section 142(1)(b) NI Act. */
+  limitationDeadlineIso: string;
+}
+
+function addDaysIso(iso: string, days: number): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return isoFromDate(date);
+}
+
+function addCalendarMonthIso(iso: string, months: number): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCMonth(date.getUTCMonth() + months);
+  return isoFromDate(date);
+}
+
+function isoFromDate(date: Date): string {
+  return `${date.getUTCFullYear().toString().padStart(4, "0")}-${(date.getUTCMonth() + 1).toString().padStart(2, "0")}-${date.getUTCDate().toString().padStart(2, "0")}`;
+}
+
+/** Formats a stored ISO (YYYY-MM-DD) date as DD-MM-YYYY — this app's own display format everywhere a date is typed or shown, outside the review summary's raw dump. */
+export function formatIsoDateAsDisplay(iso: string): string {
+  const [year, month, day] = iso.split("-");
+  return `${day}-${month}-${year}`;
+}
+
+/**
+ * Computes the S.138 limitation window from the date the demand notice was
+ * served on the accused: the cause of action arises the day after the
+ * 15-day statutory notice period expires, and the complaint must be filed
+ * within one calendar month of that date (Section 142(1)(b), NI Act).
+ */
+export function computeLimitationWindow(serviceDateIso: string): LimitationWindow {
+  const causeOfActionDateIso = addDaysIso(serviceDateIso, 16);
+  const limitationDeadlineIso = addCalendarMonthIso(causeOfActionDateIso, 1);
+  return { causeOfActionDateIso, limitationDeadlineIso };
+}
+
+/** Whole days from `referenceDate` (always `new Date()` in production; injectable for tests) until `targetIso`, measured at UTC midnight on both sides. Can be negative once the deadline has passed — this pilot only displays it, never blocks on it. */
+export function daysUntilIso(targetIso: string, referenceDate: Date): number {
+  const [year, month, day] = targetIso.split("-").map(Number);
+  const target = Date.UTC(year, month - 1, day);
+  const referenceMidnight = Date.UTC(referenceDate.getUTCFullYear(), referenceDate.getUTCMonth(), referenceDate.getUTCDate());
+  return Math.round((target - referenceMidnight) / (1000 * 60 * 60 * 24));
+}
+
+// ---------------------------------------------------------------------------
 // Cheque number (Part C) — required short free text, not a phone/email, so
 // no existing validator fits; kept intentionally permissive (cheque number
 // formats vary by bank) rather than a bank-specific pattern.

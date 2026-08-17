@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  computeLimitationWindow,
+  daysUntilIso,
+  formatIsoDateAsDisplay,
   parseCourtSelection,
   parseFilingChequeEditFieldSelection,
   parseFilingDeclareAction,
@@ -282,5 +285,50 @@ describe("parseFilingDeclareAction", () => {
 
   it("returns null for unrecognized input", () => {
     expect(parseFilingDeclareAction({ body: "asdf" })).toBeNull();
+  });
+});
+
+describe("computeLimitationWindow (S.138 NI Act)", () => {
+  it("matches the reference example: notice served 28-03-2026 -> cause of action 13-04-2026 -> deadline 13-05-2026", () => {
+    const window = computeLimitationWindow("2026-03-28");
+    expect(window.causeOfActionDateIso).toBe("2026-04-13");
+    expect(window.limitationDeadlineIso).toBe("2026-05-13");
+  });
+
+  it("cause of action is exactly 16 days after service (the day after the 15-day notice period expires)", () => {
+    const window = computeLimitationWindow("2026-01-01");
+    expect(window.causeOfActionDateIso).toBe("2026-01-17");
+  });
+
+  it("the deadline is one calendar month after the cause of action, even across a month boundary", () => {
+    const window = computeLimitationWindow("2026-01-16"); // cause of action: 2026-02-01
+    expect(window.causeOfActionDateIso).toBe("2026-02-01");
+    expect(window.limitationDeadlineIso).toBe("2026-03-01");
+  });
+
+  it("handles a service date late in a 31-day month rolling into a shorter one", () => {
+    // Cause of action: 2026-01-31 + 16 days lands mid-Feb regardless of length.
+    const window = computeLimitationWindow("2026-01-16");
+    expect(window.causeOfActionDateIso).toBe("2026-02-01");
+  });
+});
+
+describe("formatIsoDateAsDisplay", () => {
+  it("converts YYYY-MM-DD to DD-MM-YYYY, matching this app's own display format", () => {
+    expect(formatIsoDateAsDisplay("2026-04-13")).toBe("13-04-2026");
+  });
+});
+
+describe("daysUntilIso", () => {
+  it("returns a positive count when the target is in the future", () => {
+    expect(daysUntilIso("2026-05-13", new Date(Date.UTC(2026, 3, 20)))).toBe(23);
+  });
+
+  it("returns 0 on the exact day", () => {
+    expect(daysUntilIso("2026-05-13", new Date(Date.UTC(2026, 4, 13)))).toBe(0);
+  });
+
+  it("returns a negative count once the deadline has passed", () => {
+    expect(daysUntilIso("2026-05-13", new Date(Date.UTC(2026, 4, 20)))).toBe(-7);
   });
 });

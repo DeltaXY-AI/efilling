@@ -5,6 +5,7 @@ import {
   handleFilingNoticeInput,
   type FilingWorkflowDeps,
 } from "../src/services/filing-workflow";
+import { handleCaseTypePendingInput, type CaseTypeWorkflowDeps } from "../src/services/case-type-workflow";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
 import { InMemoryFilingPartyRepository } from "../src/repositories/in-memory/filing-party-repository";
@@ -18,6 +19,8 @@ const FROM_NUMBER = "whatsapp:+14155238886";
 const MAIN_MENU_CONTENT_SID = { en: "HXmenuen00000000000000000000000000", ml: "HXmenuml00000000000000000000000000" };
 const DRAFT_CHOICE_CONTENT_SID = { en: "HXdraftchoiceen00000000000000000000", ml: "HXdraftchoiceml00000000000000000000" };
 const NOTICE_CONTENT_SID = { en: "HXnoticeen000000000000000000000000", ml: "HXnoticeml000000000000000000000000" };
+const CASE_TYPE_PROMPT_CONTENT_SID = { en: "HXctypeEn0000000000000000000000000", ml: "HXctypeMl0000000000000000000000000" };
+const OTHER_CASE_TYPES_CONTENT_SID = { en: "HXotypesEn000000000000000000000000", ml: "HXotypesMl000000000000000000000000" };
 const ENROLMENT_PROMPT_CONTENT_SID = { en: "HXenrolpromptEn00000000000000000000", ml: "HXenrolpromptMl00000000000000000000" };
 const ENROLMENT_CONFIRM_CONTENT_SID = { en: "HXenrolconfirmEn0000000000000000000", ml: "HXenrolconfirmMl0000000000000000000" };
 const COMPLAINANT_REVIEW_CONTENT_SID = { en: "HXcreviewEn00000000000000000000000", ml: "HXcreviewMl00000000000000000000000" };
@@ -51,6 +54,7 @@ describe("filing-workflow", () => {
   let outboundMessageRepo: InMemoryOutboundMessageRepository;
   let messagingClient: FakeMessagingClient;
   let deps: FilingWorkflowDeps;
+  let caseTypeWorkflowDeps: CaseTypeWorkflowDeps;
   let conversationId: string;
 
   beforeEach(async () => {
@@ -74,6 +78,12 @@ describe("filing-workflow", () => {
         fromNumber: FROM_NUMBER,
         draftChoiceContentSid: DRAFT_CHOICE_CONTENT_SID,
         noticeContentSid: NOTICE_CONTENT_SID,
+      },
+      caseTypeSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        caseTypePromptContentSid: CASE_TYPE_PROMPT_CONTENT_SID,
+        otherCaseTypesContentSid: OTHER_CASE_TYPES_CONTENT_SID,
       },
       mainMenuSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
       enrolmentSenderDeps: {
@@ -102,6 +112,13 @@ describe("filing-workflow", () => {
       filingCompletionSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS },
       withTransaction: createInMemoryWithTransaction(),
     };
+    caseTypeWorkflowDeps = {
+      conversationRepo,
+      outboundMessageRepo,
+      caseTypeSenderDeps: deps.caseTypeSenderDeps,
+      filingSenderDeps: deps.filingSenderDeps,
+      withTransaction: deps.withTransaction,
+    };
   });
 
   function fileOrResumeInput(overrides: Partial<Parameters<typeof handleFileOrResume>[1]> = {}) {
@@ -113,18 +130,18 @@ describe("filing-workflow", () => {
   }
 
   describe("handleFileOrResume (Part F)", () => {
-    it("with no active draft: transitions to FILING_NOTICE and sends the test notice", async () => {
+    it("with no active draft: transitions to FILING_CASE_TYPE_PENDING and sends the case-type prompt", async () => {
       const result = await handleFileOrResume(deps, fileOrResumeInput());
 
       expect(result.delivered).toBe(true);
       expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith({
         from: FROM_NUMBER,
         to: WHATSAPP_NUMBER,
-        contentSid: NOTICE_CONTENT_SID.en,
+        contentSid: CASE_TYPE_PROMPT_CONTENT_SID.en,
       });
 
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "FILING_NOTICE" });
+      expect(conversation).toMatchObject({ state: "FILING_CASE_TYPE_PENDING" });
     });
 
     it("with an active draft: transitions to FILING_DRAFT_CHOICE and sends the draft-choice template", async () => {
@@ -168,22 +185,24 @@ describe("filing-workflow", () => {
       expect(messagingClient.sendContentTemplate).toHaveBeenCalledTimes(1);
 
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "FILING_NOTICE" });
+      expect(conversation).toMatchObject({ state: "FILING_CASE_TYPE_PENDING" });
     });
 
-    it("falls back to the numbered plain-text document checklist when the Content Template send fails (no active draft) (#30)", async () => {
+    it("falls back to the numbered plain-text case-type prompt when the Content Template send fails (no active draft)", async () => {
       messagingClient.sendContentTemplate.mockRejectedValueOnce(new Error("Twilio 500"));
 
       const result = await handleFileOrResume(deps, fileOrResumeInput());
 
       expect(result.delivered).toBe(true);
       expect(messagingClient.sendText).toHaveBeenCalledWith(
-        expect.objectContaining({ body: expect.stringContaining("Cheque — front and back") }),
+        expect.objectContaining({ body: expect.stringContaining("What kind of case is it?") }),
       );
-      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("1. Start filing") }));
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("1. Cheque bounce (S.138)") }),
+      );
     });
 
-    it("falls back to the Malayalam plain-text document checklist when the Content Template send fails (#30)", async () => {
+    it("falls back to the Malayalam plain-text case-type prompt when the Content Template send fails", async () => {
       await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "ml", new Date());
       messagingClient.sendContentTemplate.mockRejectedValueOnce(new Error("Twilio 500"));
 
@@ -191,10 +210,10 @@ describe("filing-workflow", () => {
 
       expect(result.delivered).toBe(true);
       expect(messagingClient.sendText).toHaveBeenCalledWith(
-        expect.objectContaining({ body: expect.stringContaining("മുൻവശവും പിൻവശവും") }),
+        expect.objectContaining({ body: expect.stringContaining("ഏത് തരം കേസ് ആണ്?") }),
       );
       expect(messagingClient.sendText).toHaveBeenCalledWith(
-        expect.objectContaining({ body: expect.stringContaining("1. ഫയലിംഗ് ആരംഭിക്കുക") }),
+        expect.objectContaining({ body: expect.stringContaining("1. ചെക്ക് മടങ്ങൽ") }),
       );
     });
 
@@ -481,7 +500,7 @@ describe("filing-workflow", () => {
       expect(conversation).toMatchObject({ state: "FILING_DRAFT_CHOICE" }); // unchanged
     });
 
-    it("filing:start-new moves to FILING_NOTICE without creating a filing yet, preserving the existing draft", async () => {
+    it("filing:start-new moves to FILING_CASE_TYPE_PENDING without creating a filing yet, preserving the existing draft", async () => {
       const filing = await filingRepo.createDraft(undefined, {
         conversationId,
         language: "en",
@@ -494,10 +513,10 @@ describe("filing-workflow", () => {
 
       expect(result.delivered).toBe(true);
       expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
-        expect.objectContaining({ contentSid: NOTICE_CONTENT_SID.en }),
+        expect.objectContaining({ contentSid: CASE_TYPE_PROMPT_CONTENT_SID.en }),
       );
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "FILING_NOTICE", activeFilingId: filing.id }); // still points at the old draft — no new one yet
+      expect(conversation).toMatchObject({ state: "FILING_CASE_TYPE_PENDING", activeFilingId: filing.id }); // still points at the old draft — no new one yet
     });
 
     it("nav:main-menu returns to MAIN_MENU and resends the main menu", async () => {
@@ -673,9 +692,12 @@ describe("filing-workflow", () => {
       const firstFilingBefore = filingRepo.findById(firstFilingId!);
       expect(firstFilingBefore).toMatchObject({ status: "DRAFT", currentStep: "ADVOCATE_ENROLMENT_PENDING" });
 
-      // Advocate re-enters the menu, sees the draft choice, and starts a new filing.
+      // Advocate re-enters the menu, sees the draft choice, starts a new
+      // filing (now lands on the case-type gate first), picks cheque bounce,
+      // then accepts the notice.
       await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_DRAFT_CHOICE", new Date());
       await handleDraftChoiceInput(deps, actionInput({ selection: { buttonPayload: "filing:start-new" } }));
+      await handleCaseTypePendingInput(caseTypeWorkflowDeps, actionInput({ selection: { buttonPayload: "filing:case-type-cheque" } }));
       await handleFilingNoticeInput(deps, actionInput({ selection: { buttonPayload: "filing:accept-test-notice" } }));
 
       const secondConversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);

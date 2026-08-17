@@ -113,6 +113,14 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
     defectSentActionsContentSid: { en: env.TWILIO_DEFECT_SENT_ACTIONS_SID_EN, ml: env.TWILIO_DEFECT_SENT_ACTIONS_SID_ML },
   };
 
+  // Case-type gating, inserted before FILING_NOTICE (see domain/case-type.ts).
+  const caseTypeSenderDeps = {
+    messagingClient,
+    fromNumber: env.TWILIO_WHATSAPP_FROM,
+    caseTypePromptContentSid: { en: env.TWILIO_FILING_CASE_TYPE_SID_EN, ml: env.TWILIO_FILING_CASE_TYPE_SID_ML },
+    otherCaseTypesContentSid: { en: env.TWILIO_FILING_OTHER_CASE_TYPES_SID_EN, ml: env.TWILIO_FILING_OTHER_CASE_TYPES_SID_ML },
+  };
+
   // #38.
   const hearingSenderDeps = {
     messagingClient,
@@ -142,6 +150,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
         draftChoiceContentSid: { en: env.TWILIO_FILING_DRAFT_CHOICE_SID_EN, ml: env.TWILIO_FILING_DRAFT_CHOICE_SID_ML },
         noticeContentSid: { en: env.TWILIO_FILING_NOTICE_SID_EN, ml: env.TWILIO_FILING_NOTICE_SID_ML },
       },
+      caseTypeSenderDeps,
       mainMenuSenderDeps,
       enrolmentSenderDeps,
       complainantSenderDeps,
@@ -150,6 +159,18 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       filingDocumentRepo,
       filingSignSenderDeps,
       filingCompletionSenderDeps,
+      withTransaction,
+    },
+    caseTypeWorkflowDeps: {
+      conversationRepo,
+      outboundMessageRepo,
+      caseTypeSenderDeps,
+      filingSenderDeps: {
+        messagingClient,
+        fromNumber: env.TWILIO_WHATSAPP_FROM,
+        draftChoiceContentSid: { en: env.TWILIO_FILING_DRAFT_CHOICE_SID_EN, ml: env.TWILIO_FILING_DRAFT_CHOICE_SID_ML },
+        noticeContentSid: { en: env.TWILIO_FILING_NOTICE_SID_EN, ml: env.TWILIO_FILING_NOTICE_SID_ML },
+      },
       withTransaction,
     },
     enrolmentWorkflowDeps: {
@@ -266,6 +287,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
           draftChoiceContentSid: { en: env.TWILIO_FILING_DRAFT_CHOICE_SID_EN, ml: env.TWILIO_FILING_DRAFT_CHOICE_SID_ML },
           noticeContentSid: { en: env.TWILIO_FILING_NOTICE_SID_EN, ml: env.TWILIO_FILING_NOTICE_SID_ML },
         },
+        caseTypeSenderDeps,
         mainMenuSenderDeps,
         enrolmentSenderDeps,
         complainantSenderDeps,

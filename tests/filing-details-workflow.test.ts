@@ -197,6 +197,36 @@ describe("filing-details-workflow", () => {
       );
       expect(filingRepo.findById(filingId)).toMatchObject({ serviceDate: "2026-03-28", currentStep: "FILING_PART_PAYMENT_PENDING" });
     });
+
+    it("service date also sends the S.138 limitation window, computed from that exact date, before the paid-after-notice prompt", async () => {
+      await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_SERVICE_DATE_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "FILING_SERVICE_DATE_PENDING");
+
+      const result = await handleFilingServiceDateInput(deps, fieldEvent({ text: "28-03-2026" }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("between 13-04-2026 and 13-05-2026") }),
+      );
+      // The limitation notice is sent before the part-payment Content
+      // Template — never the other way around.
+      const textCallOrder = messagingClient.sendText.mock.invocationCallOrder[0];
+      const templateCallOrder = messagingClient.sendContentTemplate.mock.invocationCallOrder[0];
+      expect(textCallOrder).toBeLessThan(templateCallOrder);
+    });
+
+    it("sends the Malayalam limitation window for a Malayalam advocate", async () => {
+      await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "ml", new Date());
+      await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_SERVICE_DATE_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "FILING_SERVICE_DATE_PENDING");
+
+      const result = await handleFilingServiceDateInput(deps, fieldEvent({ language: "ml", text: "28-03-2026" }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("കാലപരിധി") }),
+      );
+    });
   });
 
   describe("paid after notice? (required radio, Part C)", () => {

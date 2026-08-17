@@ -20,6 +20,8 @@ const WEBHOOK_URL = `${env.PUBLIC_BASE_URL}${ROUTE_PATH}`;
 const MAIN_MENU_CONTENT_SID = { en: env.TWILIO_MAIN_MENU_CONTENT_SID_EN, ml: env.TWILIO_MAIN_MENU_CONTENT_SID_ML };
 const DRAFT_CHOICE_CONTENT_SID = { en: env.TWILIO_FILING_DRAFT_CHOICE_SID_EN, ml: env.TWILIO_FILING_DRAFT_CHOICE_SID_ML };
 const NOTICE_CONTENT_SID = { en: env.TWILIO_FILING_NOTICE_SID_EN, ml: env.TWILIO_FILING_NOTICE_SID_ML };
+const CASE_TYPE_PROMPT_CONTENT_SID = { en: env.TWILIO_FILING_CASE_TYPE_SID_EN, ml: env.TWILIO_FILING_CASE_TYPE_SID_ML };
+const OTHER_CASE_TYPES_CONTENT_SID = { en: env.TWILIO_FILING_OTHER_CASE_TYPES_SID_EN, ml: env.TWILIO_FILING_OTHER_CASE_TYPES_SID_ML };
 const ENROLMENT_PROMPT_CONTENT_SID = { en: env.TWILIO_ENROLMENT_PROMPT_SID_EN, ml: env.TWILIO_ENROLMENT_PROMPT_SID_ML };
 const ENROLMENT_CONFIRM_CONTENT_SID = { en: env.TWILIO_ENROLMENT_CONFIRM_SID_EN, ml: env.TWILIO_ENROLMENT_CONFIRM_SID_ML };
 const COMPLAINANT_REVIEW_CONTENT_SID = { en: env.TWILIO_COMPLAINANT_REVIEW_SID_EN, ml: env.TWILIO_COMPLAINANT_REVIEW_SID_ML };
@@ -108,17 +110,25 @@ function buildDeps(
   const partyRepo = new InMemoryFilingPartyRepository();
   const filingDocumentRepo = new InMemoryFilingDocumentRepository();
   const outboundMessageRepo = new InMemoryOutboundMessageRepository();
+  const caseTypeSenderDeps = {
+    messagingClient,
+    fromNumber: env.TWILIO_WHATSAPP_FROM,
+    caseTypePromptContentSid: CASE_TYPE_PROMPT_CONTENT_SID,
+    otherCaseTypesContentSid: OTHER_CASE_TYPES_CONTENT_SID,
+  };
+  const filingSenderDeps = {
+    messagingClient,
+    fromNumber: env.TWILIO_WHATSAPP_FROM,
+    draftChoiceContentSid: DRAFT_CHOICE_CONTENT_SID,
+    noticeContentSid: NOTICE_CONTENT_SID,
+  };
   const filingWorkflowDeps = {
     conversationRepo,
     filingRepo,
     partyRepo,
     outboundMessageRepo,
-    filingSenderDeps: {
-      messagingClient,
-      fromNumber: env.TWILIO_WHATSAPP_FROM,
-      draftChoiceContentSid: DRAFT_CHOICE_CONTENT_SID,
-      noticeContentSid: NOTICE_CONTENT_SID,
-    },
+    filingSenderDeps,
+    caseTypeSenderDeps,
     mainMenuSenderDeps,
     enrolmentSenderDeps,
     complainantSenderDeps,
@@ -127,6 +137,13 @@ function buildDeps(
     filingDocumentRepo,
     filingSignSenderDeps,
     filingCompletionSenderDeps,
+    withTransaction: createInMemoryWithTransaction(),
+  };
+  const caseTypeWorkflowDeps = {
+    conversationRepo,
+    outboundMessageRepo,
+    caseTypeSenderDeps,
+    filingSenderDeps,
     withTransaction: createInMemoryWithTransaction(),
   };
   return {
@@ -141,6 +158,7 @@ function buildDeps(
     },
     mainMenuSenderDeps,
     filingWorkflowDeps,
+    caseTypeWorkflowDeps,
     enrolmentWorkflowDeps: {
       conversationRepo,
       filingRepo,
@@ -504,12 +522,28 @@ describe("POST /webhooks/twilio/whatsapp", () => {
       NumMedia: "0",
     });
 
-    const noticeResponse = await send({
+    const caseTypeResponse = await send({
       MessageSid: "SMflowa000000000000000000000000003",
       From: from,
       To: "whatsapp:+14155238886",
       Body: "File or resume case",
       ButtonPayload: "menu:file-case",
+      NumMedia: "0",
+    });
+
+    expect(caseTypeResponse.status).toBe(200);
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith({
+      from: env.TWILIO_WHATSAPP_FROM,
+      to: from,
+      contentSid: env.TWILIO_FILING_CASE_TYPE_SID_EN,
+    });
+
+    const noticeResponse = await send({
+      MessageSid: "SMflowa000000000000000000000000003b",
+      From: from,
+      To: "whatsapp:+14155238886",
+      Body: "Cheque bounce (S.138)",
+      ButtonPayload: "filing:case-type-cheque",
       NumMedia: "0",
     });
 
@@ -557,6 +591,14 @@ describe("POST /webhooks/twilio/whatsapp", () => {
       To: "whatsapp:+14155238886",
       Body: "File or resume case",
       ButtonPayload: "menu:file-case",
+      NumMedia: "0",
+    });
+    await send({
+      MessageSid: "SMflowb000000000000000000000000003b",
+      From: from,
+      To: "whatsapp:+14155238886",
+      Body: "Cheque bounce (S.138)",
+      ButtonPayload: "filing:case-type-cheque",
       NumMedia: "0",
     });
     await send({

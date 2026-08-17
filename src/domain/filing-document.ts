@@ -35,6 +35,35 @@ export const DOCUMENT_GROUP_ORDER: readonly FilingDocumentGroup[] = ["cheque", "
 /** Confirmed with the product owner: images and PDFs only, capped at 10 MB per file (issue #31 Scope decisions). */
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
 
+export interface SampleDocumentSpec {
+  storageUrl: string;
+  contentType: string;
+}
+
+/**
+ * Fixed canned "documents" for the "sample"/"demo files" typed shortcut
+ * (see parseFilingDocumentAction below) — never real files, never uploaded
+ * to or downloaded from anywhere. The storage URLs are deliberately
+ * non-resolving (`demo.internal.efiling` isn't a real host) so nothing that
+ * later touches `filing_documents.storageUrl` (e.g. the draft-discard
+ * cleanup in filing-draft-list-workflow.ts, already wrapped in try/catch)
+ * mistakes one of these for a real Blob object.
+ */
+export const SAMPLE_DOCUMENTS: Record<FilingDocumentGroup, SampleDocumentSpec[]> = {
+  cheque: [
+    { storageUrl: "https://demo.internal.efiling/samples/cheque/front.jpg", contentType: "image/jpeg" },
+    { storageUrl: "https://demo.internal.efiling/samples/cheque/back.jpg", contentType: "image/jpeg" },
+  ],
+  memo: [{ storageUrl: "https://demo.internal.efiling/samples/memo/return-memo.jpg", contentType: "image/jpeg" }],
+  notice: [
+    { storageUrl: "https://demo.internal.efiling/samples/notice/demand-notice.jpg", contentType: "image/jpeg" },
+    { storageUrl: "https://demo.internal.efiling/samples/notice/postal-receipt.jpg", contentType: "image/jpeg" },
+  ],
+  id: [{ storageUrl: "https://demo.internal.efiling/samples/id/pan-card.jpg", contentType: "image/jpeg" }],
+  support: [{ storageUrl: "https://demo.internal.efiling/samples/support/invoice.jpg", contentType: "image/jpeg" }],
+  narrative: [{ storageUrl: "https://demo.internal.efiling/samples/narrative/written-account.pdf", contentType: "application/pdf" }],
+};
+
 const ALLOWED_CONTENT_TYPES: ReadonlySet<string> = new Set(["image/jpeg", "image/png", "application/pdf"]);
 
 export function isAllowedContentType(contentType: string): boolean {
@@ -55,7 +84,7 @@ export function wouldExceedMaximum(group: FilingDocumentGroup, currentCount: num
 // "docs:continue" action parsing — the one action every group recognizes.
 // ---------------------------------------------------------------------------
 
-export type FilingDocumentAction = "docs:continue";
+export type FilingDocumentAction = "docs:continue" | "docs:use-sample-files";
 
 const CONTINUE_STABLE_ID = "docs:continue";
 
@@ -73,6 +102,22 @@ const CONTINUE_TEXT_TO_ACTION: Record<string, FilingDocumentAction> = {
   "ഒഴിവാക്കുക": "docs:continue",
 };
 
+// A typed-only shortcut (no button — there is no real WhatsApp equivalent
+// of a native "Add sample files" picker button) that fills the current
+// group with a fixed set of canned demo files instead of a real upload, for
+// testing/demoing this flow without needing real photos. Never a stable
+// button ID, so it only ever matches typed text, checked alongside
+// CONTINUE_TEXT_TO_ACTION above.
+const SAMPLE_FILES_TEXT_TO_ACTION: Record<string, FilingDocumentAction> = {
+  sample: "docs:use-sample-files",
+  "sample files": "docs:use-sample-files",
+  "add sample files": "docs:use-sample-files",
+  demo: "docs:use-sample-files",
+  "demo files": "docs:use-sample-files",
+  "സാമ്പിൾ": "docs:use-sample-files",
+  "സാമ്പിൾ ഫയലുകൾ": "docs:use-sample-files",
+};
+
 export interface FilingDocumentSelectionInput {
   buttonPayload?: string;
   buttonText?: string;
@@ -80,12 +125,14 @@ export interface FilingDocumentSelectionInput {
 }
 
 /**
- * Resolves the "docs:continue" action from a stable ButtonPayload or a typed
- * "done"/"continue"/"skip" (English or Malayalam). A supplied stable ID is
- * authoritative — same rule as every other action parser in this codebase:
- * if present, it's either the action or `null`, never a fallback into text
- * matching. Returns `null` for anything else, including the media messages
- * themselves (those are handled separately, never through this parser).
+ * Resolves "docs:continue" (a stable ButtonPayload, or typed
+ * "done"/"continue"/"skip", English or Malayalam) or "docs:use-sample-files"
+ * (typed "sample"/"demo files" etc. only — this shortcut has no button). A
+ * supplied stable ID is authoritative — same rule as every other action
+ * parser in this codebase: if present, it's either "docs:continue" or
+ * `null`, never a fallback into text matching. Returns `null` for anything
+ * else, including the media messages themselves (those are handled
+ * separately, never through this parser).
  */
 export function parseFilingDocumentAction(input: FilingDocumentSelectionInput): FilingDocumentAction | null {
   const stableId = (input.buttonPayload || "").trim();
@@ -97,10 +144,16 @@ export function parseFilingDocumentAction(input: FilingDocumentSelectionInput): 
   if (bodyText in CONTINUE_TEXT_TO_ACTION) {
     return CONTINUE_TEXT_TO_ACTION[bodyText];
   }
+  if (bodyText in SAMPLE_FILES_TEXT_TO_ACTION) {
+    return SAMPLE_FILES_TEXT_TO_ACTION[bodyText];
+  }
 
   const titleText = (input.buttonText || "").trim().toLowerCase();
   if (titleText in CONTINUE_TEXT_TO_ACTION) {
     return CONTINUE_TEXT_TO_ACTION[titleText];
+  }
+  if (titleText in SAMPLE_FILES_TEXT_TO_ACTION) {
+    return SAMPLE_FILES_TEXT_TO_ACTION[titleText];
   }
 
   return null;

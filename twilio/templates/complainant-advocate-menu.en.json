@@ -1,5 +1,5 @@
 {
-  "friendly_name": "oncourts_complainant_advocate_menu_v2_en",
+  "friendly_name": "oncourts_complainant_advocate_menu_v3_en",
   "language": "en",
   "types": {
     "twilio/list-picker": {
@@ -7,7 +7,7 @@
       "button": "Main menu",
       "items": [
         {
-          "item": "File or resume case",
+          "item": "File a case",
           "description": "Start a new filing or continue a saved draft",
           "id": "menu:file-case",
           "media_url": null
@@ -34,6 +34,18 @@
           "item": "My cases",
           "description": "Your filed cases and saved drafts",
           "id": "menu:my-cases",
+          "media_url": null
+        },
+        {
+          "item": "Cause list",
+          "description": "Today's and tomorrow's hearing list",
+          "id": "menu:cause-list",
+          "media_url": null
+        },
+        {
+          "item": "Submissions",
+          "description": "Applications, vakalatnama, certified copies",
+          "id": "menu:submissions",
           "media_url": null
         }
       ],

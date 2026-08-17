@@ -1,6 +1,7 @@
 import {
   DOCUMENT_GROUP_LIMITS,
   DOCUMENT_GROUP_ORDER,
+  SAMPLE_DOCUMENTS,
   hasMetMinimum,
   parseFilingDocumentAction,
   wouldExceedMaximum,
@@ -171,18 +172,22 @@ const GROUP_BASE_PROMPT: Record<FilingDocumentGroup, Record<SupportedLanguage, s
   },
 };
 
+// Mentions the "sample"/"demo files" typed shortcut (docs:use-sample-files)
+// so it's discoverable from the prompt itself, not a secret keyword —
+// testing this flow should never require finding real documents to
+// photograph.
 function instructionSuffix(group: FilingDocumentGroup, language: SupportedLanguage): string {
   const { min, max } = DOCUMENT_GROUP_LIMITS[group];
   const countPhrase = min === max ? `${min}` : `${min}-${max}`;
 
   if (language === "ml") {
     return min === 0
-      ? `പരമാവധി ${max} ഫോട്ടോ അല്ലെങ്കിൽ PDF അയക്കുക, അല്ലെങ്കിൽ "കഴിഞ്ഞു" എന്ന് മറുപടി നൽകി ഒഴിവാക്കുക.`
-      : `${countPhrase} ഫോട്ടോ അല്ലെങ്കിൽ PDF അയക്കുക, എന്നിട്ട് "കഴിഞ്ഞു" എന്ന് മറുപടി നൽകുക.`;
+      ? `പരമാവധി ${max} ഫോട്ടോ അല്ലെങ്കിൽ PDF അയക്കുക, അല്ലെങ്കിൽ "കഴിഞ്ഞു" എന്ന് മറുപടി നൽകി ഒഴിവാക്കുക. (പരിശോധനയ്ക്ക്: "സാമ്പിൾ" എന്ന് ടൈപ്പ് ചെയ്യുക.)`
+      : `${countPhrase} ഫോട്ടോ അല്ലെങ്കിൽ PDF അയക്കുക, എന്നിട്ട് "കഴിഞ്ഞു" എന്ന് മറുപടി നൽകുക. (പരിശോധനയ്ക്ക്: "സാമ്പിൾ" എന്ന് ടൈപ്പ് ചെയ്യുക.)`;
   }
   return min === 0
-    ? `Send up to ${max} photos or PDFs, or reply "done" to skip.`
-    : `Send ${countPhrase} photo(s) or PDF(s), then reply "done".`;
+    ? `Send up to ${max} photos or PDFs, or reply "done" to skip. (Testing? Type "sample" to use demo files.)`
+    : `Send ${countPhrase} photo(s) or PDF(s), then reply "done". (Testing? Type "sample" to use demo files.)`;
 }
 
 function promptText(group: FilingDocumentGroup, language: SupportedLanguage): string {
@@ -247,6 +252,16 @@ function minNotMetText(group: FilingDocumentGroup, language: SupportedLanguage):
   return language === "ml"
     ? `തുടരുന്നതിന് മുൻപ് കുറഞ്ഞത് ${min} ഫയൽ(കൾ) അയക്കുക.`
     : `Please send at least ${min} file(s) before continuing.`;
+}
+
+// Deliberately worded differently from receivedAckText's real-upload ack —
+// this must never read like a real file was actually received, only that a
+// fixed demo/test placeholder was recorded for this testing shortcut.
+function sampleFilesAddedText(group: FilingDocumentGroup, count: number, language: SupportedLanguage): string {
+  const { max } = DOCUMENT_GROUP_LIMITS[group];
+  return language === "ml"
+    ? `✓ പരിശോധനയ്‌ക്കായി സാമ്പിൾ ഫയലുകൾ ചേർത്തു (${count}/${max}). ഇവ യഥാർത്ഥ രേഖകളല്ല. തുടരാൻ "കഴിഞ്ഞു" എന്ന് മറുപടി നൽകുക.`
+    : `✓ Added sample files for testing (${count} of ${max}). These are not real documents. Reply "done" to continue.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +334,61 @@ async function handleMediaMessages(
   }
 
   return { delivered: await sendPlain(deps, sendInput, ackText, "filing_document_ack_send_failed") };
+}
+
+// ---------------------------------------------------------------------------
+// "docs:use-sample-files" — a typed-only testing/demo shortcut (there is no
+// real WhatsApp equivalent of a native "Add sample files" picker button):
+// fills the current group with SAMPLE_DOCUMENTS instead of a real upload.
+// Never touches Twilio's media API or Blob storage — same "never touches
+// conversation state" rule as handleMediaMessages above; only
+// "docs:continue" advances the workflow.
+// ---------------------------------------------------------------------------
+
+async function handleUseSampleFilesAction(
+  deps: FilingDocumentWorkflowDeps,
+  group: FilingDocumentGroup,
+  input: FilingDocumentInputEvent,
+): Promise<FilingWorkflowResult> {
+  const sendInput = sendInputFor(input);
+
+  const conversation = await deps.conversationRepo.findByWhatsappNumber(input.whatsappNumber);
+  if (!conversation || conversation.state !== GROUP_STATE[group]) {
+    return { delivered: true };
+  }
+  const filing = await deps.withTransaction((tx) => deps.filingRepo.findActiveDraft(tx, conversation.id));
+  if (!filing) {
+    return { delivered: true };
+  }
+  const filingId = filing.id;
+
+  let currentCount = await deps.withTransaction((tx) => deps.filingDocumentRepo.countByGroup(tx, filingId, group));
+  if (wouldExceedMaximum(group, currentCount)) {
+    return { delivered: await sendPlain(deps, sendInput, maxReachedText(group, input.language), "filing_document_sample_ack_send_failed") };
+  }
+
+  for (const sample of SAMPLE_DOCUMENTS[group]) {
+    if (wouldExceedMaximum(group, currentCount)) {
+      break;
+    }
+    await deps.withTransaction((tx) =>
+      deps.filingDocumentRepo.addDocument(tx, {
+        filingId,
+        documentGroup: group,
+        storageUrl: sample.storageUrl,
+        contentType: sample.contentType,
+        // Audit-only field, never relied on for retrieval — there is no
+        // real Twilio media URL for a sample/demo document, so this is a
+        // deliberately distinct, non-Twilio marker value.
+        originalTwilioMediaUrl: "sample:demo-shortcut",
+      }),
+    );
+    currentCount += 1;
+  }
+
+  return {
+    delivered: await sendPlain(deps, sendInput, sampleFilesAddedText(group, currentCount, input.language), "filing_document_sample_ack_send_failed"),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -419,6 +489,9 @@ async function handleFilingDocumentGroupInput(
   const action = parseFilingDocumentAction({ buttonPayload: input.buttonPayload, buttonText: input.buttonText, body: input.text });
   if (action === "docs:continue") {
     return handleContinueAction(deps, group, input);
+  }
+  if (action === "docs:use-sample-files") {
+    return handleUseSampleFilesAction(deps, group, input);
   }
 
   // Part F: a text-only reply must never silently substitute for a required

@@ -41,6 +41,16 @@ const CASE_STATUS_ACKNOWLEDGEMENT: Record<SupportedLanguage, string> = {
   ml: "നിങ്ങളുടെ കേസ് സ്ഥിതി പരിശോധിക്കാം.",
 };
 
+const CAUSE_LIST_TEXT: Record<SupportedLanguage, string> = {
+  en: "Cause lists aren't available yet in this pilot. I'll let you know here as soon as they are.",
+  ml: "ഈ പൈലറ്റിൽ കോസ് ലിസ്റ്റ് ഇപ്പോൾ ലഭ്യമല്ല. ലഭ്യമാകുമ്പോൾ ഞാൻ ഇവിടെ അറിയിക്കും.",
+};
+
+const SUBMISSIONS_TEXT: Record<SupportedLanguage, string> = {
+  en: "Submissions (applications, vakalatnama, certified copies) aren't available yet in this pilot. I'll let you know here as soon as they are.",
+  ml: "സമർപ്പണങ്ങൾ (അപേക്ഷകൾ, വക്കാലത്ത്, സാക്ഷ്യപ്പെടുത്തിയ പകർപ്പുകൾ) ഈ പൈലറ്റിൽ ഇപ്പോൾ ലഭ്യമല്ല. ലഭ്യമാകുമ്പോൾ ഞാൻ ഇവിടെ അറിയിക്കും.",
+};
+
 async function sendPlainText(deps: MainMenuWorkflowDeps, input: MainMenuWorkflowInput, body: string, code: string): Promise<boolean> {
   try {
     await deps.mainMenuSenderDeps.messagingClient.sendText({ from: deps.mainMenuSenderDeps.fromNumber, to: input.whatsappNumber, body });
@@ -99,6 +109,20 @@ export async function handleInboundForMainMenu(
     const helpSent = await sendPlainText(deps, input, HELP_TEXT[input.language], "main_menu_help_send_failed");
     const menuDelivered = await redisplayMenu(deps, input);
     return { delivered: helpSent && menuDelivered };
+  }
+
+  if (action === "menu:cause-list") {
+    await deps.conversationRepo.touchLastInboundAt(input.whatsappNumber, now);
+    const causeListSent = await sendPlainText(deps, input, CAUSE_LIST_TEXT[input.language], "main_menu_cause_list_send_failed");
+    const menuDelivered = await redisplayMenu(deps, input);
+    return { delivered: causeListSent && menuDelivered };
+  }
+
+  if (action === "menu:submissions") {
+    await deps.conversationRepo.touchLastInboundAt(input.whatsappNumber, now);
+    const submissionsSent = await sendPlainText(deps, input, SUBMISSIONS_TEXT[input.language], "main_menu_submissions_send_failed");
+    const menuDelivered = await redisplayMenu(deps, input);
+    return { delivered: submissionsSent && menuDelivered };
   }
 
   if (action === "menu:my-cases") {

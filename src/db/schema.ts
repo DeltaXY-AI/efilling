@@ -14,6 +14,12 @@ export const conversationStateEnum = pgEnum("conversation_state", [
   "FILING_START",
   "CASE_STATUS_START",
   "FILING_DRAFT_CHOICE",
+  // Case-type gating, inserted before FILING_NOTICE: only cheque-bounce
+  // (S.138) is actually filed here; every other case type is listed for
+  // transparency but always resolves to an informational "not available
+  // yet" reply, never its own filing flow.
+  "FILING_CASE_TYPE_PENDING",
+  "FILING_OTHER_CASE_TYPES_PENDING",
   "FILING_NOTICE",
   "ADVOCATE_ENROLMENT_PENDING",
   "ADVOCATE_ENROLMENT_CONFIRM",
@@ -217,6 +223,14 @@ export const filingDocumentGroupEnum = pgEnum("filing_document_group", ["cheque"
 // #33 Part C — the cheque's return reason, a fixed 4-option select.
 export const filingReturnReasonEnum = pgEnum("filing_return_reason", ["funds", "stop", "acct", "sign"]);
 export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
+  // Case-type gating: the Cheque-bounce/Other-case-types prompt, the
+  // informational text sent when "Other case types" is opened, the
+  // resulting 5-item list, and the "not available yet" reply when one of
+  // the non-cheque types is tapped.
+  "FILING_CASE_TYPE_PROMPT",
+  "FILING_CASE_TYPE_OTHER_INFO",
+  "FILING_OTHER_CASE_TYPES_PROMPT",
+  "FILING_CASE_TYPE_UNAVAILABLE_INFO",
   "FILING_NOTICE",
   "FILING_DRAFT_CHOICE",
   "FILING_DRAFT_CREATED",
@@ -262,6 +276,9 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "FILING_MEMO_DATE_PROMPT",
   "FILING_NOTICE_DATE_PROMPT",
   "FILING_SERVICE_DATE_PROMPT",
+  // The S.138 limitation window, computed from and sent right after the
+  // notice-served date — see domain/filing-details.ts.
+  "FILING_LIMITATION_NOTICE",
   "FILING_PART_PAYMENT_PROMPT",
   // #33 Part D: the narrative.
   "FILING_STORY_PROMPT",

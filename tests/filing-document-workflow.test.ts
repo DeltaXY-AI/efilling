@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  handleFilingDocChequeInput,
   handleFilingDocSupportInput,
   handleFilingWrittenAccountInput,
   type FilingDocumentWorkflowDeps,
@@ -277,5 +278,122 @@ describe("filing-document-workflow — #33 Part E written-account upload", () =>
 
     expect(result.delivered).toBe(true);
     expect(messagingClient.sendContentTemplate).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The "sample"/"demo files" typed-only testing shortcut (docs:use-sample-files)
+ * — there is no real WhatsApp equivalent of a native "Add sample files"
+ * picker button, so this only ever matches typed text. Never touches
+ * Twilio's media API or Blob storage.
+ */
+describe("filing-document-workflow — 'sample' testing shortcut", () => {
+  let conversationRepo: InMemoryConversationRepository;
+  let filingRepo: InMemoryFilingRepository;
+  let filingDocumentRepo: InMemoryFilingDocumentRepository;
+  let outboundMessageRepo: InMemoryOutboundMessageRepository;
+  let messagingClient: FakeMessagingClient;
+  let deps: FilingDocumentWorkflowDeps;
+  let conversationId: string;
+  let filingId: string;
+
+  beforeEach(async () => {
+    conversationRepo = new InMemoryConversationRepository();
+    filingRepo = new InMemoryFilingRepository(conversationRepo);
+    filingDocumentRepo = new InMemoryFilingDocumentRepository();
+    outboundMessageRepo = new InMemoryOutboundMessageRepository();
+    messagingClient = createFakeMessagingClient();
+
+    const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+    conversationId = conversation.id;
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+
+    const filing = await filingRepo.createDraft(undefined, {
+      conversationId,
+      language: "en",
+      role: "COMPLAINANT_ADVOCATE",
+      testNoticeVersion: "v1",
+    });
+    filingId = filing.id;
+    await filingRepo.setCurrentStep(undefined, filingId, "FILING_DOC_CHEQUE");
+    await conversationRepo.setActiveFilingAndState(undefined, conversationId, filingId, "FILING_DOC_CHEQUE");
+
+    deps = {
+      conversationRepo,
+      filingRepo,
+      filingDocumentRepo,
+      outboundMessageRepo,
+      messagingClient,
+      fromNumber: FROM_NUMBER,
+      documentStorageDeps: createFakeDocumentStorageDeps(),
+      complainantSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
+        editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
+        rolePromptContentSid: COMPLAINANT_ROLE_CONTENT_SID,
+      },
+      filingDetailsSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS },
+      withTransaction: createInMemoryWithTransaction(),
+    };
+  });
+
+  function inputEvent(overrides: Partial<Parameters<typeof handleFilingDocChequeInput>[1]> = {}) {
+    return {
+      conversationId,
+      whatsappNumber: WHATSAPP_NUMBER,
+      messageId: "SM1",
+      language: "en" as const,
+      text: "sample",
+      media: [],
+      ...overrides,
+    };
+  }
+
+  it("typing 'sample' adds the group's fixed demo files and clearly marks them as not real", async () => {
+    const result = await handleFilingDocChequeInput(deps, inputEvent());
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ body: expect.stringContaining("sample files for testing") }),
+    );
+    expect(messagingClient.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ body: expect.stringContaining("not real documents") }),
+    );
+
+    const count = await filingDocumentRepo.countByGroup(undefined, filingId, "cheque");
+    expect(count).toBe(2); // cheque's SAMPLE_DOCUMENTS has 2 entries, matching its own max
+  });
+
+  it("replying 'done' right after 'sample' advances the workflow, exactly like a real upload would", async () => {
+    await handleFilingDocChequeInput(deps, inputEvent());
+    const result = await handleFilingDocChequeInput(deps, inputEvent({ text: "done" }));
+
+    expect(result.delivered).toBe(true);
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "FILING_DOC_MEMO" });
+  });
+
+  it("never exceeds the group's max, even if 'sample' is somehow sent twice", async () => {
+    await handleFilingDocChequeInput(deps, inputEvent());
+    const result = await handleFilingDocChequeInput(deps, inputEvent());
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({ body: expect.stringContaining("maximum") }),
+    );
+    const count = await filingDocumentRepo.countByGroup(undefined, filingId, "cheque");
+    expect(count).toBe(2);
+  });
+
+  it("is a safe no-op when the conversation is no longer FILING_DOC_CHEQUE (stale)", async () => {
+    await conversationRepo.setState(WHATSAPP_NUMBER, "COMPLAINANT_NAME_PENDING", new Date());
+
+    const result = await handleFilingDocChequeInput(deps, inputEvent());
+
+    expect(result.delivered).toBe(true);
+    expect(messagingClient.sendText).not.toHaveBeenCalled();
+    const count = await filingDocumentRepo.countByGroup(undefined, filingId, "cheque");
+    expect(count).toBe(0);
   });
 });

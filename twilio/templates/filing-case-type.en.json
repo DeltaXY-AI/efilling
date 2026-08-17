@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_filing_case_type_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "What kind of case is it?",
+      "actions": [
+        { "title": "Cheque bounce (S.138)", "id": "filing:case-type-cheque" },
+        { "title": "Other case types", "id": "filing:case-type-other" }
+      ]
+    }
+  }
+}

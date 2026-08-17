@@ -1,5 +1,5 @@
 {
-  "friendly_name": "oncourts_complainant_advocate_menu_v2_ml",
+  "friendly_name": "oncourts_complainant_advocate_menu_v3_ml",
   "language": "ml",
   "types": {
     "twilio/list-picker": {
@@ -34,6 +34,18 @@
           "item": "എന്റെ കേസുകൾ",
           "description": "ഫയൽ ചെയ്ത കേസുകളും ഡ്രാഫ്റ്റുകളും",
           "id": "menu:my-cases",
+          "media_url": null
+        },
+        {
+          "item": "കോസ് ലിസ്റ്റ്",
+          "description": "ഇന്നത്തെയും നാളത്തെയും ഹിയറിംഗ് ലിസ്റ്റ്",
+          "id": "menu:cause-list",
+          "media_url": null
+        },
+        {
+          "item": "സമർപ്പണങ്ങൾ",
+          "description": "അപേക്ഷകൾ, വക്കാലത്ത്, സാക്ഷ്യപ്പെടുത്തിയ പകർപ്പുകൾ",
+          "id": "menu:submissions",
           "media_url": null
         }
       ],
