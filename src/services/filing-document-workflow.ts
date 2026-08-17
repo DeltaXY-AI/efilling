@@ -294,6 +294,9 @@ async function handleMediaMessages(
     });
 
     if (!result.ok) {
+      // "storage_failed" (upload-side failure) shares download_failed's text
+      // — from the sender's point of view both mean the same thing: "we
+      // couldn't process that file, please try again."
       ackText =
         result.reason === "unsupported_type"
           ? UNSUPPORTED_TYPE_TEXT[input.language]

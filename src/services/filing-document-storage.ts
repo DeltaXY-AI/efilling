@@ -5,7 +5,7 @@ import { isAllowedContentType, MAX_DOCUMENT_BYTES, type FilingDocumentGroup } fr
 
 export type FilingDocumentStoreResult =
   | { ok: true; storageUrl: string; contentType: string }
-  | { ok: false; reason: "unsupported_type" | "too_large" | "download_failed" };
+  | { ok: false; reason: "unsupported_type" | "too_large" | "download_failed" | "storage_failed" };
 
 export interface FilingDocumentStorageDeps {
   mediaDownloader: TwilioMediaDownloader;
@@ -66,6 +66,21 @@ export async function storeFilingDocument(
   const extension = EXTENSION_BY_CONTENT_TYPE[contentType] ?? "bin";
   const pathname = `filings/${input.filingId}/${input.documentGroup}/${randomUUID()}.${extension}`;
 
-  const stored = await deps.blobStorage.store({ pathname, buffer: downloaded.buffer, contentType });
+  // The upload can fail for reasons entirely outside the sender's control
+  // (misconfigured/invalid storage credentials, a transient network error,
+  // the storage provider being unreachable). Previously this was left
+  // unguarded: an exception here propagated all the way up through the
+  // webhook route's own catch-all, which acks Twilio with an empty TwiML
+  // response and logs the failure server-side — but never tells the user
+  // anything. The result looked exactly like a file that was never sent:
+  // no acknowledgement, and then "please send at least 1 file(s)" once they
+  // replied "done". Catching it here restores the same never-silent
+  // contract every other failure reason in this function already has.
+  let stored;
+  try {
+    stored = await deps.blobStorage.store({ pathname, buffer: downloaded.buffer, contentType });
+  } catch {
+    return { ok: false, reason: "storage_failed" };
+  }
   return { ok: true, storageUrl: stored.url, contentType };
 }
