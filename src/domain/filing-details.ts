@@ -43,11 +43,9 @@ function isoFromDate(date: Date): string {
   return `${date.getUTCFullYear().toString().padStart(4, "0")}-${(date.getUTCMonth() + 1).toString().padStart(2, "0")}-${date.getUTCDate().toString().padStart(2, "0")}`;
 }
 
-/** Formats a stored ISO (YYYY-MM-DD) date as DD-MM-YYYY — this app's own display format everywhere a date is typed or shown, outside the review summary's raw dump. */
-export function formatIsoDateAsDisplay(iso: string): string {
-  const [year, month, day] = iso.split("-");
-  return `${day}-${month}-${year}`;
-}
+// Display formatting (ISO -> DD-MM-YYYY) is handled by lib/format-ist-date.ts's
+// own formatIsoDateAsDisplay — already reused by filing-draft-list-sender.ts
+// and hearing-sender.ts — never a second copy here.
 
 /**
  * Computes the S.138 limitation window from the date the demand notice was

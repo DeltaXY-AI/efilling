@@ -14,6 +14,8 @@ export interface TwilioMessagingClient {
     contentVariables?: Record<string, string>;
   }): Promise<void>;
   sendText(input: { from: string; to: string; body: string }): Promise<void>;
+  /** Sends a media attachment (e.g. a generated PDF) — `mediaUrl` must be a URL Twilio itself can fetch with a plain GET, never one requiring app-specific auth. `contentSid` and `mediaUrl` are mutually exclusive on Twilio's API, same as `body`. */
+  sendMediaMessage(input: { from: string; to: string; body?: string; mediaUrl: string }): Promise<void>;
 }
 
 export function createTwilioMessagingClient(accountSid: string, authToken: string): TwilioMessagingClient {
@@ -31,6 +33,9 @@ export function createTwilioMessagingClient(accountSid: string, authToken: strin
     },
     async sendText({ from, to, body }) {
       await client.messages.create({ from, to, body });
+    },
+    async sendMediaMessage({ from, to, body, mediaUrl }) {
+      await client.messages.create({ from, to, ...(body ? { body } : {}), mediaUrl: [mediaUrl] });
     },
   };
 }

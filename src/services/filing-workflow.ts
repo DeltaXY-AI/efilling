@@ -1,5 +1,6 @@
 import { parseDraftChoiceAction, parseFilingNoticeAction, type FilingSelectionInput } from "../domain/filing";
 import { sendCaseTypePrompt, type CaseTypeSenderDeps } from "./case-type-sender";
+import type { BlobStorage } from "../adapters/blob-storage";
 import type { ConversationState, ConversationRepository } from "../repositories/conversation-repository";
 import type { FilingPartyRepository } from "../repositories/filing-party-repository";
 import type { FilingRecord, FilingRepository } from "../repositories/filing-repository";
@@ -48,6 +49,8 @@ export interface FilingWorkflowDeps {
   filingSignSenderDeps: FilingSignSenderDeps;
   /** #35 — used only for the legacy FILING_FILED_START resume-translation below (a pre-existing row from #34 is actually filed on resume); never a second implementation of that copy. */
   filingCompletionSenderDeps: FilingCompletionSenderDeps;
+  /** Only threaded through to build a resend's own FilingReviewWorkflowDeps below — a resumed FILING_REVIEW never itself regenerates the draft-complaint PDF. */
+  blobStorage: BlobStorage;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -251,6 +254,7 @@ export async function resendPromptForResumedFiling(
         filingDetailsSenderDeps: deps.filingDetailsSenderDeps,
         mainMenuSenderDeps: deps.mainMenuSenderDeps,
         filingSignSenderDeps: deps.filingSignSenderDeps,
+        blobStorage: deps.blobStorage,
         withTransaction: deps.withTransaction,
       },
       resumedFiling,

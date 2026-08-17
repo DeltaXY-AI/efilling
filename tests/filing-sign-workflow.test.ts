@@ -12,6 +12,7 @@ import { InMemoryFilingDocumentRepository } from "../src/repositories/in-memory/
 import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
+import { createFakeDocumentStorageDeps } from "./helpers/fake-document-storage";
 
 const WHATSAPP_NUMBER = "whatsapp:+15005550006";
 const FROM_NUMBER = "whatsapp:+14155238886";
@@ -84,6 +85,7 @@ describe("filing-sign-workflow", () => {
         filingDetailsSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_CONTENT_SIDS },
         mainMenuSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
         filingSignSenderDeps,
+        blobStorage: createFakeDocumentStorageDeps().blobStorage,
         withTransaction: createInMemoryWithTransaction(),
       },
       withTransaction: createInMemoryWithTransaction(),

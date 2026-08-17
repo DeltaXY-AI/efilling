@@ -1,7 +1,6 @@
 import {
   computeLimitationWindow,
   daysUntilIso,
-  formatIsoDateAsDisplay,
   isSkipSelection,
   parsePartPaymentSelection,
   parseReturnReasonSelection,
@@ -14,6 +13,7 @@ import {
   type FilingDetailSelectionInput,
   type LimitationWindow,
 } from "../domain/filing-details";
+import { formatIsoDateAsDisplay } from "../lib/format-ist-date";
 import type { TwilioMessagingClient } from "../adapters/twilio/messaging-client";
 import type { ConversationRepository, ConversationState } from "../repositories/conversation-repository";
 import type { FilingRepository, UpsertFilingFieldsInput } from "../repositories/filing-repository";

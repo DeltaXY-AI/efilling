@@ -18,6 +18,7 @@ import { InMemoryFilingDocumentRepository } from "../src/repositories/in-memory/
 import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
+import { createFakeDocumentStorageDeps } from "./helpers/fake-document-storage";
 
 const WHATSAPP_NUMBER = "whatsapp:+15005550006";
 const FROM_NUMBER = "whatsapp:+14155238886";
@@ -45,6 +46,7 @@ describe("filing-review-workflow", () => {
   let filingDocumentRepo: InMemoryFilingDocumentRepository;
   let outboundMessageRepo: InMemoryOutboundMessageRepository;
   let messagingClient: FakeMessagingClient;
+  let blobStorage: ReturnType<typeof createFakeDocumentStorageDeps>["blobStorage"];
   let deps: FilingReviewWorkflowDeps;
   let conversationId: string;
   let filingId: string;
@@ -109,6 +111,7 @@ describe("filing-review-workflow", () => {
       filingDetailsSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_CONTENT_SIDS },
       mainMenuSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
       filingSignSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_SIGN_CONTENT_SIDS },
+      blobStorage: (blobStorage = createFakeDocumentStorageDeps().blobStorage),
       withTransaction: createInMemoryWithTransaction(),
     };
   });
@@ -340,6 +343,33 @@ describe("filing-review-workflow", () => {
       expect(filingRepo.findById(filingId)?.declarationAcceptedAt).toBeInstanceOf(Date);
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       expect(conversation).toMatchObject({ state: "FILING_DRAFT_READY" });
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("ON Court - I, Kollam") }));
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: FILING_SIGN_CONTENT_SIDS.draftReadyActionsContentSid.en }),
+      );
+    });
+
+    it("also generates and sends the draft-complaint PDF, hosted briefly at a public URL then deleted", async () => {
+      await handleFilingDeclareInput(deps, actionInput({ selection: { buttonPayload: "filing:declare-accept" } }));
+
+      expect(blobStorage.storePublic).toHaveBeenCalledWith(
+        expect.objectContaining({ contentType: "application/pdf", pathname: expect.stringContaining("Complaint_S138_Joseph_vs_Menon.pdf") }),
+      );
+      expect(messagingClient.sendMediaMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ from: FROM_NUMBER, to: WHATSAPP_NUMBER, mediaUrl: "https://blob.example.test/fake-public-file" }),
+      );
+      // The public URL is deleted again right after the send — never left public indefinitely.
+      expect(blobStorage.delete).toHaveBeenCalledWith(["https://blob.example.test/fake-public-file"]);
+    });
+
+    it("a PDF-attachment failure never affects the declaration's own result — the text summary/actions already succeeded", async () => {
+      blobStorage.storePublic.mockRejectedValueOnce(new Error("blob store unreachable"));
+
+      const result = await handleFilingDeclareInput(deps, actionInput({ selection: { buttonPayload: "filing:declare-accept" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendMediaMessage).not.toHaveBeenCalled();
+      // The advocate still got everything that matters.
       expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("ON Court - I, Kollam") }));
       expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
         expect.objectContaining({ contentSid: FILING_SIGN_CONTENT_SIDS.draftReadyActionsContentSid.en }),

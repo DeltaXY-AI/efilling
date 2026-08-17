@@ -121,6 +121,7 @@ describe("filing-draft-list-workflow", () => {
       filingDocumentRepo,
       filingSignSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_SIGN_CONTENT_SIDS },
       filingCompletionSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_COMPLETION_CONTENT_SIDS },
+      blobStorage,
       withTransaction: createInMemoryWithTransaction(),
     };
 

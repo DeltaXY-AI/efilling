@@ -24,7 +24,8 @@ export interface SendFilingCompletionMessageInput {
   correlationId: string;
 }
 
-const COURT_FEE_TEXT: Record<SupportedLanguage, string> = { en: "Rs. 500", ml: "₹500" };
+/** Exported for reuse by fee-receipt-pdf.ts — the receipt PDF must never show a different fee amount than the chat message does. */
+export const COURT_FEE_TEXT: Record<SupportedLanguage, string> = { en: "Rs. 500", ml: "₹500" };
 
 /** Renders the filed acknowledgement from the filing's own persisted diaryNumber/selectedCourt/filedAt — never hardcoded, unlike the prototype's single-scenario demo. Pure formatting; never logged. */
 export function renderFiledSummary(language: SupportedLanguage, filing: FilingRecord): string {

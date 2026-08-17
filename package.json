@@ -50,6 +50,7 @@
     "drizzle-orm": "^0.45.2",
     "express": "^5.1.0",
     "libphonenumber-js": "^1.13.10",
+    "pdfkit": "^0.19.1",
     "twilio": "^6.0.2",
     "ws": "^8.21.3",
     "zod": "^3.23.8"
@@ -57,9 +58,11 @@
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^22.10.2",
+    "@types/pdfkit": "^0.17.6",
     "@types/supertest": "^6.0.2",
     "@types/ws": "^8.18.1",
     "drizzle-kit": "^0.31.10",
+    "pdf-parse": "^2.4.5",
     "supertest": "^7.0.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
