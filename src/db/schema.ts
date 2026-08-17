@@ -297,6 +297,10 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   // #34 (Prototype parity - Phase 6): the draft-ready summary + its
   // Review-and-eSign/Edit-details actions, and the OTP prompt.
   "FILING_DRAFT_READY_SUMMARY",
+  // The generated draft-complaint PDF, attached alongside the draft-ready
+  // summary above — see complaint-pdf.ts. Best-effort: a failure here
+  // never blocks or retries the summary/actions already sent.
+  "FILING_DRAFT_COMPLAINT_PDF",
   "FILING_DRAFT_READY_ACTIONS",
   "FILING_OTP_PROMPT",
   // #35 (Prototype parity - Phase 7): the filed acknowledgement + its
@@ -305,6 +309,10 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "FILING_FILED_SUMMARY",
   "FILING_FILED_ACTIONS",
   "FILING_FEE_PAID_MESSAGE",
+  // The generated fee-receipt PDF, attached alongside the fee-paid message
+  // above — see fee-receipt-pdf.ts. Same best-effort rule as the draft
+  // complaint PDF above.
+  "FILING_FEE_RECEIPT_PDF",
   "FILING_DONE_MESSAGE",
   // #36 (Prototype parity - Phase 8): the sectioned "My cases" list, the
   // per-draft detail card, and the discard confirmation.

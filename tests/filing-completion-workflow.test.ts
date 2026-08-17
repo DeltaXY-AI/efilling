@@ -6,9 +6,11 @@ import {
 } from "../src/services/filing-completion-workflow";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
+import { InMemoryFilingPartyRepository } from "../src/repositories/in-memory/filing-party-repository";
 import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
 import { createFakeMessagingClient, type FakeMessagingClient } from "./helpers/fake-messaging-client";
+import { createFakeDocumentStorageDeps } from "./helpers/fake-document-storage";
 
 const WHATSAPP_NUMBER = "whatsapp:+15005550006";
 const FROM_NUMBER = "whatsapp:+14155238886";
@@ -19,8 +21,10 @@ const MAIN_MENU_CONTENT_SID = { en: "HXmenuen00000000000000000000000000", ml: "H
 describe("filing-completion-workflow", () => {
   let conversationRepo: InMemoryConversationRepository;
   let filingRepo: InMemoryFilingRepository;
+  let partyRepo: InMemoryFilingPartyRepository;
   let outboundMessageRepo: InMemoryOutboundMessageRepository;
   let messagingClient: FakeMessagingClient;
+  let blobStorage: ReturnType<typeof createFakeDocumentStorageDeps>["blobStorage"];
   let deps: FilingCompletionWorkflowDeps;
   let conversationId: string;
   let filingId: string;
@@ -28,6 +32,7 @@ describe("filing-completion-workflow", () => {
   beforeEach(async () => {
     conversationRepo = new InMemoryConversationRepository();
     filingRepo = new InMemoryFilingRepository(conversationRepo);
+    partyRepo = new InMemoryFilingPartyRepository();
     outboundMessageRepo = new InMemoryOutboundMessageRepository();
     messagingClient = createFakeMessagingClient();
 
@@ -43,6 +48,7 @@ describe("filing-completion-workflow", () => {
     });
     filingId = filing.id;
     await filingRepo.upsertFilingFields(undefined, filingId, { selectedCourt: "ON Court - I, Kollam" });
+    await partyRepo.upsertFields(undefined, filingId, "COMPLAINANT", { fullName: "Anitha Joseph", address: "Kollam 691008" });
 
     const filedAt = new Date();
     const diaryNumber = await filingRepo.nextDiaryNumber(undefined, filedAt);
@@ -53,11 +59,13 @@ describe("filing-completion-workflow", () => {
     deps = {
       conversationRepo,
       filingRepo,
+      partyRepo,
       outboundMessageRepo,
       messagingClient,
       fromNumber: FROM_NUMBER,
       filingCompletionSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, payFeeActionsContentSid: FILED_ACTIONS_CONTENT_SID },
       mainMenuSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
+      blobStorage: (blobStorage = createFakeDocumentStorageDeps().blobStorage),
       withTransaction: createInMemoryWithTransaction(),
     };
   });
@@ -94,6 +102,29 @@ describe("filing-completion-workflow", () => {
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       expect(conversation).toMatchObject({ state: "FILING_DONE" });
       expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining(filing!.courtFeeTransactionId!) }));
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("filing is complete") }));
+    });
+
+    it("also generates and sends the fee-receipt PDF, hosted briefly at a public URL then deleted", async () => {
+      await handleFilingFiledInput(deps, actionInput({ selection: { buttonPayload: "filing:pay-fee" } }));
+
+      const filing = filingRepo.findById(filingId);
+      expect(blobStorage.storePublic).toHaveBeenCalledWith(
+        expect.objectContaining({ contentType: "application/pdf", pathname: expect.stringContaining(`Receipt_${filing!.diaryNumber!.replace(/-/g, "_")}.pdf`) }),
+      );
+      expect(messagingClient.sendMediaMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ from: FROM_NUMBER, to: WHATSAPP_NUMBER, mediaUrl: "https://blob.example.test/fake-public-file" }),
+      );
+      expect(blobStorage.delete).toHaveBeenCalledWith(["https://blob.example.test/fake-public-file"]);
+    });
+
+    it("a receipt-PDF failure never affects the payment's own result — the fee-paid/done messages already succeeded", async () => {
+      blobStorage.storePublic.mockRejectedValueOnce(new Error("blob store unreachable"));
+
+      const result = await handleFilingFiledInput(deps, actionInput({ selection: { buttonPayload: "filing:pay-fee" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendMediaMessage).not.toHaveBeenCalled();
       expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("filing is complete") }));
     });
 

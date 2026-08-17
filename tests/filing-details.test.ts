@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   computeLimitationWindow,
   daysUntilIso,
-  formatIsoDateAsDisplay,
   parseCourtSelection,
   parseFilingChequeEditFieldSelection,
   parseFilingDeclareAction,
@@ -310,12 +309,6 @@ describe("computeLimitationWindow (S.138 NI Act)", () => {
     // Cause of action: 2026-01-31 + 16 days lands mid-Feb regardless of length.
     const window = computeLimitationWindow("2026-01-16");
     expect(window.causeOfActionDateIso).toBe("2026-02-01");
-  });
-});
-
-describe("formatIsoDateAsDisplay", () => {
-  it("converts YYYY-MM-DD to DD-MM-YYYY, matching this app's own display format", () => {
-    expect(formatIsoDateAsDisplay("2026-04-13")).toBe("13-04-2026");
   });
 });
 

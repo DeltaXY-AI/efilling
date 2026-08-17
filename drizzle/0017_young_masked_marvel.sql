@@ -1,0 +1,2 @@
+ALTER TYPE "public"."outbound_message_type" ADD VALUE 'FILING_DRAFT_COMPLAINT_PDF' BEFORE 'FILING_DRAFT_READY_ACTIONS';--> statement-breakpoint
+ALTER TYPE "public"."outbound_message_type" ADD VALUE 'FILING_FEE_RECEIPT_PDF' BEFORE 'FILING_DONE_MESSAGE';

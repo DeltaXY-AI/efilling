@@ -8,6 +8,7 @@ function deps(overrides: Partial<FilingDocumentStorageDeps> = {}): FilingDocumen
     },
     blobStorage: {
       store: async () => ({ url: "https://blob.example/stored.jpg" }),
+      storePublic: async () => ({ url: "https://blob.example/public-stored.jpg" }),
       delete: async () => undefined,
     },
     ...overrides,
@@ -64,7 +65,13 @@ describe("storeFilingDocument", () => {
   // ever written. This must surface as a normal, ack'd failure instead.
   it("returns storage_failed (not an uncaught throw) when the blob upload fails", async () => {
     const result = await storeFilingDocument(
-      deps({ blobStorage: { store: async () => { throw new Error("invalid storage token"); }, delete: async () => undefined } }),
+      deps({
+        blobStorage: {
+          store: async () => { throw new Error("invalid storage token"); },
+          storePublic: async () => ({ url: "https://blob.example/public-stored.jpg" }),
+          delete: async () => undefined,
+        },
+      }),
       BASE_INPUT,
     );
     expect(result).toEqual({ ok: false, reason: "storage_failed" });

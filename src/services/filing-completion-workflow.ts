@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { parseFilingFiledAction, type FilingCompletionSelectionInput } from "../domain/filing-completion";
 import type { TwilioMessagingClient } from "../adapters/twilio/messaging-client";
+import type { BlobStorage } from "../adapters/blob-storage";
 import type { ConversationRepository } from "../repositories/conversation-repository";
+import type { FilingPartyRepository } from "../repositories/filing-party-repository";
 import type { FilingRecord, FilingRepository } from "../repositories/filing-repository";
 import type { OutboundMessageRepository } from "../repositories/outbound-message-repository";
 import type { RepositoryTransaction } from "../repositories/transaction";
@@ -13,6 +15,8 @@ import {
   type FilingCompletionSenderDeps,
   type SendFilingCompletionMessageInput,
 } from "./filing-completion-sender";
+import { feeReceiptPdfFilename, renderFeeReceiptPdf } from "./fee-receipt-pdf";
+import { logWorkflowError } from "../lib/logger";
 import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from "./main-menu-sender";
 import { commitWithOutbound, finalizeOutbound } from "./transactional-outbound";
 import type { FilingWorkflowResult } from "./filing-workflow";
@@ -37,6 +41,8 @@ import type { FilingWorkflowResult } from "./filing-workflow";
 export interface FilingCompletionWorkflowDeps {
   conversationRepo: ConversationRepository;
   filingRepo: FilingRepository;
+  /** Only used to fetch the complainant's name/address for the fee-receipt PDF — never touched by anything else in this file. */
+  partyRepo: FilingPartyRepository;
   /** Durable outbound intent, enqueued inside the same transaction as each committed state change — see commitWithOutbound in transactional-outbound.ts. */
   outboundMessageRepo: OutboundMessageRepository;
   messagingClient: TwilioMessagingClient;
@@ -44,6 +50,8 @@ export interface FilingCompletionWorkflowDeps {
   filingCompletionSenderDeps: FilingCompletionSenderDeps;
   /** Reused as-is for the final "any input -> main menu" transition — never a second implementation. */
   mainMenuSenderDeps: MainMenuSenderDeps;
+  /** Used only to briefly host the generated fee-receipt PDF at a public URL for Twilio to fetch — uploaded, sent, then deleted around that one send (see fee-receipt-pdf.ts). */
+  blobStorage: BlobStorage;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -78,6 +86,39 @@ async function sendFiledSummaryAndActions(deps: FilingCompletionWorkflowDeps, se
   const summaryDelivered = await sendFiledSummary(deps, sendInput, filing);
   const actionsDelivered = await sendFiledActions(deps.filingCompletionSenderDeps, sendInput);
   return summaryDelivered && actionsDelivered;
+}
+
+/**
+ * Generates the fee-receipt PDF, hosts it briefly at a public Blob URL,
+ * sends it, then deletes the blob again — best-effort throughout, mirroring
+ * sendDraftComplaintPdfBestEffort in filing-review-workflow.ts exactly.
+ * Any failure is logged and swallowed here; the caller never lets this
+ * affect the result of the fee payment itself.
+ */
+async function sendFeeReceiptPdfBestEffort(deps: FilingCompletionWorkflowDeps, sendInput: SendFilingCompletionMessageInput, filing: FilingRecord, messageId: string): Promise<boolean> {
+  try {
+    const complainant = await deps.withTransaction((tx) => deps.partyRepo.findByFilingAndRole(tx, filing.id, "COMPLAINANT"));
+    if (!complainant) {
+      // Unreachable in practice — confirmed long before FILING_FILED — but never crash on it.
+      logWorkflowError({ code: "filing_fee_receipt_pdf_missing_party_data", correlationId: messageId });
+      return false;
+    }
+
+    const buffer = await renderFeeReceiptPdf(filing, complainant);
+    const filename = feeReceiptPdfFilename(filing);
+    const pathname = `filings/${filing.id}/generated/${randomUUID()}-${filename}`;
+    const { url } = await deps.blobStorage.storePublic({ pathname, buffer, contentType: "application/pdf" });
+
+    try {
+      await deps.messagingClient.sendMediaMessage({ from: deps.fromNumber, to: sendInput.to, mediaUrl: url });
+      return true;
+    } finally {
+      await deps.blobStorage.delete([url]).catch(() => undefined);
+    }
+  } catch {
+    logWorkflowError({ code: "filing_fee_receipt_pdf_send_failed", correlationId: messageId });
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +160,7 @@ export async function handleFilingFiledInput(deps: FilingCompletionWorkflowDeps,
       committed: true,
       sends: [
         { messageType: "FILING_FEE_PAID_MESSAGE" as const, dedupeSuffix: "filing-fee-paid" },
+        { messageType: "FILING_FEE_RECEIPT_PDF" as const, dedupeSuffix: "filing-fee-receipt-pdf" },
         { messageType: "FILING_DONE_MESSAGE" as const, dedupeSuffix: "filing-done" },
       ],
     };
@@ -130,8 +172,14 @@ export async function handleFilingFiledInput(deps: FilingCompletionWorkflowDeps,
 
   const paidDelivered = await sendFeePaidMessage(deps, sendInput, paidFiling);
   await finalizeOutbound(deps, commit.outboundIds[0], paidDelivered);
+
+  // Best-effort only (never affects the `delivered` result below) — same
+  // rule as the draft-complaint PDF in filing-review-workflow.ts.
+  const receiptDelivered = await sendFeeReceiptPdfBestEffort(deps, sendInput, paidFiling, input.messageId);
+  await finalizeOutbound(deps, commit.outboundIds[1], receiptDelivered);
+
   const doneDelivered = await sendFilingDoneMessage(deps, sendInput);
-  await finalizeOutbound(deps, commit.outboundIds[1], doneDelivered);
+  await finalizeOutbound(deps, commit.outboundIds[2], doneDelivered);
   return { delivered: paidDelivered && doneDelivered };
 }
 

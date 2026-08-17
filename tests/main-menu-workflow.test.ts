@@ -126,6 +126,7 @@ describe("handleInboundForMainMenu", () => {
       filingDocumentRepo,
       filingSignSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_SIGN_SENDER_DEPS_CONTENT_SIDS },
       filingCompletionSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS },
+      blobStorage: createFakeDocumentStorageDeps().blobStorage,
       withTransaction: createInMemoryWithTransaction(),
     };
 

@@ -132,6 +132,7 @@ describe("routeInboundMessage", () => {
       filingDocumentRepo,
       filingSignSenderDeps,
       filingCompletionSenderDeps,
+      blobStorage: createFakeDocumentStorageDeps().blobStorage,
       withTransaction: createInMemoryWithTransaction(),
     };
     const caseTypeWorkflowDeps = {
@@ -221,6 +222,7 @@ describe("routeInboundMessage", () => {
         filingDetailsSenderDeps,
         mainMenuSenderDeps,
         filingSignSenderDeps,
+        blobStorage: createFakeDocumentStorageDeps().blobStorage,
         withTransaction: createInMemoryWithTransaction(),
       },
       filingSignWorkflowDeps: {
@@ -240,6 +242,7 @@ describe("routeInboundMessage", () => {
           filingDetailsSenderDeps,
           mainMenuSenderDeps,
           filingSignSenderDeps,
+          blobStorage: createFakeDocumentStorageDeps().blobStorage,
           withTransaction: createInMemoryWithTransaction(),
         },
         withTransaction: createInMemoryWithTransaction(),
@@ -247,11 +250,13 @@ describe("routeInboundMessage", () => {
       filingCompletionWorkflowDeps: {
         conversationRepo,
         filingRepo,
+        partyRepo,
         outboundMessageRepo,
         messagingClient,
         fromNumber: FROM_NUMBER,
         filingCompletionSenderDeps,
         mainMenuSenderDeps,
+        blobStorage: createFakeDocumentStorageDeps().blobStorage,
         withTransaction: createInMemoryWithTransaction(),
       },
       filingDraftListWorkflowDeps: {

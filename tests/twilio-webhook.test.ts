@@ -110,6 +110,7 @@ function buildDeps(
   const partyRepo = new InMemoryFilingPartyRepository();
   const filingDocumentRepo = new InMemoryFilingDocumentRepository();
   const outboundMessageRepo = new InMemoryOutboundMessageRepository();
+  const blobStorage = createFakeDocumentStorageDeps().blobStorage;
   const caseTypeSenderDeps = {
     messagingClient,
     fromNumber: env.TWILIO_WHATSAPP_FROM,
@@ -137,6 +138,7 @@ function buildDeps(
     filingDocumentRepo,
     filingSignSenderDeps,
     filingCompletionSenderDeps,
+    blobStorage,
     withTransaction: createInMemoryWithTransaction(),
   };
   const caseTypeWorkflowDeps = {
@@ -217,6 +219,7 @@ function buildDeps(
       filingDetailsSenderDeps,
       mainMenuSenderDeps,
       filingSignSenderDeps,
+      blobStorage,
       withTransaction: createInMemoryWithTransaction(),
     },
     filingSignWorkflowDeps: {
@@ -236,6 +239,7 @@ function buildDeps(
         filingDetailsSenderDeps,
         mainMenuSenderDeps,
         filingSignSenderDeps,
+        blobStorage,
         withTransaction: createInMemoryWithTransaction(),
       },
       withTransaction: createInMemoryWithTransaction(),
@@ -243,10 +247,12 @@ function buildDeps(
     filingCompletionWorkflowDeps: {
       conversationRepo,
       filingRepo,
+      partyRepo,
       outboundMessageRepo,
       messagingClient,
       fromNumber: env.TWILIO_WHATSAPP_FROM,
       filingCompletionSenderDeps,
+      blobStorage,
       mainMenuSenderDeps,
       withTransaction: createInMemoryWithTransaction(),
     },

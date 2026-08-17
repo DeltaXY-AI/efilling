@@ -19,6 +19,10 @@ import type { FilingPartyRecord, FilingPartyRepository } from "../repositories/f
 import type { FilingRecord, FilingRepository } from "../repositories/filing-repository";
 import type { OutboundMessageRepository, OutboundMessageType } from "../repositories/outbound-message-repository";
 import type { RepositoryTransaction } from "../repositories/transaction";
+import type { BlobStorage } from "../adapters/blob-storage";
+import { complaintPdfFilename, renderComplaintPdf } from "./complaint-pdf";
+import { logWorkflowError } from "../lib/logger";
+import { randomUUID } from "node:crypto";
 import {
   ERROR_TEXT as FILING_DETAILS_ERROR_TEXT,
   PROMPT_TEXT as FILING_DETAILS_PROMPT_TEXT,
@@ -76,6 +80,8 @@ export interface FilingReviewWorkflowDeps {
   mainMenuSenderDeps: MainMenuSenderDeps;
   /** #34: used only to send the draft-ready summary + actions once the declaration cascades into FILING_DRAFT_READY — never a second implementation of that copy. */
   filingSignSenderDeps: FilingSignSenderDeps;
+  /** Used only to briefly host the generated draft-complaint PDF at a public URL for Twilio to fetch — uploaded, sent, then deleted around that one send (see complaint-pdf.ts). */
+  blobStorage: BlobStorage;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -104,6 +110,54 @@ const SAVED_TEXT: Record<SupportedLanguage, string> = {
   en: "✓ Your filing draft has been saved. You can resume it from the main menu.",
   ml: "✓ നിങ്ങളുടെ ഫയലിംഗ് ഡ്രാഫ്റ്റ് സേവ് ചെയ്തു. നിങ്ങൾക്ക് പ്രധാന മെനുവിൽ നിന്ന് ഇത് തുടരാം.",
 };
+
+/**
+ * Generates the draft-complaint PDF, hosts it briefly at a public Blob URL
+ * (Twilio must be able to fetch it with a plain GET), sends it, then
+ * deletes the blob again — best-effort throughout. Any failure (missing
+ * party data, PDF generation, upload, or the Twilio send itself) is logged
+ * and swallowed here; the caller never lets this affect the result of the
+ * declaration itself, since the advocate already has the full text summary
+ * regardless of whether the attachment made it.
+ */
+async function sendDraftComplaintPdfBestEffort(
+  deps: FilingReviewWorkflowDeps,
+  sendInput: SendFilingDetailsMessageInput,
+  filing: FilingRecord,
+  messageId: string,
+): Promise<boolean> {
+  try {
+    const [complainant, accused] = await deps.withTransaction((tx) =>
+      Promise.all([deps.partyRepo.findByFilingAndRole(tx, filing.id, "COMPLAINANT"), deps.partyRepo.findByFilingAndRole(tx, filing.id, "ACCUSED")]),
+    );
+    if (!complainant || !accused) {
+      // Unreachable in practice — both are confirmed long before FILING_DECLARE_PENDING — but never crash on it.
+      logWorkflowError({ code: "filing_draft_complaint_pdf_missing_party_data", correlationId: messageId });
+      return false;
+    }
+
+    const buffer = await renderComplaintPdf(filing, complainant, accused);
+    const filename = complaintPdfFilename(complainant, accused);
+    const pathname = `filings/${filing.id}/generated/${randomUUID()}-${filename}`;
+    const { url } = await deps.blobStorage.storePublic({ pathname, buffer, contentType: "application/pdf" });
+
+    try {
+      await deps.filingSignSenderDeps.messagingClient.sendMediaMessage({
+        from: deps.filingSignSenderDeps.fromNumber,
+        to: sendInput.to,
+        mediaUrl: url,
+      });
+      return true;
+    } finally {
+      // Best-effort cleanup regardless of whether the send above succeeded
+      // — the public URL should never linger longer than the send attempt.
+      await deps.blobStorage.delete([url]).catch(() => undefined);
+    }
+  } catch {
+    logWorkflowError({ code: "filing_draft_complaint_pdf_send_failed", correlationId: messageId });
+    return false;
+  }
+}
 
 const RECORDED_TEXT: Record<SupportedLanguage, string> = {
   en: "✓ Declaration recorded.",
@@ -689,6 +743,7 @@ export async function handleFilingDeclareInput(deps: FilingReviewWorkflowDeps, i
       sends: [
         { messageType: "FILING_RECORDED" as const, dedupeSuffix: "filing-recorded" },
         { messageType: "FILING_DRAFT_READY_SUMMARY" as const, dedupeSuffix: "filing-draft-ready-summary" },
+        { messageType: "FILING_DRAFT_COMPLAINT_PDF" as const, dedupeSuffix: "filing-draft-complaint-pdf" },
         { messageType: "FILING_DRAFT_READY_ACTIONS" as const, dedupeSuffix: "filing-draft-ready-actions" },
       ],
     };
@@ -701,8 +756,17 @@ export async function handleFilingDeclareInput(deps: FilingReviewWorkflowDeps, i
   await finalizeOutbound(deps, commit.outboundIds[0], recordedDelivered);
   const summaryDelivered = await sendDraftReadySummary(deps.filingSignSenderDeps, sendInput, updatedFiling);
   await finalizeOutbound(deps, commit.outboundIds[1], summaryDelivered);
+
+  // Best-effort only (never affects the `delivered` result below): a
+  // failure generating, uploading, or sending the PDF must never be
+  // reported as this webhook event having failed — the advocate already
+  // has the full text summary above regardless of whether the attachment
+  // made it. Tracked in outbound_messages purely for audit visibility.
+  const pdfDelivered = await sendDraftComplaintPdfBestEffort(deps, sendInput, updatedFiling, input.messageId);
+  await finalizeOutbound(deps, commit.outboundIds[2], pdfDelivered);
+
   const actionsDelivered = await sendDraftReadyActions(deps.filingSignSenderDeps, sendInput);
-  await finalizeOutbound(deps, commit.outboundIds[2], actionsDelivered);
+  await finalizeOutbound(deps, commit.outboundIds[3], actionsDelivered);
   return { delivered: recordedDelivered && summaryDelivered && actionsDelivered };
 }
 
