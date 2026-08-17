@@ -622,6 +622,58 @@ describe("routeInboundMessage", () => {
     });
   });
 
+  describe("#38's global hearing-reminder check never swallows another screen's own numbered reply", () => {
+    // Regression coverage: "1"/"2" are also the numbered-fallback convention
+    // nearly every other screen in this app uses for its own primary
+    // action. The global check must only intercept an ambiguous text-only
+    // match (no stable buttonPayload) when a hearing reminder is genuinely
+    // pending for this conversation — never unconditionally.
+    it("a bare '1' reply at MAIN_MENU, with no hearing reminder ever sent, still reaches menu:file-case", async () => {
+      await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+      await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+
+      const result = await routeInboundMessage(deps, baseInput({ body: "1" }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: NOTICE_CONTENT_SID.en }),
+      );
+    });
+
+    it("a stable hearing button tap is still recognized globally even with no pending reminder (safe no-op, not swallowed input)", async () => {
+      const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+      await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+
+      const result = await routeInboundMessage(deps, baseInput({ buttonPayload: "hearing:will-attend" }));
+
+      expect(result.delivered).toBe(true);
+      // No reminder was ever sent for this conversation, so this is a safe
+      // no-op — never a crash, and never misattributed to some other filing.
+      const stillMainMenu = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(stillMainMenu).toMatchObject({ id: conversation.id, state: "MAIN_MENU" });
+    });
+
+    it("a bare '1' reply IS still treated as hearing:will-attend once a reminder is genuinely pending", async () => {
+      const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+      await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+      const filing = await filingRepo.createDraft(undefined, { conversationId: conversation.id, language: "en", role: "COMPLAINANT_ADVOCATE", testNoticeVersion: "v1" });
+      const filedAt = new Date();
+      const diaryNumber = await filingRepo.nextDiaryNumber(undefined, filedAt);
+      await filingRepo.recordFiled(undefined, filing.id, { diaryNumber, filedAt });
+      await filingRepo.upsertFilingFields(undefined, filing.id, { nextHearingDate: new Date("2026-04-28T05:30:00.000Z") });
+
+      const result = await routeInboundMessage(deps, baseInput({ body: "1" }));
+
+      expect(result.delivered).toBe(true);
+      expect(filingRepo.findById(filing.id)).toMatchObject({ hearingAttendance: "attending" });
+      // Never left resting at MAIN_MENU as if nothing happened, and never
+      // routed into the file-case flow instead.
+      expect(messagingClient.sendContentTemplate).not.toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: NOTICE_CONTENT_SID.en }),
+      );
+    });
+  });
+
   describe("unsupported persisted state recovery (#26)", () => {
     // Simulates the incident that originally motivated #26: a conversation
     // persisted in a state (e.g. by a different/newer deployment's
