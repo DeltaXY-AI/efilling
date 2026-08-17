@@ -5,7 +5,7 @@
     "twilio/quick-reply": {
       "body": "അടുത്തതായി എന്താണ് ചെയ്യേണ്ടത്?",
       "actions": [
-        { "title": "അവലോകനം ചെയ്ത് ഇ-സൈൻ ചെയ്യുക", "id": "filing:esign" },
+        { "title": "അവലോകനം ഇ-സൈൻ ചെയ്യുക", "id": "filing:esign" },
         { "title": "വിവരങ്ങൾ എഡിറ്റ് ചെയ്യുക", "id": "filing:edit-details" }
       ]
     }

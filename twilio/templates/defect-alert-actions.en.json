@@ -1,0 +1,10 @@
+{
+  "friendly_name": "oncourts_defect_alert_actions_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Ready to correct the defects?",
+      "actions": [{ "title": "Correct the defects", "id": "filing:correct-defects" }]
+    }
+  }
+}

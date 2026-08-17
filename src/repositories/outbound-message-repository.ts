@@ -70,7 +70,22 @@ export type OutboundMessageType =
   | "FILING_DONE_MESSAGE"
   | "FILING_DRAFT_LIST_MESSAGE"
   | "FILING_DRAFT_DETAIL_MESSAGE"
-  | "FILING_DRAFT_DISCARDED_MESSAGE";
+  | "FILING_DRAFT_DISCARDED_MESSAGE"
+  // #37 (Prototype parity - Phase 9): the case-status screen's new actions,
+  // the defect-alert/list/actions, each defect's prompt, the review
+  // summary/actions, and the resubmission acknowledgement + actions.
+  | "FILING_CASE_STATUS_ACTIONS"
+  | "FILING_DEFECT_ALERT_MESSAGE"
+  | "FILING_DEFECT_LIST_MESSAGE"
+  | "FILING_DEFECT_ALERT_ACTIONS"
+  | "FILING_DEFECT_1_PROMPT"
+  | "FILING_DEFECT_2_PROMPT"
+  | "FILING_DEFECT_3_REASON_PROMPT"
+  | "FILING_DEFECT_3_DAYS_PROMPT"
+  | "FILING_DEFECT_REVIEW_SUMMARY"
+  | "FILING_DEFECT_REVIEW_ACTIONS"
+  | "FILING_DEFECT_SENT_MESSAGE"
+  | "FILING_DEFECT_SENT_ACTIONS";
 export type OutboundMessageStatus = "pending" | "sent" | "failed";
 
 export interface OutboundMessageRecord {

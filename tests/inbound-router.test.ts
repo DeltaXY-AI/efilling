@@ -44,6 +44,14 @@ const FILING_COMPLETION_SENDER_DEPS_CONTENT_SIDS = {
 const FILING_DRAFT_LIST_SENDER_DEPS_CONTENT_SIDS = {
   draftListContentSid: { en: "HXfdlistEn0000000000000000000000000", ml: "HXfdlistMl0000000000000000000000000" },
   draftDetailActionsContentSid: { en: "HXfddetailEn00000000000000000000000", ml: "HXfddetailMl00000000000000000000000" },
+  caseStatusActionsContentSid: { en: "HXcasestatEn0000000000000000000000", ml: "HXcasestatMl0000000000000000000000" },
+};
+const FILING_DEFECT_SENDER_DEPS_CONTENT_SIDS = {
+  caseStatusActionsContentSid: { en: "HXcasestatEn0000000000000000000000", ml: "HXcasestatMl0000000000000000000000" },
+  defectAlertActionsContentSid: { en: "HXdalertEn0000000000000000000000000", ml: "HXdalertMl0000000000000000000000000" },
+  delayDaysContentSid: { en: "HXddaysEn00000000000000000000000000", ml: "HXddaysMl00000000000000000000000000" },
+  defectReviewActionsContentSid: { en: "HXdreviewEn000000000000000000000000", ml: "HXdreviewMl000000000000000000000000" },
+  defectSentActionsContentSid: { en: "HXdsentEn0000000000000000000000000", ml: "HXdsentMl0000000000000000000000000" },
 };
 
 function baseInput(overrides: Partial<Parameters<typeof routeInboundMessage>[1]> = {}) {
@@ -228,7 +236,21 @@ describe("routeInboundMessage", () => {
         filingDraftListSenderDeps,
         mainMenuSenderDeps,
         blobStorage: createFakeDocumentStorageDeps().blobStorage,
+        filingDefectSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DEFECT_SENDER_DEPS_CONTENT_SIDS },
         filingWorkflowDeps,
+        withTransaction: createInMemoryWithTransaction(),
+      },
+      filingDefectWorkflowDeps: {
+        conversationRepo,
+        filingRepo,
+        partyRepo,
+        filingDocumentRepo,
+        outboundMessageRepo,
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        documentStorageDeps: createFakeDocumentStorageDeps(),
+        filingDefectSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DEFECT_SENDER_DEPS_CONTENT_SIDS },
+        mainMenuSenderDeps,
         withTransaction: createInMemoryWithTransaction(),
       },
     };

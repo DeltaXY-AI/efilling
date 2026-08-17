@@ -1,0 +1,10 @@
+{
+  "friendly_name": "oncourts_defect_sent_actions_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "അടുത്തതായി എന്താണ് ചെയ്യേണ്ടത്?",
+      "actions": [{ "title": "പ്രധാന മെനു", "id": "nav:main-menu" }]
+    }
+  }
+}

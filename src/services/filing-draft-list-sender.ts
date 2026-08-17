@@ -30,6 +30,8 @@ export interface FilingDraftListSenderDeps {
   fromNumber: string;
   draftListContentSid: Record<SupportedLanguage, string>;
   draftDetailActionsContentSid: Record<SupportedLanguage, string>;
+  /** #37 — the read-only case-status screen's new "Simulate scrutiny defects" / "Main menu" actions. */
+  caseStatusActionsContentSid: Record<SupportedLanguage, string>;
 }
 
 export interface SendFilingDraftListMessageInput {
@@ -347,6 +349,31 @@ export async function sendCaseStatus(
   } catch {
     logWorkflowError({ code: "filing_case_status_send_failed", correlationId: input.correlationId });
     return false;
+  }
+}
+
+// #37 — the case-status screen's own actions: "Simulate scrutiny defects"
+// (a demo trigger, since there is no real Scrutiny Officer role) and "Main
+// menu". Distinct from the draft card's Continue/Discard actions above —
+// see domain/filing-draft-list.ts's CaseDetailAction.
+const CASE_STATUS_ACTIONS_PLAIN_TEXT: Record<SupportedLanguage, string> = {
+  en: ["1. Simulate scrutiny defects", "2. Main menu", "", "Reply with 1 or 2."].join("\n"),
+  ml: ["1. സ്ക്രൂട്ടിനി ന്യൂനതകൾ അനുകരിക്കുക", "2. പ്രധാന മെനു", "", "1 അല്ലെങ്കിൽ 2 എന്ന് മറുപടി നൽകുക."].join("\n"),
+};
+
+export async function sendCaseStatusActions(deps: FilingDraftListSenderDeps, input: SendFilingDraftListMessageInput): Promise<boolean> {
+  try {
+    await deps.messagingClient.sendContentTemplate({ from: deps.fromNumber, to: input.to, contentSid: deps.caseStatusActionsContentSid[input.language] });
+    return true;
+  } catch {
+    logWorkflowError({ code: "filing_case_status_actions_content_send_failed", correlationId: input.correlationId });
+    try {
+      await deps.messagingClient.sendText({ from: deps.fromNumber, to: input.to, body: CASE_STATUS_ACTIONS_PLAIN_TEXT[input.language] });
+      return true;
+    } catch {
+      logWorkflowError({ code: "filing_case_status_actions_fallback_send_failed", correlationId: input.correlationId });
+      return false;
+    }
   }
 }
 

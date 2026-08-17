@@ -151,6 +151,19 @@ export const conversationStateEnum = pgEnum("conversation_state", [
   // listByConversation and filing-draft-list-workflow.ts.
   "FILING_DRAFT_LIST",
   "FILING_DRAFT_DETAIL",
+  // #37 (Prototype parity - Phase 9): the scrutiny-defect correction flow —
+  // reachable only from a FILED filing (see filing-draft-list-workflow.ts's
+  // "Simulate scrutiny defects" action on the case-status screen, #36).
+  // Sequential, one defect per state (mirrors #33's own field-by-field
+  // convention); Defect 3's two sub-questions (delay reason, then days of
+  // delay) share this one FILING_DEFECT_3 state, distinguished by whether
+  // defect_delay_reason is already set — see filing-defect-workflow.ts.
+  "FILING_DEFECT_ALERT",
+  "FILING_DEFECT_1",
+  "FILING_DEFECT_2",
+  "FILING_DEFECT_3",
+  "FILING_DEFECT_REVIEW",
+  "FILING_DEFECT_SENT",
 ]);
 export const webhookEventStatusEnum = pgEnum("webhook_event_status", ["processing", "processed", "failed"]);
 export const filingRoleEnum = pgEnum("filing_role", ["COMPLAINANT_ADVOCATE"]);
@@ -266,6 +279,21 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "FILING_DRAFT_LIST_MESSAGE",
   "FILING_DRAFT_DETAIL_MESSAGE",
   "FILING_DRAFT_DISCARDED_MESSAGE",
+  // #37: the read-only case-status screen's new actions ("Simulate scrutiny
+  // defects" / "Main menu"), then the defect-alert/list, each defect's
+  // prompt, the review summary/actions, and the resubmission acknowledgement.
+  "FILING_CASE_STATUS_ACTIONS",
+  "FILING_DEFECT_ALERT_MESSAGE",
+  "FILING_DEFECT_LIST_MESSAGE",
+  "FILING_DEFECT_ALERT_ACTIONS",
+  "FILING_DEFECT_1_PROMPT",
+  "FILING_DEFECT_2_PROMPT",
+  "FILING_DEFECT_3_REASON_PROMPT",
+  "FILING_DEFECT_3_DAYS_PROMPT",
+  "FILING_DEFECT_REVIEW_SUMMARY",
+  "FILING_DEFECT_REVIEW_ACTIONS",
+  "FILING_DEFECT_SENT_MESSAGE",
+  "FILING_DEFECT_SENT_ACTIONS",
 ]);
 export const outboundMessageStatusEnum = pgEnum("outbound_message_status", ["pending", "sent", "failed"]);
 
@@ -346,6 +374,17 @@ export const filings = pgTable(
     // payment gateway reference — no real payment gateway is ever called.
     courtFeePaidAt: timestamp("court_fee_paid_at", { withTimezone: true }),
     courtFeeTransactionId: text("court_fee_transaction_id"),
+    // #37 Part B — the scrutiny-defect correction flow. defectNotifiedAt is
+    // set once (when the simulated alert is raised); the corrected cheque
+    // number, delay reason, and days of delay are each written by their own
+    // FILING_DEFECT_* state; defectResubmittedAt is set together with the
+    // single review-confirm action (Part A has no separate declare/pay
+    // state — matches the prototype's own single review-screen CTA).
+    defectNotifiedAt: timestamp("defect_notified_at", { withTimezone: true }),
+    defectCorrectedChequeNumber: text("defect_corrected_cheque_number"),
+    defectDelayReason: text("defect_delay_reason"),
+    defectDelayDays: integer("defect_delay_days"),
+    defectResubmittedAt: timestamp("defect_resubmitted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

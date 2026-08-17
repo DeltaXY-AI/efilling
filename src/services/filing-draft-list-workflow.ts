@@ -1,4 +1,4 @@
-import { parseDraftDetailAction, parseDraftListSelection, type DraftListSelectionInput } from "../domain/filing-draft-list";
+import { parseCaseDetailAction, parseDraftDetailAction, parseDraftListSelection, type DraftListSelectionInput } from "../domain/filing-draft-list";
 import type { FilingDocumentGroup } from "../domain/filing-document";
 import type { BlobStorage } from "../adapters/blob-storage";
 import type { TwilioMessagingClient } from "../adapters/twilio/messaging-client";
@@ -13,6 +13,7 @@ import {
   buildDraftListRows,
   documentsComplete,
   sendCaseStatus,
+  sendCaseStatusActions,
   sendDiscarded,
   sendDraftCardMessage,
   sendDraftListMessage,
@@ -20,6 +21,7 @@ import {
   type FilingDraftListSenderDeps,
   type SendFilingDraftListMessageInput,
 } from "./filing-draft-list-sender";
+import { sendDefectAlertAndList, type FilingDefectSenderDeps } from "./filing-defect-sender";
 import { applyResumeWrite, resendPromptForResumedFiling, UNSUPPORTED_STEP_TEXT, type FilingWorkflowDeps, type FilingWorkflowResult } from "./filing-workflow";
 import { sendFilingPlainText } from "./filing-sender";
 import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from "./main-menu-sender";
@@ -71,6 +73,8 @@ export interface FilingDraftListWorkflowDeps {
   blobStorage: BlobStorage;
   /** Reused as-is for per-draft resume (applyResumeWrite/resendPromptForResumedFiling) — never a second implementation of that dispatch. */
   filingWorkflowDeps: FilingWorkflowDeps;
+  /** #37 — used only to send the defect alert + list once "Simulate scrutiny defects" cascades into FILING_DEFECT_ALERT; this file must never import anything from filing-defect-workflow.ts (the later phase), only this leaf sender. */
+  filingDefectSenderDeps: FilingDefectSenderDeps;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -215,21 +219,49 @@ async function pickDraftRow(deps: FilingDraftListWorkflowDeps, input: FilingDraf
   return { delivered };
 }
 
+/** Read-only: sends the case-status text + its actions for an already-fetched FILED filing — never re-derives it from the current webhook body. */
+async function sendCaseStatusAndActions(deps: FilingDraftListWorkflowDeps, sendInput: SendFilingDraftListMessageInput, filing: FilingRecord): Promise<boolean> {
+  const accused = await deps.withTransaction((tx) => deps.partyRepo.findByFilingAndRole(tx, filing.id, "ACCUSED"));
+  const statusDelivered = await sendCaseStatus(deps, sendInput, filing, accused?.fullName ?? null);
+  const actionsDelivered = await sendCaseStatusActions(deps.filingDraftListSenderDeps, sendInput);
+  return statusDelivered && actionsDelivered;
+}
+
 async function pickCaseRow(deps: FilingDraftListWorkflowDeps, input: FilingDraftListInput, filingId: string): Promise<FilingWorkflowResult> {
-  // Read-only (Part B/acceptance criteria: "no edit actions") — conversation
-  // state never changes, so no commit/outbox tracking is needed here.
-  const conversation = await deps.conversationRepo.findByWhatsappNumber(input.whatsappNumber);
-  if (!conversation || conversation.state !== "FILING_DRAFT_LIST") {
-    return { delivered: true };
-  }
-  const filing = await deps.withTransaction((tx) => deps.filingRepo.listByConversation(tx, conversation.id)).then((filings) => filings.find((f) => f.id === filingId) ?? null);
-  if (!filing || filing.status !== "FILED") {
+  let picked: FilingRecord | null = null;
+
+  // #37: unlike before this issue, picking a FILED case now moves the
+  // conversation into FILING_DRAFT_DETAIL (active_filing_id set) — the same
+  // pointer/state pickDraftRow above already uses — so the new "Simulate
+  // scrutiny defects" action has a filing to act on. Still no edit of the
+  // filing's own case-detail fields happens here, only this navigation.
+  const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
+    if (locked.state !== "FILING_DRAFT_LIST") {
+      return { committed: false };
+    }
+    let filing: FilingRecord;
+    try {
+      filing = await deps.filingRepo.lockById(tx, filingId);
+    } catch {
+      return { committed: false };
+    }
+    if (filing.conversationId !== locked.id || filing.status !== "FILED") {
+      // Stale: already changed elsewhere, or not even this conversation's
+      // own filing — never guess, redisplay instead.
+      return { committed: false };
+    }
+    await deps.conversationRepo.setActiveFilingAndState(tx, locked.id, filing.id, "FILING_DRAFT_DETAIL");
+    picked = filing;
+    return { committed: true, sends: [{ messageType: "FILING_CASE_STATUS_ACTIONS" as const, dedupeSuffix: `case-status-${filing.id}` }] };
+  });
+
+  if (!commit.committed || !picked) {
     return redisplayDraftList(deps, input);
   }
-  const accused = await deps.withTransaction((tx) => deps.partyRepo.findByFilingAndRole(tx, filing.id, "ACCUSED"));
-  const statusDelivered = await sendCaseStatus(deps, sendInputFor(input), filing, accused?.fullName ?? null);
-  const listDelivered = await sendFreshDraftList(deps, input);
-  return { delivered: statusDelivered && listDelivered };
+
+  const delivered = await sendCaseStatusAndActions(deps, sendInputFor(input), picked);
+  await finalizeOutbound(deps, commit.outboundIds[0], delivered);
+  return { delivered };
 }
 
 export async function handleFilingDraftListInput(deps: FilingDraftListWorkflowDeps, input: FilingDraftListInput): Promise<FilingWorkflowResult> {
@@ -364,20 +396,93 @@ async function discardFromDetail(deps: FilingDraftListWorkflowDeps, input: Filin
   return { delivered: discardedDelivered && listDelivered };
 }
 
+/**
+ * #37 — moves a FILED case from its (already-shown) status screen into
+ * FILING_DEFECT_ALERT, the entry point of #37's own scrutiny-defect
+ * correction flow. Sends via filing-defect-sender.ts's leaf functions
+ * directly — this file must never import from filing-defect-workflow.ts,
+ * the later phase's workflow module (see that file's own header comment).
+ */
+async function openDefectAlert(deps: FilingDraftListWorkflowDeps, input: FilingDraftListInput): Promise<FilingWorkflowResult> {
+  const sendInput = sendInputFor(input);
+  let alerted: FilingRecord | null = null;
+
+  const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
+    if (locked.state !== "FILING_DRAFT_DETAIL" || !locked.activeFilingId) {
+      return { committed: false };
+    }
+    let filing: FilingRecord;
+    try {
+      filing = await deps.filingRepo.lockById(tx, locked.activeFilingId);
+    } catch {
+      return { committed: false };
+    }
+    if (filing.status !== "FILED") {
+      return { committed: false };
+    }
+    const notifiedAt = new Date();
+    await deps.filingRepo.upsertFilingFields(tx, filing.id, { defectNotifiedAt: notifiedAt });
+    await deps.filingRepo.setCurrentStep(tx, filing.id, "FILING_DEFECT_ALERT");
+    await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_DEFECT_ALERT");
+    alerted = { ...filing, defectNotifiedAt: notifiedAt, currentStep: "FILING_DEFECT_ALERT" };
+    return {
+      committed: true,
+      sends: [
+        { messageType: "FILING_DEFECT_ALERT_MESSAGE" as const, dedupeSuffix: "filing-defect-alert" },
+        { messageType: "FILING_DEFECT_LIST_MESSAGE" as const, dedupeSuffix: "filing-defect-list" },
+        { messageType: "FILING_DEFECT_ALERT_ACTIONS" as const, dedupeSuffix: "filing-defect-alert-actions" },
+      ],
+    };
+  });
+
+  if (!commit.committed || !alerted) {
+    return redisplayDraftList(deps, input);
+  }
+
+  const complainant = await deps.withTransaction((tx) => deps.partyRepo.findByFilingAndRole(tx, alerted!.id, "COMPLAINANT"));
+  const accused = await deps.withTransaction((tx) => deps.partyRepo.findByFilingAndRole(tx, alerted!.id, "ACCUSED"));
+  const delivered = await sendDefectAlertAndList(deps.filingDefectSenderDeps, sendInput, alerted, complainant?.fullName ?? null, accused?.fullName ?? null);
+  await finalizeOutbound(deps, commit.outboundIds[0], delivered);
+  await finalizeOutbound(deps, commit.outboundIds[1], delivered);
+  await finalizeOutbound(deps, commit.outboundIds[2], delivered);
+  return { delivered };
+}
+
 export async function handleFilingDraftDetailInput(deps: FilingDraftListWorkflowDeps, input: FilingDraftListInput): Promise<FilingWorkflowResult> {
+  const conversation = await deps.conversationRepo.findByWhatsappNumber(input.whatsappNumber);
+  if (!conversation?.activeFilingId) {
+    return redisplayDraftList(deps, input);
+  }
+  const filing = await deps.withTransaction((tx) => deps.filingRepo.lockById(tx, conversation.activeFilingId as string)).catch(() => null);
+  if (!filing) {
+    return redisplayDraftList(deps, input);
+  }
+
+  // #37: FILING_DRAFT_DETAIL now shows either a DRAFT's resume/discard card
+  // or a FILED case's status screen — each with its own action set (see
+  // domain/filing-draft-list.ts's DraftDetailAction vs CaseDetailAction).
+  if (filing.status === "FILED") {
+    const caseAction = parseCaseDetailAction(input.selection);
+    if (!caseAction) {
+      return { delivered: await sendCaseStatusAndActions(deps, sendInputFor(input), filing) };
+    }
+    if (caseAction === "nav:main-menu") {
+      return goToMainMenu(deps, input, "FILING_DRAFT_DETAIL");
+    }
+    return openDefectAlert(deps, input);
+  }
+
+  if (filing.status !== "DRAFT") {
+    // Stale: neither DRAFT nor FILED (e.g. abandoned elsewhere) — never
+    // guess, redisplay the (now-accurate) list instead.
+    return redisplayDraftList(deps, input);
+  }
+
   const action = parseDraftDetailAction(input.selection);
 
   if (!action) {
     // Unrecognized — redisplay the same draft card the advocate is
     // already looking at (resolved via active_filing_id), never the list.
-    const conversation = await deps.conversationRepo.findByWhatsappNumber(input.whatsappNumber);
-    if (!conversation?.activeFilingId) {
-      return redisplayDraftList(deps, input);
-    }
-    const filing = await deps.withTransaction((tx) => deps.filingRepo.lockById(tx, conversation.activeFilingId as string)).catch(() => null);
-    if (!filing || filing.status !== "DRAFT") {
-      return redisplayDraftList(deps, input);
-    }
     const documents = await deps.withTransaction((tx) => deps.filingDocumentRepo.listByFiling(tx, filing.id));
     const counts: Partial<Record<FilingDocumentGroup, number>> = {};
     for (const document of documents) {

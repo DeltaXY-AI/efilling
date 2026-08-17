@@ -1,0 +1,10 @@
+{
+  "friendly_name": "oncourts_defect_review_actions_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "മുകളിലെ തിരുത്തലുകൾ എന്റെ അറിവിൽ സത്യവും പൂർണ്ണവുമാണ്.",
+      "actions": [{ "title": "₹200 അടച്ച് അയക്കുക", "id": "filing:defect-confirm" }]
+    }
+  }
+}

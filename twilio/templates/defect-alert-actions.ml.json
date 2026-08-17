@@ -1,0 +1,10 @@
+{
+  "friendly_name": "oncourts_defect_alert_actions_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "ന്യൂനതകൾ തിരുത്താൻ തയ്യാറാണോ?",
+      "actions": [{ "title": "ന്യൂനതകൾ തിരുത്തുക", "id": "filing:correct-defects" }]
+    }
+  }
+}

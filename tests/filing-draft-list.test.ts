@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeLimitationDeadline, daysUntil, parseDraftDetailAction, parseDraftListSelection } from "../src/domain/filing-draft-list";
+import { computeLimitationDeadline, daysUntil, parseCaseDetailAction, parseDraftDetailAction, parseDraftListSelection } from "../src/domain/filing-draft-list";
 
 /** Covers #36 (Prototype parity — Phase 8): "My cases" — row/action parsing and the limitation-deadline calculation. */
 describe("parseDraftListSelection", () => {
@@ -65,6 +65,31 @@ describe("parseDraftDetailAction", () => {
 
   it("returns null for unrecognized text", () => {
     expect(parseDraftDetailAction({ body: "hello" })).toBeNull();
+  });
+});
+
+/** #37 — FILED case's status-screen actions, distinct from DraftDetailAction above. */
+describe("parseCaseDetailAction", () => {
+  it("resolves the fixed stable-ID actions", () => {
+    expect(parseCaseDetailAction({ buttonPayload: "filing:simulate-defects" })).toBe("filing:simulate-defects");
+    expect(parseCaseDetailAction({ buttonPayload: "nav:main-menu" })).toBe("nav:main-menu");
+  });
+
+  it("an unrecognized stable ID is never a fallback into text matching", () => {
+    expect(parseCaseDetailAction({ buttonPayload: "filing:resume-draft", body: "1" })).toBeNull();
+  });
+
+  it("accepts the numbered plain-text fallback", () => {
+    expect(parseCaseDetailAction({ body: "1" })).toBe("filing:simulate-defects");
+    expect(parseCaseDetailAction({ body: "2" })).toBe("nav:main-menu");
+  });
+
+  it("accepts the exact localized title, case-insensitively", () => {
+    expect(parseCaseDetailAction({ body: "Simulate Scrutiny Defects" })).toBe("filing:simulate-defects");
+  });
+
+  it("returns null for unrecognized text", () => {
+    expect(parseCaseDetailAction({ body: "hello" })).toBeNull();
   });
 });
 

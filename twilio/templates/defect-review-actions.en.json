@@ -1,0 +1,10 @@
+{
+  "friendly_name": "oncourts_defect_review_actions_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "The corrections above are true and complete to the best of my knowledge.",
+      "actions": [{ "title": "Pay ₹200 and send back", "id": "filing:defect-confirm" }]
+    }
+  }
+}

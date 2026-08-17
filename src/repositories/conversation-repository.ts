@@ -99,7 +99,14 @@ export type ConversationState =
   // Prototype parity - Phase 8 (#36): "My cases" — the sectioned list and
   // per-draft detail card.
   | "FILING_DRAFT_LIST"
-  | "FILING_DRAFT_DETAIL";
+  | "FILING_DRAFT_DETAIL"
+  // Prototype parity - Phase 9 (#37): the scrutiny-defect correction flow.
+  | "FILING_DEFECT_ALERT"
+  | "FILING_DEFECT_1"
+  | "FILING_DEFECT_2"
+  | "FILING_DEFECT_3"
+  | "FILING_DEFECT_REVIEW"
+  | "FILING_DEFECT_SENT";
 
 export interface ConversationRecord {
   id: string;

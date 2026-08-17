@@ -86,6 +86,15 @@ import {
 import { handleFilingDraftReadyInput, handleFilingOtpInput, type FilingSignWorkflowDeps } from "./filing-sign-workflow";
 import { handleFilingDoneInput, handleFilingFiledInput, type FilingCompletionWorkflowDeps } from "./filing-completion-workflow";
 import { handleFilingDraftDetailInput, handleFilingDraftListInput, type FilingDraftListWorkflowDeps } from "./filing-draft-list-workflow";
+import {
+  handleFilingDefect1Input,
+  handleFilingDefect2Input,
+  handleFilingDefect3Input,
+  handleFilingDefectAlertInput,
+  handleFilingDefectReviewInput,
+  handleFilingDefectSentInput,
+  type FilingDefectWorkflowDeps,
+} from "./filing-defect-workflow";
 import type { ConversationRepository } from "../repositories/conversation-repository";
 import { logWorkflowError } from "../lib/logger";
 import type { InboundMedia } from "../types/inbound-message";
@@ -104,6 +113,7 @@ export interface InboundRouterDeps {
   filingSignWorkflowDeps: FilingSignWorkflowDeps;
   filingCompletionWorkflowDeps: FilingCompletionWorkflowDeps;
   filingDraftListWorkflowDeps: FilingDraftListWorkflowDeps;
+  filingDefectWorkflowDeps: FilingDefectWorkflowDeps;
 }
 
 export interface InboundRouterInput {
@@ -604,6 +614,27 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
       language,
       selection,
     });
+  }
+
+  // #37 (Prototype parity - Phase 9): the scrutiny-defect correction flow,
+  // entered from #36's case-status screen (FILING_DRAFT_DETAIL, above).
+  if (conversation.state === "FILING_DEFECT_ALERT") {
+    return handleFilingDefectAlertInput(deps.filingDefectWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_DEFECT_1") {
+    return handleFilingDefect1Input(deps.filingDefectWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "FILING_DEFECT_2") {
+    return handleFilingDefect2Input(deps.filingDefectWorkflowDeps, documentEvent);
+  }
+  if (conversation.state === "FILING_DEFECT_3") {
+    return handleFilingDefect3Input(deps.filingDefectWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_DEFECT_REVIEW") {
+    return handleFilingDefectReviewInput(deps.filingDefectWorkflowDeps, actionInput);
+  }
+  if (conversation.state === "FILING_DEFECT_SENT") {
+    return handleFilingDefectSentInput(deps.filingDefectWorkflowDeps, actionInput);
   }
 
   if (KNOWN_UNIMPLEMENTED_STATES.has(conversation.state)) {
