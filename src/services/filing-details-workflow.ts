@@ -1,4 +1,7 @@
 import {
+  computeLimitationWindow,
+  daysUntilIso,
+  formatIsoDateAsDisplay,
   isSkipSelection,
   parsePartPaymentSelection,
   parseReturnReasonSelection,
@@ -9,6 +12,7 @@ import {
   validateFilingDate,
   validateNarrative,
   type FilingDetailSelectionInput,
+  type LimitationWindow,
 } from "../domain/filing-details";
 import type { TwilioMessagingClient } from "../adapters/twilio/messaging-client";
 import type { ConversationRepository, ConversationState } from "../repositories/conversation-repository";
@@ -284,6 +288,15 @@ async function sendValidationError(deps: FilingDetailsWorkflowDeps, sendInput: S
   return sendFilingPlainText(deps, sendInput, ERROR_TEXT[field][sendInput.language], `filing_details_${field}_validation_error_send_failed`);
 }
 
+/** Surfaced once, right after the notice-served date is entered — see domain/filing-details.ts's computeLimitationWindow for the underlying S.138 NI Act calculation. */
+function limitationNoticeText(window: LimitationWindow, daysLeft: number, language: SupportedLanguage): string {
+  const from = formatIsoDateAsDisplay(window.causeOfActionDateIso);
+  const to = formatIsoDateAsDisplay(window.limitationDeadlineIso);
+  return language === "ml"
+    ? `📅 കാലപരിധി: നിങ്ങളുടെ പരാതി ${from} നും ${to} നും ഇടയിൽ ഫയൽ ചെയ്യണം. ${daysLeft} ദിവസം ബാക്കിയുണ്ട്.`
+    : `📅 Limitation: your complaint must be filed between ${from} and ${to}. You have ${daysLeft} days left.`;
+}
+
 function nextStateFor(next: NextTarget): ConversationState {
   if (next === "return-reason") return "FILING_RETURN_REASON_PENDING";
   if (next === "part-payment") return "FILING_PART_PAYMENT_PENDING";
@@ -330,11 +343,27 @@ async function handleTextFieldInput(deps: FilingDetailsWorkflowDeps, field: Text
     if (next === "return-reason") {
       return { committed: true, sends: [{ messageType: "FILING_RETURN_REASON_PROMPT" as const, dedupeSuffix: "return-reason-prompt" }] };
     }
-    if (next === "part-payment") {
-      return { committed: true, sends: [{ messageType: "FILING_PART_PAYMENT_PROMPT" as const, dedupeSuffix: "part-payment-prompt" }] };
+    if (field === "serviceDate") {
+      // The limitation window is computed from this exact field, so it's
+      // surfaced right after — before the part-payment prompt, never
+      // replacing it.
+      return {
+        committed: true,
+        sends: [
+          { messageType: "FILING_LIMITATION_NOTICE" as const, dedupeSuffix: "limitation-notice" },
+          { messageType: "FILING_PART_PAYMENT_PROMPT" as const, dedupeSuffix: "part-payment-prompt" },
+        ],
+      };
     }
     if (next === "witness") {
       return { committed: true, sends: [{ messageType: "FILING_WITNESS_PROMPT" as const, dedupeSuffix: "witness-prompt" }] };
+    }
+    if (next === "part-payment") {
+      // Unreachable: serviceDate is the only field whose `next` is
+      // "part-payment" (see NEXT_FIELD above), and that's always handled by
+      // the field === "serviceDate" branch above. Kept only so TS can narrow
+      // `next` to TextFieldKey for the PROMPT_OUTBOUND_TYPE lookup below.
+      return { committed: true, sends: [{ messageType: "FILING_PART_PAYMENT_PROMPT" as const, dedupeSuffix: "part-payment-prompt" }] };
     }
     return { committed: true, sends: [{ messageType: PROMPT_OUTBOUND_TYPE[next], dedupeSuffix: `${next}-prompt` }] };
   });
@@ -348,13 +377,31 @@ async function handleTextFieldInput(deps: FilingDetailsWorkflowDeps, field: Text
     await finalizeOutbound(deps, commit.outboundIds[0], delivered);
     return { delivered };
   }
-  if (next === "part-payment") {
-    const delivered = await sendPartPaymentPrompt(deps.filingDetailsSenderDeps, sendInput);
-    await finalizeOutbound(deps, commit.outboundIds[0], delivered);
-    return { delivered };
+  if (field === "serviceDate" && typeof patch.serviceDate === "string") {
+    const window = computeLimitationWindow(patch.serviceDate);
+    const daysLeft = daysUntilIso(window.limitationDeadlineIso, new Date());
+    const noticeDelivered = await sendFilingPlainText(
+      deps,
+      sendInput,
+      limitationNoticeText(window, daysLeft, input.language),
+      "filing_limitation_notice_send_failed",
+    );
+    await finalizeOutbound(deps, commit.outboundIds[0], noticeDelivered);
+    const promptDelivered = await sendPartPaymentPrompt(deps.filingDetailsSenderDeps, sendInput);
+    await finalizeOutbound(deps, commit.outboundIds[1], promptDelivered);
+    return { delivered: noticeDelivered && promptDelivered };
   }
   if (next === "witness") {
     const delivered = await sendWitnessPrompt(deps.filingDetailsSenderDeps, sendInput);
+    await finalizeOutbound(deps, commit.outboundIds[0], delivered);
+    return { delivered };
+  }
+  if (next === "part-payment") {
+    // Unreachable: serviceDate is the only field whose `next` is
+    // "part-payment" (see NEXT_FIELD above), and that's always handled by
+    // the field === "serviceDate" branch above. Kept only so TS can narrow
+    // `next` to TextFieldKey for the PROMPT_TEXT lookup below.
+    const delivered = await sendPartPaymentPrompt(deps.filingDetailsSenderDeps, sendInput);
     await finalizeOutbound(deps, commit.outboundIds[0], delivered);
     return { delivered };
   }

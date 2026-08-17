@@ -276,6 +276,9 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "FILING_MEMO_DATE_PROMPT",
   "FILING_NOTICE_DATE_PROMPT",
   "FILING_SERVICE_DATE_PROMPT",
+  // The S.138 limitation window, computed from and sent right after the
+  // notice-served date — see domain/filing-details.ts.
+  "FILING_LIMITATION_NOTICE",
   "FILING_PART_PAYMENT_PROMPT",
   // #33 Part D: the narrative.
   "FILING_STORY_PROMPT",
