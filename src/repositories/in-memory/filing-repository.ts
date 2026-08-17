@@ -1,6 +1,8 @@
+import { istDayRangeUtc } from "../../domain/hearing";
 import {
   FilingNotFoundError,
   formatDiaryNumber,
+  formatIaNumber,
   type CreateDraftInput,
   type FilingRecord,
   type FilingRepository,
@@ -16,6 +18,8 @@ let nextId = 1;
 // so it's shared across every InMemoryFilingRepository instance a test
 // creates, the same way `nextId` above already is.
 let nextDiaryNumberSeq = 1;
+// #38 — mirrors ia_number_seq the same way.
+let nextIaNumberSeq = 1;
 
 const ADVOCATE_ENROLMENT_PENDING_STEP = "ADVOCATE_ENROLMENT_PENDING";
 const ADVOCATE_ENROLMENT_CONFIRM_STEP = "ADVOCATE_ENROLMENT_CONFIRM";
@@ -40,7 +44,7 @@ export class InMemoryFilingRepository implements FilingRepository {
   constructor(private readonly conversationRepo: InMemoryConversationRepository) {}
 
   async findActiveDraft(_tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord | null> {
-    const conversation = this.conversationRepo.findById(conversationId);
+    const conversation = await this.conversationRepo.findById(conversationId);
     if (!conversation?.activeFilingId) {
       return null;
     }
@@ -88,6 +92,11 @@ export class InMemoryFilingRepository implements FilingRepository {
       defectDelayReason: null,
       defectDelayDays: null,
       defectResubmittedAt: null,
+      nextHearingDate: null,
+      hearingAttendance: null,
+      adjournmentGround: null,
+      adjournmentRequestedDate: null,
+      adjournmentIaNumber: null,
       createdAt: now,
       updatedAt: now,
     };
@@ -161,7 +170,7 @@ export class InMemoryFilingRepository implements FilingRepository {
   }
 
   async findByActiveFilingId(_tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord | null> {
-    const conversation = this.conversationRepo.findById(conversationId);
+    const conversation = await this.conversationRepo.findById(conversationId);
     if (!conversation?.activeFilingId) {
       return null;
     }
@@ -184,6 +193,17 @@ export class InMemoryFilingRepository implements FilingRepository {
     return [...this.byId.values()]
       .filter((filing) => filing.conversationId === conversationId)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async findFiledWithHearingOn(_tx: RepositoryTransaction, istDate: string): Promise<FilingRecord[]> {
+    const { start, end } = istDayRangeUtc(istDate);
+    return [...this.byId.values()].filter(
+      (filing) => filing.status === "FILED" && filing.nextHearingDate !== null && filing.nextHearingDate >= start && filing.nextHearingDate < end,
+    );
+  }
+
+  async nextIaNumber(_tx: RepositoryTransaction, filedAt: Date): Promise<string> {
+    return formatIaNumber(nextIaNumberSeq++, filedAt);
   }
 
   /** Test-wiring helper (not part of the FilingRepository interface) so tests can assert a specific filing's fields directly, e.g. to prove a prior draft was left unchanged. */

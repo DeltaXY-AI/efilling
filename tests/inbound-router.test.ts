@@ -53,6 +53,9 @@ const FILING_DEFECT_SENDER_DEPS_CONTENT_SIDS = {
   defectReviewActionsContentSid: { en: "HXdreviewEn000000000000000000000000", ml: "HXdreviewMl000000000000000000000000" },
   defectSentActionsContentSid: { en: "HXdsentEn0000000000000000000000000", ml: "HXdsentMl0000000000000000000000000" },
 };
+const HEARING_SENDER_DEPS_CONTENT_SIDS = {
+  hearingReminderActionsContentSid: { en: "HXhearingEn00000000000000000000000", ml: "HXhearingMl00000000000000000000000" },
+};
 
 function baseInput(overrides: Partial<Parameters<typeof routeInboundMessage>[1]> = {}) {
   return {
@@ -251,6 +254,13 @@ describe("routeInboundMessage", () => {
         documentStorageDeps: createFakeDocumentStorageDeps(),
         filingDefectSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DEFECT_SENDER_DEPS_CONTENT_SIDS },
         mainMenuSenderDeps,
+        withTransaction: createInMemoryWithTransaction(),
+      },
+      hearingWorkflowDeps: {
+        conversationRepo,
+        filingRepo,
+        outboundMessageRepo,
+        hearingSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...HEARING_SENDER_DEPS_CONTENT_SIDS },
         withTransaction: createInMemoryWithTransaction(),
       },
     };

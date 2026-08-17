@@ -66,6 +66,8 @@ export default defineConfig({
       TWILIO_DEFECT_REVIEW_ACTIONS_SID_ML: "HXtestdreviewmL00000000000000000000",
       TWILIO_DEFECT_SENT_ACTIONS_SID_EN: "HXtestdsente00000000000000000000000",
       TWILIO_DEFECT_SENT_ACTIONS_SID_ML: "HXtestdsentml00000000000000000000000",
+      TWILIO_HEARING_REMINDER_ACTIONS_SID_EN: "HXtesthearinge0000000000000000000",
+      TWILIO_HEARING_REMINDER_ACTIONS_SID_ML: "HXtesthearingml0000000000000000000",
       PUBLIC_BASE_URL: "https://example.test",
       // Never actually connected to in tests — routes are exercised via
       // createApp({ twilioWebhookDeps }) with in-memory repositories, but

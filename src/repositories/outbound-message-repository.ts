@@ -85,7 +85,15 @@ export type OutboundMessageType =
   | "FILING_DEFECT_REVIEW_SUMMARY"
   | "FILING_DEFECT_REVIEW_ACTIONS"
   | "FILING_DEFECT_SENT_MESSAGE"
-  | "FILING_DEFECT_SENT_ACTIONS";
+  | "FILING_DEFECT_SENT_ACTIONS"
+  // #38 (Prototype parity - Phase 10): the proactive hearing reminder, the
+  // attend acknowledgement, the adjournment intro/date prompts, and the
+  // filed-IA acknowledgement.
+  | "HEARING_REMINDER_MESSAGE"
+  | "HEARING_ATTEND_OK_MESSAGE"
+  | "HEARING_ADJOURN_INTRO_MESSAGE"
+  | "HEARING_ADJOURN_DATE_PROMPT"
+  | "HEARING_ADJOURN_FILED_MESSAGE";
 export type OutboundMessageStatus = "pending" | "sent" | "failed";
 
 export interface OutboundMessageRecord {

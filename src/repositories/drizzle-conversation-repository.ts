@@ -22,6 +22,13 @@ export class DrizzleConversationRepository implements ConversationRepository {
     return row ?? null;
   }
 
+  async findById(conversationId: string): Promise<ConversationRecord | null> {
+    const db = getDb();
+    const [row] = await db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+
+    return row ?? null;
+  }
+
   async createAwaitingLanguage(whatsappNumber: string, lastInboundAt: Date): Promise<ConversationRecord> {
     const db = getDb();
     const [row] = await db

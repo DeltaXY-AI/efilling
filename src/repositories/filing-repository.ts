@@ -7,6 +7,8 @@ export type FilingStatus = "DRAFT" | "SUBMITTED" | "ABANDONED" | "FILED";
 export type AdvocateEnrolmentStatus = "PENDING_CONFIRMATION" | "RECORDED_UNVERIFIED";
 /** #33 Part C — the cheque's return reason, a fixed 4-option select. */
 export type FilingReturnReason = "funds" | "stop" | "acct" | "sign";
+/** #38 Part B — a plain TEXT column at the DB level (matching the issue's literal schema), typed here for application-layer safety. */
+export type HearingAttendance = "attending" | "adjournment_requested";
 
 export interface FilingRecord {
   id: string;
@@ -52,6 +54,18 @@ export interface FilingRecord {
   defectDelayReason: string | null;
   defectDelayDays: number | null;
   defectResubmittedAt: Date | null;
+  /**
+   * #38 Part B — the hearing-reminder and adjournment-request flow.
+   * nextHearingDate is TEST-ONLY (see schema.ts) until real court-calendar
+   * integration exists. hearingAttendance is set once the advocate responds
+   * to a reminder; the 3 adjournment fields are set only along the
+   * seek-adjournment path, never when attending.
+   */
+  nextHearingDate: Date | null;
+  hearingAttendance: HearingAttendance | null;
+  adjournmentGround: string | null;
+  adjournmentRequestedDate: string | null;
+  adjournmentIaNumber: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -96,6 +110,18 @@ export interface UpsertFilingFieldsInput {
   defectDelayReason?: string;
   defectDelayDays?: number;
   defectResubmittedAt?: Date;
+  /**
+   * #38 Part B — the hearing-reminder and adjournment-request flow. Unlike
+   * every field above, these accept an explicit `null` too: the
+   * set-test-hearing-date script resets hearingAttendance/adjournment* back
+   * to null whenever a fresh nextHearingDate is set, so a stale answer from
+   * a previous hearing can never be misread as belonging to the new one.
+   */
+  nextHearingDate?: Date | null;
+  hearingAttendance?: HearingAttendance | null;
+  adjournmentGround?: string | null;
+  adjournmentRequestedDate?: string | null;
+  adjournmentIaNumber?: string | null;
 }
 
 /**
@@ -109,6 +135,15 @@ export interface UpsertFilingFieldsInput {
  */
 export function formatDiaryNumber(sequence: number, filedAt: Date): string {
   return `TEST-${String(sequence).padStart(6, "0")}-${filedAt.getFullYear()}`;
+}
+
+/**
+ * #38 Part B — mirrors formatDiaryNumber exactly, for the generated
+ * adjournment IA number. Never the prototype's hardcoded "IA 327/2026"
+ * shared across every advocate.
+ */
+export function formatIaNumber(sequence: number, filedAt: Date): string {
+  return `TEST-IA-${String(sequence).padStart(6, "0")}-${filedAt.getFullYear()}`;
 }
 
 /** Thrown by `lockById` when the filing row no longer exists. */
@@ -224,4 +259,19 @@ export interface FilingRepository {
    * advocate has ever started, sectioned by status.
    */
   listByConversation(tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord[]>;
+
+  /**
+   * #38 — every FILED filing (any conversation) whose nextHearingDate falls
+   * on the given calendar date, IST. The only cross-conversation query in
+   * this repository — the send-hearing-reminders script scans across every
+   * advocate, unlike every other method here, which is scoped to one
+   * conversation. Idempotency against double-sending is NOT this method's
+   * job — the caller enqueues each reminder through the same outbound_messages
+   * dedupe-key mechanism every other proactive/reactive send in this
+   * codebase uses (see that script for the exact key).
+   */
+  findFiledWithHearingOn(tx: RepositoryTransaction, istDate: string): Promise<FilingRecord[]>;
+
+  /** #38 Part B — atomically allots the next adjournment IA number (via iaNumberSeq), formatted as "TEST-IA-000001-2026". Mirrors nextDiaryNumber exactly. */
+  nextIaNumber(tx: RepositoryTransaction, filedAt: Date): Promise<string>;
 }

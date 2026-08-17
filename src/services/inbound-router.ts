@@ -95,6 +95,8 @@ import {
   handleFilingDefectSentInput,
   type FilingDefectWorkflowDeps,
 } from "./filing-defect-workflow";
+import { parseHearingReminderAction } from "../domain/hearing";
+import { handleHearingAdjournDateInput, handleHearingAdjournGroundInput, handleHearingReminderAction, type HearingWorkflowDeps } from "./hearing-workflow";
 import type { ConversationRepository } from "../repositories/conversation-repository";
 import { logWorkflowError } from "../lib/logger";
 import type { InboundMedia } from "../types/inbound-message";
@@ -114,6 +116,7 @@ export interface InboundRouterDeps {
   filingCompletionWorkflowDeps: FilingCompletionWorkflowDeps;
   filingDraftListWorkflowDeps: FilingDraftListWorkflowDeps;
   filingDefectWorkflowDeps: FilingDefectWorkflowDeps;
+  hearingWorkflowDeps: HearingWorkflowDeps;
 }
 
 export interface InboundRouterInput {
@@ -304,6 +307,23 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
     listTitle: input.listTitle,
     body: input.body,
   };
+
+  // #38 (Prototype parity - Phase 10): checked ahead of per-state dispatch,
+  // exactly like "restart" above — a hearing-reminder response must be
+  // recognized no matter what the advocate's own main flow is currently
+  // doing (mid-form, My cases, anywhere), since "hearing:will-attend" is
+  // scope-decided to never interrupt it. "hearing:seek-adjournment" does
+  // move the conversation into HEARING_ADJOURN_GROUND_PENDING, but that
+  // transition itself is still only reachable via this same global check.
+  if (parseHearingReminderAction(selection)) {
+    return handleHearingReminderAction(deps.hearingWorkflowDeps, {
+      conversationId: conversation.id,
+      whatsappNumber: input.whatsappNumber,
+      messageId: input.messageId,
+      language,
+      selection,
+    });
+  }
 
   if (conversation.state === "MAIN_MENU") {
     return handleInboundForMainMenu(
@@ -635,6 +655,15 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
   }
   if (conversation.state === "FILING_DEFECT_SENT") {
     return handleFilingDefectSentInput(deps.filingDefectWorkflowDeps, actionInput);
+  }
+
+  // #38 (Prototype parity - Phase 10): the adjournment side-conversation's
+  // 2 free-text steps, reached only via the global hearing check above.
+  if (conversation.state === "HEARING_ADJOURN_GROUND_PENDING") {
+    return handleHearingAdjournGroundInput(deps.hearingWorkflowDeps, fieldEvent);
+  }
+  if (conversation.state === "HEARING_ADJOURN_DATE_PENDING") {
+    return handleHearingAdjournDateInput(deps.hearingWorkflowDeps, fieldEvent);
   }
 
   if (KNOWN_UNIMPLEMENTED_STATES.has(conversation.state)) {

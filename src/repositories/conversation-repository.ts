@@ -106,7 +106,11 @@ export type ConversationState =
   | "FILING_DEFECT_2"
   | "FILING_DEFECT_3"
   | "FILING_DEFECT_REVIEW"
-  | "FILING_DEFECT_SENT";
+  | "FILING_DEFECT_SENT"
+  // Prototype parity - Phase 10 (#38): the adjournment side-conversation.
+  // "hearing:will-attend" never touches this column at all — see schema.ts.
+  | "HEARING_ADJOURN_GROUND_PENDING"
+  | "HEARING_ADJOURN_DATE_PENDING";
 
 export interface ConversationRecord {
   id: string;
@@ -136,6 +140,9 @@ export class ConversationNotFoundError extends Error {
  */
 export interface ConversationRepository {
   findByWhatsappNumber(whatsappNumber: string): Promise<ConversationRecord | null>;
+
+  /** #38 — resolves a conversation by its own id, not its WhatsApp number. Needed by the send-hearing-reminders script, which starts from a filing (and thus a conversationId), never an inbound WhatsApp number. */
+  findById(conversationId: string): Promise<ConversationRecord | null>;
 
   /** Creates a brand-new conversation in AWAITING_LANGUAGE for a first-ever inbound message. */
   createAwaitingLanguage(whatsappNumber: string, lastInboundAt: Date): Promise<ConversationRecord>;

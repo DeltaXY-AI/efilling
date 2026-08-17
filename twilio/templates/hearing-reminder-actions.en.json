@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_hearing_reminder_actions_v1_en",
+  "language": "en",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "Will you be attending?",
+      "actions": [
+        { "title": "Yes, I'll attend", "id": "hearing:will-attend" },
+        { "title": "Seek an adjournment", "id": "hearing:seek-adjournment" }
+      ]
+    }
+  }
+}
