@@ -80,6 +80,11 @@ const envSchema = z.object({
   // any non-Sandbox number — see hearing-sender.ts.
   TWILIO_HEARING_REMINDER_ACTIONS_SID_EN: z.string().min(1, "TWILIO_HEARING_REMINDER_ACTIONS_SID_EN is required"),
   TWILIO_HEARING_REMINDER_ACTIONS_SID_ML: z.string().min(1, "TWILIO_HEARING_REMINDER_ACTIONS_SID_ML is required"),
+  // Case-type gating, inserted before FILING_NOTICE — see domain/case-type.ts.
+  TWILIO_FILING_CASE_TYPE_SID_EN: z.string().min(1, "TWILIO_FILING_CASE_TYPE_SID_EN is required"),
+  TWILIO_FILING_CASE_TYPE_SID_ML: z.string().min(1, "TWILIO_FILING_CASE_TYPE_SID_ML is required"),
+  TWILIO_FILING_OTHER_CASE_TYPES_SID_EN: z.string().min(1, "TWILIO_FILING_OTHER_CASE_TYPES_SID_EN is required"),
+  TWILIO_FILING_OTHER_CASE_TYPES_SID_ML: z.string().min(1, "TWILIO_FILING_OTHER_CASE_TYPES_SID_ML is required"),
   PUBLIC_BASE_URL: z.string().url("PUBLIC_BASE_URL must be an absolute URL"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   // #31: durable storage for uploaded filing documents (Vercel Blob). Set

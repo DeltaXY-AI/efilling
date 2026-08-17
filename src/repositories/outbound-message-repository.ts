@@ -2,6 +2,11 @@ import type { ConversationLanguage } from "./conversation-repository";
 import type { RepositoryTransaction } from "./transaction";
 
 export type OutboundMessageType =
+  // Case-type gating — see schema.ts.
+  | "FILING_CASE_TYPE_PROMPT"
+  | "FILING_CASE_TYPE_OTHER_INFO"
+  | "FILING_OTHER_CASE_TYPES_PROMPT"
+  | "FILING_CASE_TYPE_UNAVAILABLE_INFO"
   | "FILING_NOTICE"
   | "FILING_DRAFT_CHOICE"
   | "FILING_DRAFT_CREATED"

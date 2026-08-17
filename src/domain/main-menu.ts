@@ -1,6 +1,13 @@
 import { isLanguageChangeRequest, type SelectionInput } from "./language-selection";
 
-export type MenuAction = "menu:file-case" | "menu:case-status" | "menu:change-language" | "menu:help" | "menu:my-cases";
+export type MenuAction =
+  | "menu:file-case"
+  | "menu:case-status"
+  | "menu:change-language"
+  | "menu:help"
+  | "menu:my-cases"
+  | "menu:cause-list"
+  | "menu:submissions";
 export type MenuTargetState = "FILING_START" | "CASE_STATUS_START" | "AWAITING_LANGUAGE" | "MAIN_MENU";
 
 export const MENU_ACTION_TARGET_STATE: Record<MenuAction, MenuTargetState> = {
@@ -11,6 +18,12 @@ export const MENU_ACTION_TARGET_STATE: Record<MenuAction, MenuTargetState> = {
   // Never actually consulted at runtime — special-cased in main-menu-workflow.ts
   // exactly like menu:help, before this map would ever be read (#29).
   "menu:my-cases": "MAIN_MENU",
+  // Cause list and Submissions aren't built features — both are
+  // special-cased in main-menu-workflow.ts exactly like menu:help: a fixed
+  // "not available yet" reply, then redisplay the menu, never leaving
+  // MAIN_MENU.
+  "menu:cause-list": "MAIN_MENU",
+  "menu:submissions": "MAIN_MENU",
 };
 
 const STABLE_MENU_ACTIONS: ReadonlySet<string> = new Set(Object.keys(MENU_ACTION_TARGET_STATE));
@@ -34,6 +47,12 @@ const TEXT_TO_ACTION: Record<string, MenuAction> = {
   "5": "menu:my-cases",
   "my cases": "menu:my-cases",
   "എന്റെ കേസുകൾ": "menu:my-cases",
+  "6": "menu:cause-list",
+  "cause list": "menu:cause-list",
+  "കോസ് ലിസ്റ്റ്": "menu:cause-list",
+  "7": "menu:submissions",
+  submissions: "menu:submissions",
+  "സമർപ്പണങ്ങൾ": "menu:submissions",
 };
 
 const MENU_REDISPLAY_TRIGGERS = new Set(["menu", "മെനു"]);

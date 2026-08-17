@@ -16,6 +16,8 @@ const LANGUAGE_CONTENT_SID = "HXlanguage0000000000000000000000000";
 const MAIN_MENU_CONTENT_SID = { en: "HXmenuen00000000000000000000000000", ml: "HXmenuml00000000000000000000000000" };
 const DRAFT_CHOICE_CONTENT_SID = { en: "HXdraftchoiceen00000000000000000000", ml: "HXdraftchoiceml00000000000000000000" };
 const NOTICE_CONTENT_SID = { en: "HXnoticeen000000000000000000000000", ml: "HXnoticeml000000000000000000000000" };
+const CASE_TYPE_PROMPT_CONTENT_SID = { en: "HXctypeEn0000000000000000000000000", ml: "HXctypeMl0000000000000000000000000" };
+const OTHER_CASE_TYPES_CONTENT_SID = { en: "HXotypesEn000000000000000000000000", ml: "HXotypesMl000000000000000000000000" };
 const ENROLMENT_PROMPT_CONTENT_SID = { en: "HXenrolpromptEn00000000000000000000", ml: "HXenrolpromptMl00000000000000000000" };
 const ENROLMENT_CONFIRM_CONTENT_SID = { en: "HXenrolconfirmEn0000000000000000000", ml: "HXenrolconfirmMl0000000000000000000" };
 const COMPLAINANT_REVIEW_CONTENT_SID = { en: "HXcreviewEn00000000000000000000000", ml: "HXcreviewMl00000000000000000000000" };
@@ -116,6 +118,12 @@ describe("routeInboundMessage", () => {
         draftChoiceContentSid: DRAFT_CHOICE_CONTENT_SID,
         noticeContentSid: NOTICE_CONTENT_SID,
       },
+      caseTypeSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        caseTypePromptContentSid: CASE_TYPE_PROMPT_CONTENT_SID,
+        otherCaseTypesContentSid: OTHER_CASE_TYPES_CONTENT_SID,
+      },
       mainMenuSenderDeps,
       enrolmentSenderDeps,
       complainantSenderDeps,
@@ -124,6 +132,23 @@ describe("routeInboundMessage", () => {
       filingDocumentRepo,
       filingSignSenderDeps,
       filingCompletionSenderDeps,
+      withTransaction: createInMemoryWithTransaction(),
+    };
+    const caseTypeWorkflowDeps = {
+      conversationRepo,
+      outboundMessageRepo,
+      caseTypeSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        caseTypePromptContentSid: CASE_TYPE_PROMPT_CONTENT_SID,
+        otherCaseTypesContentSid: OTHER_CASE_TYPES_CONTENT_SID,
+      },
+      filingSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        draftChoiceContentSid: DRAFT_CHOICE_CONTENT_SID,
+        noticeContentSid: NOTICE_CONTENT_SID,
+      },
       withTransaction: createInMemoryWithTransaction(),
     };
     deps = {
@@ -137,6 +162,7 @@ describe("routeInboundMessage", () => {
       },
       mainMenuSenderDeps,
       filingWorkflowDeps,
+      caseTypeWorkflowDeps,
       enrolmentWorkflowDeps: {
         conversationRepo,
         filingRepo,
@@ -292,7 +318,7 @@ describe("routeInboundMessage", () => {
     await routeInboundMessage(deps, baseInput({ buttonPayload: "menu:file-case" }));
 
     const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-    expect(conversation).toMatchObject({ state: "FILING_NOTICE" });
+    expect(conversation).toMatchObject({ state: "FILING_CASE_TYPE_PENDING" });
   });
 
   it("routes a FILING_DRAFT_CHOICE conversation to the filing workflow", async () => {
@@ -303,7 +329,7 @@ describe("routeInboundMessage", () => {
     await routeInboundMessage(deps, baseInput({ buttonPayload: "filing:start-new" }));
 
     const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-    expect(after).toMatchObject({ id: conversation.id, state: "FILING_NOTICE" });
+    expect(after).toMatchObject({ id: conversation.id, state: "FILING_CASE_TYPE_PENDING" });
   });
 
   it("routes a FILING_NOTICE conversation to the filing workflow", async () => {
@@ -348,7 +374,15 @@ describe("routeInboundMessage", () => {
 
     expect(result.delivered).toBe(true);
     const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-    expect(conversation).toMatchObject({ state: "FILING_NOTICE" }); // in the real V5A flow, not stuck
+    expect(conversation).toMatchObject({ state: "FILING_CASE_TYPE_PENDING" }); // in the real V5A flow, not stuck
+
+    // Confirm it isn't just stuck one screen later either — picking cheque
+    // bounce still reaches FILING_NOTICE, exactly as before this case-type
+    // gate was inserted.
+    const followUp = await routeInboundMessage(deps, baseInput({ buttonPayload: "filing:case-type-cheque" }));
+    expect(followUp.delivered).toBe(true);
+    const afterCaseType = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(afterCaseType).toMatchObject({ state: "FILING_NOTICE" });
   });
 
   it("keeps a CASE_STATUS_START conversation alive without sending anything (out of scope for this slice)", async () => {
@@ -636,7 +670,7 @@ describe("routeInboundMessage", () => {
 
       expect(result.delivered).toBe(true);
       expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
-        expect.objectContaining({ contentSid: NOTICE_CONTENT_SID.en }),
+        expect.objectContaining({ contentSid: CASE_TYPE_PROMPT_CONTENT_SID.en }),
       );
     });
 

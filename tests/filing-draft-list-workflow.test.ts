@@ -21,6 +21,8 @@ const DRAFT_DETAIL_ACTIONS_CONTENT_SID = { en: "HXfddetailEn00000000000000000000
 const MAIN_MENU_CONTENT_SID = { en: "HXmenuen00000000000000000000000000", ml: "HXmenuml00000000000000000000000000" };
 const DRAFT_CHOICE_CONTENT_SID = { en: "HXdraftchoiceen00000000000000000000", ml: "HXdraftchoiceml00000000000000000000" };
 const NOTICE_CONTENT_SID = { en: "HXnoticeen000000000000000000000000", ml: "HXnoticeml000000000000000000000000" };
+const CASE_TYPE_PROMPT_CONTENT_SID = { en: "HXctypeEn0000000000000000000000000", ml: "HXctypeMl0000000000000000000000000" };
+const OTHER_CASE_TYPES_CONTENT_SID = { en: "HXotypesEn000000000000000000000000", ml: "HXotypesMl000000000000000000000000" };
 const ENROLMENT_PROMPT_CONTENT_SID = { en: "HXenrolpromptEn00000000000000000000", ml: "HXenrolpromptMl00000000000000000000" };
 const ENROLMENT_CONFIRM_CONTENT_SID = { en: "HXenrolconfirmEn0000000000000000000", ml: "HXenrolconfirmMl0000000000000000000" };
 const COMPLAINANT_REVIEW_CONTENT_SID = { en: "HXcreviewEn00000000000000000000000", ml: "HXcreviewMl00000000000000000000000" };
@@ -87,6 +89,12 @@ describe("filing-draft-list-workflow", () => {
         fromNumber: FROM_NUMBER,
         draftChoiceContentSid: DRAFT_CHOICE_CONTENT_SID,
         noticeContentSid: NOTICE_CONTENT_SID,
+      },
+      caseTypeSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        caseTypePromptContentSid: CASE_TYPE_PROMPT_CONTENT_SID,
+        otherCaseTypesContentSid: OTHER_CASE_TYPES_CONTENT_SID,
       },
       mainMenuSenderDeps,
       enrolmentSenderDeps: {

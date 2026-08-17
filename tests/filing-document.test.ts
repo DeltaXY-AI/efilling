@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   DOCUMENT_GROUP_LIMITS,
+  DOCUMENT_GROUP_ORDER,
   MAX_DOCUMENT_BYTES,
+  SAMPLE_DOCUMENTS,
   hasMetMinimum,
   isAllowedContentType,
   parseFilingDocumentAction,
@@ -72,5 +74,37 @@ describe("parseFilingDocumentAction", () => {
     expect(parseFilingDocumentAction({ body: "donee" })).toBeNull();
     expect(parseFilingDocumentAction({})).toBeNull();
     expect(parseFilingDocumentAction({ body: "" })).toBeNull();
+  });
+
+  it.each(["sample", "Sample", "sample files", "add sample files", "demo", "demo files", "സാമ്പിൾ", "സാമ്പിൾ ഫയലുകൾ"])(
+    "recognizes typed %s as the sample-files testing shortcut",
+    (value) => {
+      expect(parseFilingDocumentAction({ body: value })).toBe("docs:use-sample-files");
+    },
+  );
+
+  it("the sample-files shortcut has no stable button — an unrelated ButtonPayload never falls through to it", () => {
+    expect(parseFilingDocumentAction({ buttonPayload: "docs:unknown", body: "sample" })).toBeNull();
+  });
+});
+
+describe("SAMPLE_DOCUMENTS", () => {
+  it("has at least one fixed demo file for every real upload group", () => {
+    for (const group of DOCUMENT_GROUP_ORDER) {
+      expect(SAMPLE_DOCUMENTS[group].length).toBeGreaterThan(0);
+    }
+  });
+
+  it("never uses a real-looking storage host, so nothing downstream mistakes a sample for a real Blob object", () => {
+    for (const group of Object.keys(SAMPLE_DOCUMENTS) as (keyof typeof SAMPLE_DOCUMENTS)[]) {
+      for (const doc of SAMPLE_DOCUMENTS[group]) {
+        expect(doc.storageUrl).toContain("demo.internal.efiling");
+        expect(isAllowedContentType(doc.contentType)).toBe(true);
+      }
+    }
+  });
+
+  it("cheque group's sample count never exceeds its own max (2)", () => {
+    expect(SAMPLE_DOCUMENTS.cheque.length).toBeLessThanOrEqual(DOCUMENT_GROUP_LIMITS.cheque.max);
   });
 });

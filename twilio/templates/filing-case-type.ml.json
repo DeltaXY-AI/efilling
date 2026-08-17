@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_filing_case_type_v1_ml",
+  "language": "ml",
+  "types": {
+    "twilio/quick-reply": {
+      "body": "ഏത് തരം കേസ് ആണ്?",
+      "actions": [
+        { "title": "ചെക്ക് മടങ്ങൽ", "id": "filing:case-type-cheque" },
+        { "title": "മറ്റ് കേസ് തരങ്ങൾ", "id": "filing:case-type-other" }
+      ]
+    }
+  }
+}

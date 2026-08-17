@@ -8,6 +8,9 @@ export type ConversationState =
   | "FILING_START"
   | "CASE_STATUS_START"
   | "FILING_DRAFT_CHOICE"
+  // Case-type gating, inserted before FILING_NOTICE — see schema.ts.
+  | "FILING_CASE_TYPE_PENDING"
+  | "FILING_OTHER_CASE_TYPES_PENDING"
   | "FILING_NOTICE"
   | "ADVOCATE_ENROLMENT_PENDING"
   | "ADVOCATE_ENROLMENT_CONFIRM"

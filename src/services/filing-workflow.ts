@@ -1,4 +1,5 @@
 import { parseDraftChoiceAction, parseFilingNoticeAction, type FilingSelectionInput } from "../domain/filing";
+import { sendCaseTypePrompt, type CaseTypeSenderDeps } from "./case-type-sender";
 import type { ConversationState, ConversationRepository } from "../repositories/conversation-repository";
 import type { FilingPartyRepository } from "../repositories/filing-party-repository";
 import type { FilingRecord, FilingRepository } from "../repositories/filing-repository";
@@ -29,6 +30,8 @@ export interface FilingWorkflowDeps {
   /** Durable outbound intent, enqueued inside the same transaction as each committed state change — see commitWithOutbound in transactional-outbound.ts. */
   outboundMessageRepo: OutboundMessageRepository;
   filingSenderDeps: FilingSenderDeps;
+  /** Reused as-is for the case-type gate inserted before FILING_NOTICE — never a second implementation. */
+  caseTypeSenderDeps: CaseTypeSenderDeps;
   /** Reused as-is for "back to main menu" — never a second menu-sending implementation. */
   mainMenuSenderDeps: MainMenuSenderDeps;
   /** Reused as-is for the enrolment prompt sent right after a draft is created (#9) and when resuming into it — never a second implementation. */
@@ -281,7 +284,7 @@ export async function resendPromptForResumedFiling(
  * moved it) is a safe no-op: the first valid transition already won.
  */
 export async function handleFileOrResume(deps: FilingWorkflowDeps, input: FileOrResumeInput): Promise<FilingWorkflowResult> {
-  let sendKind: "draft-choice" | "notice" | null = null;
+  let sendKind: "draft-choice" | "case-type" | null = null;
 
   const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
     if (locked.state !== "MAIN_MENU") {
@@ -295,9 +298,12 @@ export async function handleFileOrResume(deps: FilingWorkflowDeps, input: FileOr
       return { committed: true, sends: [{ messageType: "FILING_DRAFT_CHOICE" as const, dedupeSuffix: "draft-choice" }] };
     }
 
-    await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_NOTICE");
-    sendKind = "notice";
-    return { committed: true, sends: [{ messageType: "FILING_NOTICE" as const, dedupeSuffix: "filing-notice" }] };
+    // A fresh filing starts at the case-type gate, not FILING_NOTICE
+    // directly — only cheque-bounce is actually filed here (see
+    // domain/case-type.ts).
+    await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_CASE_TYPE_PENDING");
+    sendKind = "case-type";
+    return { committed: true, sends: [{ messageType: "FILING_CASE_TYPE_PROMPT" as const, dedupeSuffix: "case-type-prompt" }] };
   });
 
   if (!commit.committed) {
@@ -308,7 +314,7 @@ export async function handleFileOrResume(deps: FilingWorkflowDeps, input: FileOr
   const delivered =
     sendKind === "draft-choice"
       ? await sendDraftChoice(deps.filingSenderDeps, sendInput)
-      : await sendFilingNotice(deps.filingSenderDeps, sendInput);
+      : await sendCaseTypePrompt(deps.caseTypeSenderDeps, sendInput);
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
   return { delivered };
 }
@@ -345,17 +351,19 @@ export async function handleDraftChoiceInput(deps: FilingWorkflowDeps, input: Fi
   }
 
   if (action === "filing:start-new") {
+    // Same case-type gate as handleFileOrResume's no-draft branch — never a
+    // second implementation of that choice.
     const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
       if (locked.state !== "FILING_DRAFT_CHOICE") {
         return { committed: false };
       }
-      await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_NOTICE");
-      return { committed: true, sends: [{ messageType: "FILING_NOTICE" as const, dedupeSuffix: "filing-notice" }] };
+      await deps.conversationRepo.setStateInTx(tx, locked.id, "FILING_CASE_TYPE_PENDING");
+      return { committed: true, sends: [{ messageType: "FILING_CASE_TYPE_PROMPT" as const, dedupeSuffix: "case-type-prompt" }] };
     });
     if (!commit.committed) {
       return { delivered: true };
     }
-    const delivered = await sendFilingNotice(deps.filingSenderDeps, sendInput);
+    const delivered = await sendCaseTypePrompt(deps.caseTypeSenderDeps, sendInput);
     await finalizeOutbound(deps, commit.outboundIds[0], delivered);
     return { delivered };
   }

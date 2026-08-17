@@ -8,6 +8,7 @@ import {
 import { isRestartRequest } from "../domain/restart";
 import { handleInboundForMainMenu, type MainMenuWorkflowDeps } from "./main-menu-workflow";
 import { handleDraftChoiceInput, handleFilingNoticeInput, type FilingWorkflowDeps } from "./filing-workflow";
+import { handleCaseTypePendingInput, handleOtherCaseTypesPendingInput, type CaseTypeWorkflowDeps } from "./case-type-workflow";
 import { handleEnrolmentConfirmInput, handleEnrolmentInput, type EnrolmentWorkflowDeps } from "./enrolment-workflow";
 import {
   handleFilingDocChequeInput,
@@ -106,6 +107,7 @@ export interface InboundRouterDeps {
   languageWorkflowDeps: LanguageWorkflowDeps;
   mainMenuSenderDeps: MainMenuWorkflowDeps["mainMenuSenderDeps"];
   filingWorkflowDeps: FilingWorkflowDeps;
+  caseTypeWorkflowDeps: CaseTypeWorkflowDeps;
   enrolmentWorkflowDeps: EnrolmentWorkflowDeps;
   filingDocumentWorkflowDeps: FilingDocumentWorkflowDeps;
   complainantWorkflowDeps: ComplainantWorkflowDeps;
@@ -358,6 +360,27 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
 
   if (conversation.state === "FILING_DRAFT_CHOICE") {
     return handleDraftChoiceInput(deps.filingWorkflowDeps, {
+      conversationId: conversation.id,
+      whatsappNumber: input.whatsappNumber,
+      messageId: input.messageId,
+      language,
+      selection,
+    });
+  }
+
+  // Case-type gating (inserted before FILING_NOTICE): only cheque-bounce is
+  // actually filed here — see domain/case-type.ts.
+  if (conversation.state === "FILING_CASE_TYPE_PENDING") {
+    return handleCaseTypePendingInput(deps.caseTypeWorkflowDeps, {
+      conversationId: conversation.id,
+      whatsappNumber: input.whatsappNumber,
+      messageId: input.messageId,
+      language,
+      selection,
+    });
+  }
+  if (conversation.state === "FILING_OTHER_CASE_TYPES_PENDING") {
+    return handleOtherCaseTypesPendingInput(deps.caseTypeWorkflowDeps, {
       conversationId: conversation.id,
       whatsappNumber: input.whatsappNumber,
       messageId: input.messageId,
