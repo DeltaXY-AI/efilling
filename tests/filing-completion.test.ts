@@ -32,4 +32,10 @@ describe("parseFilingFiledAction", () => {
     expect(parseFilingFiledAction({ body: "hello" })).toBeNull();
     expect(parseFilingFiledAction({})).toBeNull();
   });
+
+  it("resolves nav:main-menu by stable ID, the numbered fallback, or its exact title", () => {
+    expect(parseFilingFiledAction({ buttonPayload: "nav:main-menu" })).toBe("nav:main-menu");
+    expect(parseFilingFiledAction({ body: "2" })).toBe("nav:main-menu");
+    expect(parseFilingFiledAction({ body: "Main Menu" })).toBe("nav:main-menu");
+  });
 });

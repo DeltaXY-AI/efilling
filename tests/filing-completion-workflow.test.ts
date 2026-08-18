@@ -144,6 +144,17 @@ describe("filing-completion-workflow", () => {
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       expect(conversation).toMatchObject({ state: "MAIN_MENU" });
     });
+
+    it("nav:main-menu leaves the fee unpaid and returns to MAIN_MENU (mirrors filing-workflow.ts's own nav:main-menu branches)", async () => {
+      const result = await handleFilingFiledInput(deps, actionInput({ selection: { buttonPayload: "nav:main-menu" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: MAIN_MENU_CONTENT_SID.en }));
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "MAIN_MENU" });
+      const filing = filingRepo.findById(filingId);
+      expect(filing?.courtFeePaidAt).toBeNull();
+    });
   });
 
   describe("FILING_DONE", () => {

@@ -138,6 +138,24 @@ export async function handleFilingFiledInput(deps: FilingCompletionWorkflowDeps,
     return { delivered: await sendFiledSummaryAndActions(deps, sendInput, filing) };
   }
 
+  if (action === "nav:main-menu") {
+    // Mirrors filing-workflow.ts's own "nav:main-menu" branches exactly —
+    // never a second implementation of the transition itself.
+    const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
+      if (locked.state !== "FILING_FILED") {
+        return { committed: false };
+      }
+      await deps.conversationRepo.setStateInTx(tx, locked.id, "MAIN_MENU");
+      return { committed: true, sends: [{ messageType: "MAIN_MENU" as const, dedupeSuffix: "main-menu" }] };
+    });
+    if (!commit.committed) {
+      return { delivered: true };
+    }
+    const delivered = await sendMainMenu(deps.mainMenuSenderDeps, sendInput);
+    await finalizeOutbound(deps, commit.outboundIds[0], delivered);
+    return { delivered };
+  }
+
   // filing:pay-fee
   let paidFiling: FilingRecord | null = null;
   const commit = await commitWithOutbound(deps, input, async (tx, locked) => {

@@ -9,17 +9,19 @@
 // FILING_FILED: the one available action, paying the (simulated) court fee.
 // ---------------------------------------------------------------------------
 
-export type FilingFiledAction = "filing:pay-fee";
+export type FilingFiledAction = "filing:pay-fee" | "nav:main-menu";
 
-const FILING_FILED_ACTIONS: ReadonlySet<string> = new Set(["filing:pay-fee"]);
+const FILING_FILED_ACTIONS: ReadonlySet<string> = new Set(["filing:pay-fee", "nav:main-menu"]);
 
 // Numbers and the exact localized title, matching the plain-text fallback
-// ("1. Pay court fee").
+// ("1. Pay court fee\n2. Main menu").
 const FILING_FILED_TEXT_TO_ACTION: Record<string, FilingFiledAction> = {
   "1": "filing:pay-fee",
   "pay court fee": "filing:pay-fee",
   "pay the court fee": "filing:pay-fee",
   "pay fee": "filing:pay-fee",
+  "2": "nav:main-menu",
+  "main menu": "nav:main-menu",
 };
 
 /** Same shape as the other domain modules' selection input — kept local so this module has no dependency on their files. */
