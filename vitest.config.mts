@@ -68,6 +68,11 @@ export default defineConfig({
       TWILIO_DEFECT_SENT_ACTIONS_SID_ML: "HXtestdsentml00000000000000000000000",
       TWILIO_HEARING_REMINDER_ACTIONS_SID_EN: "HXtesthearinge0000000000000000000",
       TWILIO_HEARING_REMINDER_ACTIONS_SID_ML: "HXtesthearingml0000000000000000000",
+      // Case-type gating — see domain/case-type.ts.
+      TWILIO_FILING_CASE_TYPE_SID_EN: "HXtestcasetypee0000000000000000000",
+      TWILIO_FILING_CASE_TYPE_SID_ML: "HXtestcasetypeml0000000000000000000",
+      TWILIO_FILING_OTHER_CASE_TYPES_SID_EN: "HXtestothercasese000000000000000000",
+      TWILIO_FILING_OTHER_CASE_TYPES_SID_ML: "HXtestothercasesml000000000000000000",
       PUBLIC_BASE_URL: "https://example.test",
       // Never actually connected to in tests — routes are exercised via
       // createApp({ twilioWebhookDeps }) with in-memory repositories, but
