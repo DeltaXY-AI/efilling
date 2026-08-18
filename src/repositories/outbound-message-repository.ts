@@ -22,6 +22,10 @@ export type OutboundMessageType =
   | "FILING_DOC_ID_PROMPT"
   | "FILING_DOC_SUPPORT_PROMPT"
   | "FILING_DOC_ALL_RECEIVED"
+  // #40 (document auto-extraction) — only enqueued when at least one
+  // cheque/memo/notice photo actually yielded a field; see
+  // filing-document-workflow.ts's buildExtractionSummaryText.
+  | "FILING_DOC_EXTRACTION_SUMMARY"
   | "COMPLAINANT_NAME_PROMPT"
   | "COMPLAINANT_PHONE_PROMPT"
   | "COMPLAINANT_EMAIL_PROMPT"
@@ -47,6 +51,9 @@ export type OutboundMessageType =
   | "FILING_CHEQUE_DATE_PROMPT"
   | "FILING_AMOUNT_PROMPT"
   | "FILING_BANK_BRANCH_PROMPT"
+  // #40 — only enqueued when the return memo's own reason extraction
+  // yielded a recognized value.
+  | "FILING_RETURN_REASON_SUGGESTION"
   | "FILING_RETURN_REASON_PROMPT"
   | "FILING_MEMO_DATE_PROMPT"
   | "FILING_NOTICE_DATE_PROMPT"

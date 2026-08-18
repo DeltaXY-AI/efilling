@@ -176,6 +176,7 @@ describe("routeInboundMessage", () => {
       filingDocumentWorkflowDeps: {
         conversationRepo,
         filingRepo,
+        partyRepo,
         filingDocumentRepo,
         outboundMessageRepo,
         messagingClient,

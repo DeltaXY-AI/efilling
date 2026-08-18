@@ -2,14 +2,42 @@ import { randomUUID } from "node:crypto";
 import type { BlobStorage } from "../adapters/blob-storage";
 import type { TwilioMediaDownloader } from "../adapters/twilio/media-downloader";
 import { isAllowedContentType, MAX_DOCUMENT_BYTES, type FilingDocumentGroup } from "../domain/filing-document";
+import { extractChequeFields, extractMemoFields, extractNoticeFields, type DocumentExtractionDeps } from "./document-extraction";
 
 export type FilingDocumentStoreResult =
-  | { ok: true; storageUrl: string; contentType: string }
+  | { ok: true; storageUrl: string; contentType: string; extractedFields: Record<string, unknown> }
   | { ok: false; reason: "unsupported_type" | "too_large" | "download_failed" | "storage_failed" };
 
 export interface FilingDocumentStorageDeps {
   mediaDownloader: TwilioMediaDownloader;
   blobStorage: BlobStorage;
+  /**
+   * #40 (document auto-extraction) — optional. When unset, `extractedFields`
+   * is always `{}` and every upload behaves exactly as it did before this
+   * feature existed. Only consulted for the "cheque"/"memo"/"notice" groups
+   * (see EXTRACTABLE_GROUPS below) — "id" and "support" documents are never
+   * sent anywhere for reading.
+   */
+  documentExtractor?: DocumentExtractionDeps;
+}
+
+const EXTRACTABLE_GROUPS: ReadonlySet<FilingDocumentGroup> = new Set(["cheque", "memo", "notice"]);
+
+/** Dispatches to the one extractor matching this document's group — never called for "id"/"support"/"narrative" (see EXTRACTABLE_GROUPS above). */
+async function extractForGroup(
+  extractor: DocumentExtractionDeps,
+  group: FilingDocumentGroup,
+  buffer: Buffer,
+  contentType: string,
+): Promise<Record<string, unknown>> {
+  // Each extractor's result type only names its own known fields (never an
+  // index signature) — this cast is safe because storeFilingDocument's own
+  // caller (applyExtractedFields in filing-document-workflow.ts) only ever
+  // reads back the exact same named keys these interfaces declare.
+  if (group === "cheque") return (await extractChequeFields(extractor, buffer, contentType)) as unknown as Record<string, unknown>;
+  if (group === "memo") return (await extractMemoFields(extractor, buffer, contentType)) as unknown as Record<string, unknown>;
+  if (group === "notice") return (await extractNoticeFields(extractor, buffer, contentType)) as unknown as Record<string, unknown>;
+  return {};
 }
 
 export interface StoreFilingDocumentInput {
@@ -82,5 +110,21 @@ export async function storeFilingDocument(
   } catch {
     return { ok: false, reason: "storage_failed" };
   }
-  return { ok: true, storageUrl: stored.url, contentType };
+
+  // #40 (document auto-extraction): best-effort, never allowed to affect
+  // whether this upload itself succeeds — deps.documentExtractor is
+  // optional, and extractForGroup's own extractors never throw (their
+  // underlying VisionClient.extractStructured contract returns null on any
+  // failure), but this is wrapped anyway so a future extractor bug can never
+  // turn a successful upload into a failed one.
+  let extractedFields: Record<string, unknown> = {};
+  if (deps.documentExtractor && EXTRACTABLE_GROUPS.has(input.documentGroup)) {
+    try {
+      extractedFields = await extractForGroup(deps.documentExtractor, input.documentGroup, downloaded.buffer, contentType);
+    } catch {
+      extractedFields = {};
+    }
+  }
+
+  return { ok: true, storageUrl: stored.url, contentType, extractedFields };
 }

@@ -239,6 +239,7 @@ export async function resendPromptForResumedFiling(
   if (FILING_DETAILS_SUPPORTED_FILING_STEPS.has(resumedStep)) {
     return resendFilingDetailsPromptForResume(
       { filingDetailsSenderDeps: deps.filingDetailsSenderDeps, messagingClient: deps.filingSenderDeps.messagingClient, fromNumber: deps.filingSenderDeps.fromNumber },
+      resumedFiling,
       resumedStep,
       sendInput,
     );

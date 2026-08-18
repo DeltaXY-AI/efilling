@@ -8,14 +8,18 @@
  * other domain module in this codebase.
  */
 
+import { formatIsoDateAsDisplay } from "../lib/format-ist-date";
+
 // ---------------------------------------------------------------------------
 // S.138 limitation window — surfaced right after the notice-served date is
-// entered (that date is what the whole window is computed from). The
-// prototype computes and shows this from an auto-extracted notice date;
-// this codebase has no OCR (#32's own scope decision), so it's shown once
-// the advocate has typed the date instead. Informational only — this pilot
-// never blocks filing past the deadline, matching every other "recorded but
-// not verified/enforced" disclosure already in this app.
+// entered or confirmed (that date is what the whole window is computed
+// from). #32 originally scoped this as shown only once the advocate typed
+// the date, since this codebase had no OCR; #40 (document auto-extraction)
+// means the date may already be auto-read by then, in which case
+// filing-document-workflow.ts's extraction-summary cascade shows the same
+// window a first time, right after the documents are read. Informational
+// only — this pilot never blocks filing past the deadline, matching every
+// other "recorded but not verified/enforced" disclosure already in this app.
 // ---------------------------------------------------------------------------
 
 export interface LimitationWindow {
@@ -46,6 +50,20 @@ function isoFromDate(date: Date): string {
 // Display formatting (ISO -> DD-MM-YYYY) is handled by lib/format-ist-date.ts's
 // own formatIsoDateAsDisplay — already reused by filing-draft-list-sender.ts
 // and hearing-sender.ts — never a second copy here.
+
+/**
+ * Renders the limitation-window banner shown wherever the notice-served
+ * date becomes known — filing-details-workflow.ts (typed entry) and, since
+ * #40, filing-document-workflow.ts's extraction-summary cascade (auto-read
+ * entry). One implementation, never two independent copies of this text.
+ */
+export function formatLimitationNoticeText(window: LimitationWindow, daysLeft: number, language: "en" | "ml"): string {
+  const from = formatIsoDateAsDisplay(window.causeOfActionDateIso);
+  const to = formatIsoDateAsDisplay(window.limitationDeadlineIso);
+  return language === "ml"
+    ? `📅 കാലപരിധി: നിങ്ങളുടെ പരാതി ${from} നും ${to} നും ഇടയിൽ ഫയൽ ചെയ്യണം. ${daysLeft} ദിവസം ബാക്കിയുണ്ട്.`
+    : `📅 Limitation: your complaint must be filed between ${from} and ${to}. You have ${daysLeft} days left.`;
+}
 
 /**
  * Computes the S.138 limitation window from the date the demand notice was

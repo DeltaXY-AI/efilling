@@ -15,6 +15,7 @@ import { DrizzleOutboundMessageRepository } from "../repositories/drizzle-outbou
 import type { ProcessedWebhookRepository } from "../repositories/processed-webhook-repository";
 import { createTwilioMediaDownloader } from "../adapters/twilio/media-downloader";
 import { createVercelBlobStorage } from "../adapters/blob-storage";
+import { createAnthropicVisionClient } from "../adapters/anthropic-vision-client";
 import { withTransaction } from "../db/client";
 
 const ROUTE_PATH = "/webhooks/twilio/whatsapp";
@@ -42,6 +43,12 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
   const documentStorageDeps = {
     mediaDownloader: createTwilioMediaDownloader(env.TWILIO_ACCOUNT_SID, env.TWILIO_AUTH_TOKEN),
     blobStorage: createVercelBlobStorage(env.BLOB_READ_WRITE_TOKEN),
+    // #40 (document auto-extraction): omitted entirely when no Anthropic key
+    // is configured — every upload then behaves exactly as it did before
+    // this feature existed (see FilingDocumentStorageDeps's own doc comment).
+    ...(env.ANTHROPIC_API_KEY
+      ? { documentExtractor: { visionClient: createAnthropicVisionClient(env.ANTHROPIC_API_KEY, env.ANTHROPIC_BASE_URL, env.ANTHROPIC_MODEL) } }
+      : {}),
   };
   const enrolmentSenderDeps = {
     messagingClient,
@@ -186,6 +193,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
     filingDocumentWorkflowDeps: {
       conversationRepo,
       filingRepo,
+      partyRepo,
       filingDocumentRepo,
       outboundMessageRepo,
       messagingClient,

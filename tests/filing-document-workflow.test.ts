@@ -7,6 +7,7 @@ import {
 } from "../src/services/filing-document-workflow";
 import { InMemoryConversationRepository } from "../src/repositories/in-memory/conversation-repository";
 import { InMemoryFilingRepository } from "../src/repositories/in-memory/filing-repository";
+import { InMemoryFilingPartyRepository } from "../src/repositories/in-memory/filing-party-repository";
 import { InMemoryFilingDocumentRepository } from "../src/repositories/in-memory/filing-document-repository";
 import { InMemoryOutboundMessageRepository } from "../src/repositories/in-memory/outbound-message-repository";
 import { createInMemoryWithTransaction } from "../src/repositories/in-memory/transaction";
@@ -78,6 +79,7 @@ describe("filing-document-workflow — #32 documents-received handoff", () => {
     deps = {
       conversationRepo,
       filingRepo,
+      partyRepo: new InMemoryFilingPartyRepository(),
       filingDocumentRepo,
       outboundMessageRepo,
       messagingClient,
@@ -202,6 +204,7 @@ describe("filing-document-workflow — #33 Part E written-account upload", () =>
     deps = {
       conversationRepo,
       filingRepo,
+      partyRepo: new InMemoryFilingPartyRepository(),
       filingDocumentRepo,
       outboundMessageRepo,
       messagingClient,
@@ -321,6 +324,7 @@ describe("filing-document-workflow — 'sample' testing shortcut", () => {
     deps = {
       conversationRepo,
       filingRepo,
+      partyRepo: new InMemoryFilingPartyRepository(),
       filingDocumentRepo,
       outboundMessageRepo,
       messagingClient,
@@ -395,5 +399,158 @@ describe("filing-document-workflow — 'sample' testing shortcut", () => {
     expect(messagingClient.sendText).not.toHaveBeenCalled();
     const count = await filingDocumentRepo.countByGroup(undefined, filingId, "cheque");
     expect(count).toBe(0);
+  });
+});
+
+/**
+ * #40 (document auto-extraction) — reverses #32's original "no OCR" scope
+ * decision now that a real extraction engine is wired in. Covers: a real
+ * media upload applying whatever the (fake) documentExtractor returns onto
+ * the filing/accused-party rows, the sample-files shortcut never invoking
+ * it at all, and the "Got your documents" cascade upgrading to the
+ * reading/summary messages only when something was actually extracted.
+ */
+describe("filing-document-workflow — #40 document auto-extraction", () => {
+  let conversationRepo: InMemoryConversationRepository;
+  let filingRepo: InMemoryFilingRepository;
+  let partyRepo: InMemoryFilingPartyRepository;
+  let filingDocumentRepo: InMemoryFilingDocumentRepository;
+  let outboundMessageRepo: InMemoryOutboundMessageRepository;
+  let messagingClient: FakeMessagingClient;
+  let deps: FilingDocumentWorkflowDeps;
+  let conversationId: string;
+  let filingId: string;
+
+  async function setUp(documentStorageDeps: FilingDocumentWorkflowDeps["documentStorageDeps"]) {
+    conversationRepo = new InMemoryConversationRepository();
+    filingRepo = new InMemoryFilingRepository(conversationRepo);
+    partyRepo = new InMemoryFilingPartyRepository();
+    filingDocumentRepo = new InMemoryFilingDocumentRepository();
+    outboundMessageRepo = new InMemoryOutboundMessageRepository();
+    messagingClient = createFakeMessagingClient();
+
+    const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+    conversationId = conversation.id;
+    await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
+
+    const filing = await filingRepo.createDraft(undefined, {
+      conversationId,
+      language: "en",
+      role: "COMPLAINANT_ADVOCATE",
+      testNoticeVersion: "v1",
+    });
+    filingId = filing.id;
+
+    deps = {
+      conversationRepo,
+      filingRepo,
+      partyRepo,
+      filingDocumentRepo,
+      outboundMessageRepo,
+      messagingClient,
+      fromNumber: FROM_NUMBER,
+      documentStorageDeps,
+      complainantSenderDeps: {
+        messagingClient,
+        fromNumber: FROM_NUMBER,
+        reviewActionsContentSid: COMPLAINANT_REVIEW_CONTENT_SID,
+        editFieldsContentSid: COMPLAINANT_EDIT_FIELDS_CONTENT_SID,
+        rolePromptContentSid: COMPLAINANT_ROLE_CONTENT_SID,
+      },
+      filingDetailsSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, ...FILING_DETAILS_SENDER_DEPS_CONTENT_SIDS },
+      withTransaction: createInMemoryWithTransaction(),
+    };
+  }
+
+  it("applies a cheque photo's extracted fields onto the filing row and the accused party's name", async () => {
+    const fakeExtractor: FakeDocumentStorageDeps = {
+      ...createFakeDocumentStorageDeps(),
+      documentExtractor: {
+        visionClient: {
+          extractStructured: async () => ({ chequeNumber: "004512", chequeDate: "12-03-2026", chequeAmount: "45000", accusedName: "Rajesh Menon" }),
+        },
+      },
+    };
+    await setUp(fakeExtractor);
+    await filingRepo.setCurrentStep(undefined, filingId, "FILING_DOC_CHEQUE");
+    await conversationRepo.setActiveFilingAndState(undefined, conversationId, filingId, "FILING_DOC_CHEQUE");
+
+    const result = await handleFilingDocChequeInput(deps, {
+      conversationId,
+      whatsappNumber: WHATSAPP_NUMBER,
+      messageId: "SM1",
+      language: "en",
+      text: "",
+      media: [{ url: "https://api.twilio.com/media/ME1", contentType: "image/jpeg", index: 0 }],
+    });
+
+    expect(result.delivered).toBe(true);
+    const filing = filingRepo.findById(filingId);
+    expect(filing).toMatchObject({ chequeNumber: "004512", chequeDate: "2026-03-12", chequeAmount: "45000" });
+    const accused = await partyRepo.findByFilingAndRole(undefined, filingId, "ACCUSED");
+    expect(accused?.fullName).toBe("Rajesh Menon");
+  });
+
+  it("never applies extraction results for the sample-files shortcut (no real bytes to read)", async () => {
+    const fakeExtractor: FakeDocumentStorageDeps = {
+      ...createFakeDocumentStorageDeps(),
+      documentExtractor: { visionClient: { extractStructured: async () => ({ chequeNumber: "should-never-appear" }) } },
+    };
+    await setUp(fakeExtractor);
+    await filingRepo.setCurrentStep(undefined, filingId, "FILING_DOC_CHEQUE");
+    await conversationRepo.setActiveFilingAndState(undefined, conversationId, filingId, "FILING_DOC_CHEQUE");
+
+    await handleFilingDocChequeInput(deps, {
+      conversationId,
+      whatsappNumber: WHATSAPP_NUMBER,
+      messageId: "SM1",
+      language: "en",
+      text: "sample",
+      media: [],
+    });
+
+    const filing = filingRepo.findById(filingId);
+    expect(filing?.chequeNumber).toBeNull();
+  });
+
+  it("upgrades to the reading + \"here's what I read\" cascade once something was actually extracted", async () => {
+    await setUp(createFakeDocumentStorageDeps());
+    await filingRepo.upsertFilingFields(undefined, filingId, { chequeNumber: "004512", chequeAmount: "45000" });
+    await filingRepo.setCurrentStep(undefined, filingId, "FILING_DOC_SUPPORT");
+    await conversationRepo.setActiveFilingAndState(undefined, conversationId, filingId, "FILING_DOC_SUPPORT");
+
+    const result = await handleFilingDocSupportInput(deps, {
+      conversationId,
+      whatsappNumber: WHATSAPP_NUMBER,
+      messageId: "SM1",
+      language: "en",
+      text: "done",
+      media: [],
+    });
+
+    expect(result.delivered).toBe(true);
+    const bodies = messagingClient.sendText.mock.calls.map((call) => call[0].body);
+    expect(bodies.some((body) => /reading them now/i.test(body))).toBe(true);
+    expect(bodies.some((body) => /004512/.test(body) && /45000|45,000/.test(body))).toBe(true);
+    expect(bodies.some((body) => /AI assistant/i.test(body))).toBe(true);
+  });
+
+  it("falls back to the plain acknowledgement when nothing was extracted for this filing", async () => {
+    await setUp(createFakeDocumentStorageDeps());
+    await filingRepo.setCurrentStep(undefined, filingId, "FILING_DOC_SUPPORT");
+    await conversationRepo.setActiveFilingAndState(undefined, conversationId, filingId, "FILING_DOC_SUPPORT");
+
+    await handleFilingDocSupportInput(deps, {
+      conversationId,
+      whatsappNumber: WHATSAPP_NUMBER,
+      messageId: "SM1",
+      language: "en",
+      text: "done",
+      media: [],
+    });
+
+    const bodies = messagingClient.sendText.mock.calls.map((call) => call[0].body);
+    expect(bodies.some((body) => /reading them now/i.test(body))).toBe(false);
+    expect(bodies.some((body) => /Got all your documents/.test(body))).toBe(true);
   });
 });

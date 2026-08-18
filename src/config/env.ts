@@ -90,6 +90,14 @@ const envSchema = z.object({
   // #31: durable storage for uploaded filing documents (Vercel Blob). Set
   // automatically when a Blob store is linked to the Vercel project.
   BLOB_READ_WRITE_TOKEN: z.string().min(1, "BLOB_READ_WRITE_TOKEN is required"),
+  // #40 (document auto-extraction): optional — when unset, cheque/memo/notice
+  // photos are never sent anywhere for reading and every upload behaves
+  // exactly as it did before this feature existed (fully manual entry, no
+  // "reading" cascade). ANTHROPIC_BASE_URL/ANTHROPIC_MODEL let this point at
+  // a custom-hosted endpoint/deployment instead of api.anthropic.com directly.
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_BASE_URL: z.string().optional(),
+  ANTHROPIC_MODEL: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

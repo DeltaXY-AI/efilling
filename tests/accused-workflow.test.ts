@@ -350,6 +350,17 @@ describe("accused-workflow", () => {
       expect(party?.confirmedAt).toBeInstanceOf(Date);
     });
 
+    // #40 (document auto-extraction).
+    it("shows the auto-filled cheque number in the cheque-number prompt when the cheque photo already yielded one", async () => {
+      await filingRepo.upsertFilingFields(undefined, filingId, { chequeNumber: "004512" });
+
+      await handleAccusedConfirmInput(deps, actionInput({ selection: { buttonPayload: "accused:confirm" } }));
+
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("Auto-filled from your documents: 004512") }),
+      );
+    });
+
     it("never sends any message directly to the accused phone number — only to the advocate's own WhatsApp number", async () => {
       await handleAccusedConfirmInput(deps, actionInput({ selection: { buttonPayload: "accused:confirm" } }));
 

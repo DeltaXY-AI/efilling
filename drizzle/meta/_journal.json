@@ -127,6 +127,13 @@
       "when": 1786986510032,
       "tag": "0017_young_masked_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786991108636,
+      "tag": "0018_known_havok",
+      "breakpoints": true
     }
   ]
 }

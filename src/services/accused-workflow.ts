@@ -696,6 +696,11 @@ async function redisplayConfirm(deps: AccusedWorkflowDeps, input: AccusedActionI
 }
 
 async function confirmAccused(deps: AccusedWorkflowDeps, input: AccusedActionInput): Promise<AccusedWorkflowResult> {
+  // #40: whatever the cheque photo's own number extraction already wrote
+  // onto the filing row, if any — captured from the same lockedFiling read
+  // below, never a second lookup.
+  let chequeNumberSuggestion: string | null = null;
+
   const commit = await commitWithOutbound(deps, input, async (tx, locked) => {
     if (locked.state !== "ACCUSED_CONFIRM") {
       return { committed: false };
@@ -713,6 +718,7 @@ async function confirmAccused(deps: AccusedWorkflowDeps, input: AccusedActionInp
     if (lockedFiling.currentStep !== "ACCUSED_CONFIRM") {
       return { committed: false };
     }
+    chequeNumberSuggestion = lockedFiling.chequeNumber;
 
     const party = await deps.partyRepo.findByFilingAndRole(tx, lockedFiling.id, "ACCUSED");
     // #11 Part I: valid only with full/legal name and address present (each
@@ -745,7 +751,7 @@ async function confirmAccused(deps: AccusedWorkflowDeps, input: AccusedActionInp
   const delivered = await sendFilingPlainText(deps.accusedSenderDeps, sendInput, RECORDED_TEXT[input.language], "accused_recorded_send_failed");
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
 
-  const chequePromptDelivered = await sendFilingChequeNumberPrompt(deps.accusedSenderDeps, sendInput);
+  const chequePromptDelivered = await sendFilingChequeNumberPrompt(deps.accusedSenderDeps, sendInput, chequeNumberSuggestion);
   await finalizeOutbound(deps, commit.outboundIds[1], chequePromptDelivered);
 
   return { delivered: delivered && chequePromptDelivered };
