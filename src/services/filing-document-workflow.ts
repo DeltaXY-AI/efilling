@@ -19,6 +19,7 @@ import type { ComplainantSenderDeps } from "./complainant-sender";
 import { sendComplainantRolePrompt } from "./complainant-sender";
 import { sendCourtPrompt, formatReturnReasonLabel, type FilingDetailsSenderDeps } from "./filing-details-sender";
 import { sendFilingPlainText } from "./filing-sender";
+import { formatIndianAmount } from "./filing-draft-list-sender";
 import { formatIsoDateAsDisplay } from "../lib/format-ist-date";
 import type { SupportedLanguage } from "./main-menu-sender";
 import { storeFilingDocument, type FilingDocumentStorageDeps } from "./filing-document-storage";
@@ -227,8 +228,8 @@ const UNRECOGNIZED_INPUT_TEXT: Record<SupportedLanguage, string> = {
 // actually yielded something — #40's reversal of #32's original "no OCR"
 // decision, now backed by a real extraction step (see buildExtractionSummaryText).
 const READING_TEXT: Record<SupportedLanguage, string> = {
-  en: "✓ Got all your documents.\n\nReading them now — this usually takes under a minute.",
-  ml: "✓ നിങ്ങളുടെ എല്ലാ രേഖകളും ലഭിച്ചു.\n\nഇപ്പോൾ വായിക്കുന്നു — സാധാരണയായി ഒരു മിനിറ്റിനുള്ളിൽ പൂർത്തിയാകും.",
+  en: "✓ Got all your documents.\n\nReading them now — this usually takes under a minute. You'll get a message the moment I'm done, so you can close WhatsApp if you like.",
+  ml: "✓ നിങ്ങളുടെ എല്ലാ രേഖകളും ലഭിച്ചു.\n\nഇപ്പോൾ വായിക്കുന്നു — സാധാരണയായി ഒരു മിനിറ്റിനുള്ളിൽ പൂർത്തിയാകും. പൂർത്തിയാകുമ്പോൾ നിങ്ങൾക്ക് സന്ദേശം ലഭിക്കും, വേണമെങ്കിൽ WhatsApp അടച്ചുവെക്കാം.",
 };
 
 // The plain acknowledgement — unchanged from #32's original wording, still
@@ -286,7 +287,7 @@ function buildExtractionSummaryText(language: SupportedLanguage, filing: FilingR
   const labels = EXTRACTION_SUMMARY_LABEL[language];
   const lines: string[] = [];
   if (filing.chequeNumber) lines.push(`• ${labels.chequeNumber}: ${filing.chequeNumber}`);
-  if (filing.chequeAmount) lines.push(`• ${labels.amount}: ₹${filing.chequeAmount}`);
+  if (filing.chequeAmount) lines.push(`• ${labels.amount}: ₹${formatIndianAmount(filing.chequeAmount)}`);
   if (filing.chequeDate) lines.push(`• ${labels.chequeDate}: ${formatIsoDateAsDisplay(filing.chequeDate)}`);
   if (filing.bankBranch) lines.push(`• ${labels.bankBranch}: ${filing.bankBranch}`);
   if (filing.returnReason) lines.push(`• ${labels.returnReason}: ${formatReturnReasonLabel(language, filing.returnReason)}`);

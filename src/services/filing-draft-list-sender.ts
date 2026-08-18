@@ -53,7 +53,10 @@ function truncate(text: string, maxLength: number): string {
 }
 
 // Indian digit grouping (last 3 digits, then groups of 2) — e.g. "450000" -> "4,50,000".
-function formatIndianAmount(raw: string): string {
+// Exported for reuse by anywhere else a chequeAmount is shown to a human
+// (filing-document-workflow.ts's extraction summary, filing-details-workflow.ts's
+// auto-fill suggestion) — never a second, inconsistent formatter.
+export function formatIndianAmount(raw: string): string {
   const digits = raw.replace(/\D/g, "");
   if (!digits) {
     return raw;

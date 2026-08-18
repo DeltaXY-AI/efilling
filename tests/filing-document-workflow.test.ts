@@ -531,7 +531,12 @@ describe("filing-document-workflow — #40 document auto-extraction", () => {
     expect(result.delivered).toBe(true);
     const bodies = messagingClient.sendText.mock.calls.map((call) => call[0].body);
     expect(bodies.some((body) => /reading them now/i.test(body))).toBe(true);
-    expect(bodies.some((body) => /004512/.test(body) && /45000|45,000/.test(body))).toBe(true);
+    // The "you can close WhatsApp" reassurance lives on the same reading
+    // message as the "reading them now" line above, not a separate send.
+    expect(bodies.some((body) => /close WhatsApp/i.test(body))).toBe(true);
+    // Indian-grouped, not the raw stored digits — matches every other place
+    // chequeAmount is shown to a human (filing-draft-list-sender.ts).
+    expect(bodies.some((body) => /004512/.test(body) && /₹45,000/.test(body))).toBe(true);
     expect(bodies.some((body) => /AI assistant/i.test(body))).toBe(true);
   });
 
