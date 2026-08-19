@@ -18,8 +18,6 @@ const DRAFT_CHOICE_CONTENT_SID = { en: "HXdraftchoiceen00000000000000000000", ml
 const NOTICE_CONTENT_SID = { en: "HXnoticeen000000000000000000000000", ml: "HXnoticeml000000000000000000000000" };
 const CASE_TYPE_PROMPT_CONTENT_SID = { en: "HXctypeEn0000000000000000000000000", ml: "HXctypeMl0000000000000000000000000" };
 const OTHER_CASE_TYPES_CONTENT_SID = { en: "HXotypesEn000000000000000000000000", ml: "HXotypesMl000000000000000000000000" };
-const ENROLMENT_PROMPT_CONTENT_SID = { en: "HXenrolpromptEn00000000000000000000", ml: "HXenrolpromptMl00000000000000000000" };
-const ENROLMENT_CONFIRM_CONTENT_SID = { en: "HXenrolconfirmEn0000000000000000000", ml: "HXenrolconfirmMl0000000000000000000" };
 const COMPLAINANT_REVIEW_CONTENT_SID = { en: "HXcreviewEn00000000000000000000000", ml: "HXcreviewMl00000000000000000000000" };
 const COMPLAINANT_EDIT_FIELDS_CONTENT_SID = { en: "HXceditEn000000000000000000000000", ml: "HXceditMl000000000000000000000000" };
 const ACCUSED_REVIEW_CONTENT_SID = { en: "HXareviewEn000000000000000000000000", ml: "HXareviewMl000000000000000000000000" };
@@ -79,12 +77,6 @@ describe("routeInboundMessage", () => {
     conversationRepo = new InMemoryConversationRepository();
     messagingClient = createFakeMessagingClient();
     const mainMenuSenderDeps = { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID };
-    const enrolmentSenderDeps = {
-      messagingClient,
-      fromNumber: FROM_NUMBER,
-      promptContentSid: ENROLMENT_PROMPT_CONTENT_SID,
-      confirmContentSid: ENROLMENT_CONFIRM_CONTENT_SID,
-    };
     filingRepo = new InMemoryFilingRepository(conversationRepo);
     partyRepo = new InMemoryFilingPartyRepository();
     const filingDocumentRepo = new InMemoryFilingDocumentRepository();
@@ -125,7 +117,6 @@ describe("routeInboundMessage", () => {
         otherCaseTypesContentSid: OTHER_CASE_TYPES_CONTENT_SID,
       },
       mainMenuSenderDeps,
-      enrolmentSenderDeps,
       complainantSenderDeps,
       accusedSenderDeps,
       filingDetailsSenderDeps,
@@ -164,15 +155,6 @@ describe("routeInboundMessage", () => {
       mainMenuSenderDeps,
       filingWorkflowDeps,
       caseTypeWorkflowDeps,
-      enrolmentWorkflowDeps: {
-        conversationRepo,
-        filingRepo,
-        outboundMessageRepo,
-        enrolmentSenderDeps,
-        mainMenuSenderDeps,
-        complainantSenderDeps,
-        withTransaction: createInMemoryWithTransaction(),
-      },
       filingDocumentWorkflowDeps: {
         conversationRepo,
         filingRepo,
@@ -346,7 +328,9 @@ describe("routeInboundMessage", () => {
     await routeInboundMessage(deps, baseInput({ buttonPayload: "filing:accept-test-notice" }));
 
     const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-    expect(after).toMatchObject({ state: "ADVOCATE_ENROLMENT_PENDING" });
+    // Reference-parity fix: accepting the test notice cascades straight into
+    // FILING_DOC_CHEQUE now — no ADVOCATE_ENROLMENT_PENDING gate in between.
+    expect(after).toMatchObject({ state: "FILING_DOC_CHEQUE" });
     expect(after?.activeFilingId).toBeTruthy();
   });
 
@@ -405,45 +389,32 @@ describe("routeInboundMessage", () => {
     expect(messagingClient.sendText).not.toHaveBeenCalled();
   });
 
-  it("routes an ADVOCATE_ENROLMENT_PENDING conversation to the enrolment workflow (#9)", async () => {
-    const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+  it("keeps a legacy ADVOCATE_ENROLMENT_PENDING conversation alive without sending anything (retired gate — see schema.ts)", async () => {
+    await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
     await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
-    const filing = await filingRepo.createDraft(undefined, {
-      conversationId: conversation.id,
-      language: "en",
-      role: "COMPLAINANT_ADVOCATE",
-      testNoticeVersion: "v1",
-    });
-    await conversationRepo.setActiveFilingAndState(undefined, conversation.id, filing.id, "ADVOCATE_ENROLMENT_PENDING");
+    await conversationRepo.setState(WHATSAPP_NUMBER, "ADVOCATE_ENROLMENT_PENDING", new Date());
+    messagingClient.sendContentTemplate.mockClear();
+    messagingClient.sendText.mockClear();
 
     const result = await routeInboundMessage(deps, baseInput({ body: "ker / 1234 / 2010" }));
 
     expect(result.delivered).toBe(true);
-    const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-    expect(after).toMatchObject({ state: "ADVOCATE_ENROLMENT_CONFIRM" });
+    expect(messagingClient.sendContentTemplate).not.toHaveBeenCalled();
+    expect(messagingClient.sendText).not.toHaveBeenCalled();
   });
 
-  it("routes an ADVOCATE_ENROLMENT_CONFIRM conversation to the enrolment workflow (#9)", async () => {
-    const conversation = await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
+  it("keeps a legacy ADVOCATE_ENROLMENT_CONFIRM conversation alive without sending anything (retired gate — see schema.ts)", async () => {
+    await conversationRepo.createAwaitingLanguage(WHATSAPP_NUMBER, new Date());
     await conversationRepo.setLanguageAndMainMenu(WHATSAPP_NUMBER, "en", new Date());
-    const filing = await filingRepo.createDraft(undefined, {
-      conversationId: conversation.id,
-      language: "en",
-      role: "COMPLAINANT_ADVOCATE",
-      testNoticeVersion: "v1",
-    });
-    await filingRepo.saveEnrolmentCandidate(undefined, filing.id, { original: "KER/1234/2010", normalized: "KER/1234/2010" });
-    await conversationRepo.setActiveFilingAndState(undefined, conversation.id, filing.id, "ADVOCATE_ENROLMENT_CONFIRM");
+    await conversationRepo.setState(WHATSAPP_NUMBER, "ADVOCATE_ENROLMENT_CONFIRM", new Date());
+    messagingClient.sendContentTemplate.mockClear();
+    messagingClient.sendText.mockClear();
 
     const result = await routeInboundMessage(deps, baseInput({ buttonPayload: "enrolment:confirm" }));
 
     expect(result.delivered).toBe(true);
-    // #31: confirming enrolment now cascades straight into FILING_DOC_CHEQUE,
-    // the first of 5 document-upload groups — replaces #10 Part A's original
-    // COMPLAINANT_NAME_PENDING cascade target.
-    const after = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-    expect(after).toMatchObject({ state: "FILING_DOC_CHEQUE" });
-    expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("The cheque") }));
+    expect(messagingClient.sendContentTemplate).not.toHaveBeenCalled();
+    expect(messagingClient.sendText).not.toHaveBeenCalled();
   });
 
   it("keeps a legacy COMPLAINANT_DETAILS_START conversation alive without sending anything (never persisted going forward — see schema.ts)", async () => {

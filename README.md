@@ -20,11 +20,10 @@ See [PRD.md](./PRD.md) for the complete product requirements.
 The backend is a TypeScript/Express application with a health endpoint, an
 authenticated Twilio WhatsApp Sandbox webhook, a bilingual (English/
 Malayalam) language-selection flow, a localized Complainant Advocate main
-menu with routing, filing-draft creation/resume, advocate-enrolment number
-capture/confirmation, and complainant/accused contact/address details
-collection, review, and confirmation, all with transactional,
-concurrency-safe state transitions and durable conversation persistence,
-deployable to Vercel.
+menu with routing, filing-draft creation/resume, document collection, and
+complainant/accused contact/address details collection, review, and
+confirmation, all with transactional, concurrency-safe state transitions
+and durable conversation persistence, deployable to Vercel.
 
 ## Requirements
 
@@ -46,8 +45,6 @@ the database and creating the Twilio Content Template the language picker uses,
 [docs/main-menu-setup.md](./docs/main-menu-setup.md) for creating the localized main-menu
 Content Templates, [docs/filing-drafts-setup.md](./docs/filing-drafts-setup.md) for
 the filing-draft templates and migration,
-[docs/advocate-enrolment-setup.md](./docs/advocate-enrolment-setup.md) for the
-advocate-enrolment templates and migration,
 [docs/complainant-details-setup.md](./docs/complainant-details-setup.md) for the
 complainant-details templates and migration, and
 [docs/accused-details-setup.md](./docs/accused-details-setup.md) for the
@@ -128,15 +125,17 @@ slice); `menu`/`മെനു` redisplays the current menu. `restart`/`start over
 returns to `AWAITING_LANGUAGE` with the language picker resent, so a user
 stuck mid-flow always has a way back to the start. Accepting the test-data notice creates exactly one filing
 draft (role `COMPLAINANT_ADVOCATE`, status `DRAFT`) inside a single
-row-locked transaction and reaches `ADVOCATE_ENROLMENT_PENDING`, which
-immediately sends the localized enrolment-number prompt. A validated,
-normalized number moves to `ADVOCATE_ENROLMENT_CONFIRM` and shows the
-number back for confirmation; **Confirm** records it as
-`RECORDED_UNVERIFIED` (never `VERIFIED` — no Bar Council integration
-exists) and cascades straight into `COMPLAINANT_NAME_PENDING`, sending the
-complainant name prompt in the same transaction; **Edit** clears the
-candidate and returns to `ADVOCATE_ENROLMENT_PENDING`, and **Save and
-exit** preserves the candidate/`current_step` and returns to `MAIN_MENU`.
+row-locked transaction and reaches `FILING_DOC_CHEQUE` directly — no
+advocate-enrolment-number gate in between (that #9 gate is retired; the
+reference prototype never had one, and a similar enrolment field is
+already captured later, for an advocate filing on a client's behalf, as
+part of the Complainant screen below). The advocate then works through 5
+sequential document-upload groups (cheque, bank return memo, notice + proof
+of service, ID proof, optional supporting documents — see
+`filing-document-workflow.ts`), each accepting one or more photos/PDFs
+before advancing; once the last (optional) group is done, this cascades
+straight into `COMPLAINANT_ROLE_PENDING`, the first field of the
+Complainant screen below.
 
 Name, phone (normalized to E.164 with default country `IN`, via
 `libphonenumber-js`, never marked verified), optional email (`Skip` stores
@@ -167,7 +166,6 @@ party. See
 [docs/language-selection-setup.md](./docs/language-selection-setup.md),
 [docs/main-menu-setup.md](./docs/main-menu-setup.md),
 [docs/filing-drafts-setup.md](./docs/filing-drafts-setup.md),
-[docs/advocate-enrolment-setup.md](./docs/advocate-enrolment-setup.md),
 [docs/complainant-details-setup.md](./docs/complainant-details-setup.md),
 and [docs/accused-details-setup.md](./docs/accused-details-setup.md) for
 the Content Template and database setup this depends on.
@@ -196,11 +194,9 @@ in `twilio/templates/language-selection.json`; the localized main menu is two
 Quick Reply/List Picker Content Templates in
 `twilio/templates/complainant-advocate-menu.{en,ml}.json`; the filing
 draft-choice and test-data-notice templates are four more Quick Reply
-templates in `twilio/templates/filing-{draft-choice,notice}.{en,ml}.json`;
-the advocate-enrolment prompt (`twilio/text`) and confirmation
-(`twilio/quick-reply`, with a `{{1}}` variable for the normalized number)
-templates are four more in
-`twilio/templates/advocate-enrolment-{prompt,confirm}.{en,ml}.json`; the
+templates in `twilio/templates/filing-{draft-choice,notice}.{en,ml}.json`
+(accepting the notice cascades straight into document collection — no
+advocate-enrolment Content Template gate exists anymore); the
 complainant-details review-actions (`twilio/quick-reply`) and edit-fields
 (`twilio/list-picker`) templates are four more in
 `twilio/templates/complainant-{review-actions,edit-fields}.{en,ml}.json`;
@@ -242,8 +238,6 @@ npm run twilio:menu:create            # same, for both the English and Malayalam
 npm run twilio:menu:verify
 npm run twilio:filing:create          # same, for all four filing (draft-choice/notice) templates
 npm run twilio:filing:verify
-npm run twilio:enrolment:create       # same, for all four advocate-enrolment templates
-npm run twilio:enrolment:verify
 npm run twilio:complainant:create     # same, for all six complainant-details templates (incl. #33 Part A's role)
 npm run twilio:complainant:verify
 npm run twilio:accused:create         # same, for all six accused-details templates (incl. #33 Part B's entity type)
@@ -272,9 +266,7 @@ Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`,
 `TWILIO_LANGUAGE_CONTENT_SID`, `TWILIO_MAIN_MENU_CONTENT_SID_EN`,
 `TWILIO_MAIN_MENU_CONTENT_SID_ML`, `TWILIO_FILING_DRAFT_CHOICE_SID_EN`,
 `TWILIO_FILING_DRAFT_CHOICE_SID_ML`, `TWILIO_FILING_NOTICE_SID_EN`,
-`TWILIO_FILING_NOTICE_SID_ML`, `TWILIO_ENROLMENT_PROMPT_SID_EN`,
-`TWILIO_ENROLMENT_PROMPT_SID_ML`, `TWILIO_ENROLMENT_CONFIRM_SID_EN`,
-`TWILIO_ENROLMENT_CONFIRM_SID_ML`, `TWILIO_COMPLAINANT_REVIEW_SID_EN`,
+`TWILIO_FILING_NOTICE_SID_ML`, `TWILIO_COMPLAINANT_REVIEW_SID_EN`,
 `TWILIO_COMPLAINANT_REVIEW_SID_ML`, `TWILIO_COMPLAINANT_EDIT_FIELDS_SID_EN`,
 `TWILIO_COMPLAINANT_EDIT_FIELDS_SID_ML`, `TWILIO_ACCUSED_REVIEW_SID_EN`,
 `TWILIO_ACCUSED_REVIEW_SID_ML`, `TWILIO_ACCUSED_EDIT_FIELDS_SID_EN`,
@@ -301,7 +293,6 @@ in the Vercel project's **Production** environment (see
 [docs/language-selection-setup.md](./docs/language-selection-setup.md),
 [docs/main-menu-setup.md](./docs/main-menu-setup.md),
 [docs/filing-drafts-setup.md](./docs/filing-drafts-setup.md),
-[docs/advocate-enrolment-setup.md](./docs/advocate-enrolment-setup.md),
 [docs/complainant-details-setup.md](./docs/complainant-details-setup.md),
 and [docs/accused-details-setup.md](./docs/accused-details-setup.md)).
 Redeploy after changing any environment variable. Any variables added later

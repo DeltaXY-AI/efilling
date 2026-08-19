@@ -134,6 +134,13 @@
       "when": 1786991108636,
       "tag": "0018_known_havok",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1787118951435,
+      "tag": "0019_backfill_enrolment_gate_removal",
+      "breakpoints": true
     }
   ]
 }

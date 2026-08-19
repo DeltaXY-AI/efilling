@@ -5,10 +5,13 @@ confirming the complainant's contact and address details (V6A / #10):
 applying the `filing_parties` migration, creating the two Twilio Content
 Templates, and verifying the collect/review/edit/confirm/save-and-exit/
 resume flows. It assumes
-[docs/advocate-enrolment-setup.md](./advocate-enrolment-setup.md) is already
-done — this slice reuses that same database, transaction/outbox mechanism,
-and `ADVOCATE_ENROLMENT_CONFIRM -> ...` entry point, not a second
-implementation.
+[docs/filing-drafts-setup.md](./filing-drafts-setup.md) is already
+done — this slice reuses that same database and transaction/outbox
+mechanism, not a second implementation. The entry point is reached via the
+document-collection cascade (see `filing-document-workflow.ts`), which
+follows accepting the test notice directly — there is no separate
+advocate-enrolment gate in between (retired; see `filing-workflow.ts`'s
+`handleFilingNoticeInput`).
 
 The MVP supports exactly one complainant per filing. Accused details are
 out of scope — they belong to V6B, which will reuse the same
@@ -80,7 +83,7 @@ mid-filing, so neither is ever submitted for WhatsApp template approval.
 ## 3. Configure environment variables
 
 In addition to the variables from
-[docs/advocate-enrolment-setup.md](./advocate-enrolment-setup.md), set:
+[docs/filing-drafts-setup.md](./filing-drafts-setup.md), set:
 
 ```env
 TWILIO_COMPLAINANT_REVIEW_SID_EN=HXxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
@@ -143,7 +146,7 @@ Redeploy after changing any environment variable.
 ## Retry/reconciliation behaviour
 
 Exactly as in
-[docs/advocate-enrolment-setup.md](./advocate-enrolment-setup.md): every
+[docs/filing-drafts-setup.md](./filing-drafts-setup.md): every
 committed complainant-details transition enqueues a durable
 `outbound_messages` row inside the same transaction as the domain write,
 before it commits. If the follow-up Twilio send then fails, the webhook

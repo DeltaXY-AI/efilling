@@ -36,8 +36,9 @@ export interface TransactionalOutboundDeps {
  * happens once), that intent is dropped rather than duplicated.
  *
  * Shared by every workflow that transitions conversation state (#8's
- * filing-workflow, #9's enrolment-workflow) so there is exactly one
- * commit-then-enqueue implementation, never a second independent copy.
+ * filing-workflow, #31's filing-document-workflow, and every other
+ * workflow file in this codebase) so there is exactly one commit-then-
+ * enqueue implementation, never a second independent copy.
  */
 export async function commitWithOutbound(
   deps: TransactionalOutboundDeps,

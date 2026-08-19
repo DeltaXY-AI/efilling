@@ -675,10 +675,11 @@ export function handleFilingWrittenAccountEntry(deps: { messagingClient: TwilioM
 }
 
 /**
- * Sends the cheque-group prompt on its own — used by enrolment-workflow.ts's
- * confirmEnrolment to cascade straight from ADVOCATE_ENROLMENT_CONFIRM into
- * FILING_DOC_CHEQUE (#31), which only needs the minimal messaging shape, not
- * the rest of FilingDocumentWorkflowDeps.
+ * Sends the cheque-group prompt on its own — used by filing-workflow.ts's
+ * handleFilingNoticeInput to cascade straight from FILING_NOTICE into
+ * FILING_DOC_CHEQUE (#31; reference-parity fix retired the #9 enrolment gate
+ * that used to sit in between), which only needs the minimal messaging
+ * shape, not the rest of FilingDocumentWorkflowDeps.
  */
 export function sendFilingDocChequePrompt(deps: { messagingClient: TwilioMessagingClient; fromNumber: string }, sendInput: SendInput): Promise<boolean> {
   return sendFilingPlainText(deps, sendInput, promptText("cheque", sendInput.language), "filing_document_cheque_prompt_send_failed");

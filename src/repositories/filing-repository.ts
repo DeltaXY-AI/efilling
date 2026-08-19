@@ -19,7 +19,14 @@ export interface FilingRecord {
   language: ConversationLanguage;
   testNoticeVersion: string | null;
   testNoticeAcceptedAt: Date | null;
-  /** #9 Part B — the advocate's typed enrolment candidate. Never conflated: the trimmed original and the normalized value are separate fields. */
+  /**
+   * #9 Part B — the advocate's typed enrolment candidate. Retired by the
+   * reference-parity fix that dropped the ADVOCATE_ENROLMENT_PENDING/CONFIRM
+   * gate: never written by any current code path, kept only so a filing
+   * created before that change still reads back its historical value. Never
+   * conflated: the trimmed original and the normalized value are separate
+   * fields.
+   */
   advocateEnrolmentOriginal: string | null;
   advocateEnrolmentNormalized: string | null;
   /** Never "VERIFIED" — no Bar Council integration exists in this slice. */
@@ -75,11 +82,6 @@ export interface CreateDraftInput {
   language: ConversationLanguage;
   role: FilingRole;
   testNoticeVersion: string;
-}
-
-export interface SaveEnrolmentCandidateInput {
-  original: string;
-  normalized: string;
 }
 
 /**
@@ -168,41 +170,25 @@ export interface FilingRepository {
    */
   findActiveDraft(tx: RepositoryTransaction, conversationId: string): Promise<FilingRecord | null>;
 
-  /** Creates a new DRAFT filing with current_step fixed to ADVOCATE_ENROLMENT_PENDING (#8 Part H). Does not touch the conversation. */
+  /**
+   * Creates a new DRAFT filing with current_step fixed to FILING_DOC_CHEQUE
+   * — reference-parity fix: accepting the test notice cascades straight into
+   * document collection now, no ADVOCATE_ENROLMENT_PENDING gate in between
+   * (see filing-workflow.ts's handleFilingNoticeInput). Does not touch the
+   * conversation.
+   */
   createDraft(tx: RepositoryTransaction, input: CreateDraftInput): Promise<FilingRecord>;
 
   recordNoticeAcceptance(tx: RepositoryTransaction, filingId: string, acceptedAt: Date): Promise<void>;
 
   /**
    * Locks the filing row for the remainder of `tx` (`SELECT ... FOR
-   * UPDATE`) — #9 Part K uses this to serialize a concurrent Confirm/Edit
-   * on the same filing so only the first valid transition applies. Throws
-   * `FilingNotFoundError` if the row no longer exists.
+   * UPDATE`) — used to serialize a concurrent action on the same filing so
+   * only the first valid transition applies (e.g. #33 Part F's
+   * declare/edit-group races). Throws `FilingNotFoundError` if the row no
+   * longer exists.
    */
   lockById(tx: RepositoryTransaction, filingId: string): Promise<FilingRecord>;
-
-  /**
-   * Records a new enrolment candidate as PENDING_CONFIRMATION and advances
-   * `current_step` to ADVOCATE_ENROLMENT_CONFIRM (#9 Part F).
-   */
-  saveEnrolmentCandidate(tx: RepositoryTransaction, filingId: string, input: SaveEnrolmentCandidateInput): Promise<void>;
-
-  /**
-   * Marks the pending candidate RECORDED_UNVERIFIED with a confirmation
-   * timestamp and advances `current_step` to FILING_DOC_CHEQUE — cascading
-   * straight into document collection in the same transaction (#9 Part G;
-   * #31's cascade target, replacing #10 Part A's original
-   * COMPLAINANT_NAME_PENDING, which is now reached only after all 5
-   * document groups are done).
-   */
-  confirmEnrolment(tx: RepositoryTransaction, filingId: string, confirmedAt: Date): Promise<void>;
-
-  /**
-   * Clears the enrolment candidate and resets `current_step` back to
-   * ADVOCATE_ENROLMENT_PENDING (#9 Part H, Edit) so a fresh number can be
-   * entered without corrupting the rest of the filing.
-   */
-  clearEnrolmentCandidate(tx: RepositoryTransaction, filingId: string): Promise<void>;
 
   /**
    * Generic `current_step` setter (#10 Part B: "The conversation state and

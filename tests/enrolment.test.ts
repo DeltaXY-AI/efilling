@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeEnrolmentNumber, parseEnrolmentConfirmAction, validateEnrolmentNumber } from "../src/domain/enrolment";
+import { normalizeEnrolmentNumber, validateEnrolmentNumber } from "../src/domain/enrolment";
 
 describe("normalizeEnrolmentNumber", () => {
   it("uppercases and removes whitespace around separators", () => {
@@ -78,42 +78,5 @@ describe("validateEnrolmentNumber", () => {
     // outbound message — this is asserted structurally: it's typed as one
     // of a closed set of internal enum values, not a display string.
     expect(["REQUIRED", "INVALID_LENGTH", "INVALID_CHARACTERS", "DIGIT_REQUIRED"]).toContain(result.reason);
-  });
-});
-
-describe("parseEnrolmentConfirmAction", () => {
-  it.each([
-    ["1", "enrolment:confirm"],
-    ["Confirm", "enrolment:confirm"],
-    ["സ്ഥിരീകരിക്കുക", "enrolment:confirm"],
-    ["2", "enrolment:edit"],
-    ["Edit", "enrolment:edit"],
-    ["എഡിറ്റ് ചെയ്യുക", "enrolment:edit"],
-    ["3", "filing:save-exit"],
-    ["Save and exit", "filing:save-exit"],
-    ["സേവ് ചെയ്ത് പുറത്തുപോകുക", "filing:save-exit"],
-  ])("recognizes typed %s as %s", (value, expected) => {
-    expect(parseEnrolmentConfirmAction({ body: value })).toBe(expected);
-  });
-
-  it.each(["enrolment:confirm", "enrolment:edit", "filing:save-exit"])("recognizes the stable ButtonPayload %s", (stableId) => {
-    expect(parseEnrolmentConfirmAction({ buttonPayload: stableId })).toBe(stableId);
-  });
-
-  it("treats an unrecognized/stale stable ID as unrecognized, never falling through to a Body match", () => {
-    expect(parseEnrolmentConfirmAction({ buttonPayload: "enrolment:unknown-action", body: "1" })).toBeNull();
-  });
-
-  it("falls back to ButtonText when Body does not match", () => {
-    expect(parseEnrolmentConfirmAction({ body: "not recognized", buttonText: "Edit" })).toBe("enrolment:edit");
-  });
-
-  it("trims whitespace and ignores Latin case", () => {
-    expect(parseEnrolmentConfirmAction({ body: "  CONFIRM  " })).toBe("enrolment:confirm");
-  });
-
-  it("returns null for unrecognized input, without fuzzy matching", () => {
-    expect(parseEnrolmentConfirmAction({ body: "Confirms" })).toBeNull();
-    expect(parseEnrolmentConfirmAction({})).toBeNull();
   });
 });

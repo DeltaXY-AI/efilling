@@ -10,7 +10,7 @@ export interface TwilioMessagingClient {
     from: string;
     to: string;
     contentSid: string;
-    /** Values for the template's `{{n}}` placeholders (#9's enrolment confirmation uses `{{1}}`). Omit entirely for templates with no variables. */
+    /** Values for the template's `{{n}}` placeholders (e.g. #36's draft-list rows use `{{1}}..{{19}}`). Omit entirely for templates with no variables. */
     contentVariables?: Record<string, string>;
   }): Promise<void>;
   sendText(input: { from: string; to: string; body: string }): Promise<void>;

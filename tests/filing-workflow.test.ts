@@ -22,8 +22,6 @@ const DRAFT_CHOICE_CONTENT_SID = { en: "HXdraftchoiceen00000000000000000000", ml
 const NOTICE_CONTENT_SID = { en: "HXnoticeen000000000000000000000000", ml: "HXnoticeml000000000000000000000000" };
 const CASE_TYPE_PROMPT_CONTENT_SID = { en: "HXctypeEn0000000000000000000000000", ml: "HXctypeMl0000000000000000000000000" };
 const OTHER_CASE_TYPES_CONTENT_SID = { en: "HXotypesEn000000000000000000000000", ml: "HXotypesMl000000000000000000000000" };
-const ENROLMENT_PROMPT_CONTENT_SID = { en: "HXenrolpromptEn00000000000000000000", ml: "HXenrolpromptMl00000000000000000000" };
-const ENROLMENT_CONFIRM_CONTENT_SID = { en: "HXenrolconfirmEn0000000000000000000", ml: "HXenrolconfirmMl0000000000000000000" };
 const COMPLAINANT_REVIEW_CONTENT_SID = { en: "HXcreviewEn00000000000000000000000", ml: "HXcreviewMl00000000000000000000000" };
 const COMPLAINANT_EDIT_FIELDS_CONTENT_SID = { en: "HXceditEn000000000000000000000000", ml: "HXceditMl000000000000000000000000" };
 const ACCUSED_REVIEW_CONTENT_SID = { en: "HXareviewEn000000000000000000000000", ml: "HXareviewMl000000000000000000000000" };
@@ -87,12 +85,6 @@ describe("filing-workflow", () => {
         otherCaseTypesContentSid: OTHER_CASE_TYPES_CONTENT_SID,
       },
       mainMenuSenderDeps: { messagingClient, fromNumber: FROM_NUMBER, contentSidByLanguage: MAIN_MENU_CONTENT_SID },
-      enrolmentSenderDeps: {
-        messagingClient,
-        fromNumber: FROM_NUMBER,
-        promptContentSid: ENROLMENT_PROMPT_CONTENT_SID,
-        confirmContentSid: ENROLMENT_CONFIRM_CONTENT_SID,
-      },
       complainantSenderDeps: {
         messagingClient,
         fromNumber: FROM_NUMBER,
@@ -262,7 +254,7 @@ describe("filing-workflow", () => {
       await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_DRAFT_CHOICE", new Date());
     });
 
-    it("filing:resume-draft with a supported current_step resumes it and sends the resumed confirmation", async () => {
+    it("filing:resume-draft with a supported current_step resumes it and resends that step's own prompt", async () => {
       const filing = await filingRepo.createDraft(undefined, {
         conversationId,
         language: "en",
@@ -274,36 +266,34 @@ describe("filing-workflow", () => {
       const result = await handleDraftChoiceInput(deps, actionInput({ selection: { buttonPayload: "filing:resume-draft" } }));
 
       expect(result.delivered).toBe(true);
-      expect(messagingClient.sendText).toHaveBeenCalledWith({
-        from: FROM_NUMBER,
-        to: WHATSAPP_NUMBER,
-        body: "Your saved filing has been resumed.",
-      });
+      // A fresh draft's current_step defaults straight to FILING_DOC_CHEQUE
+      // (reference-parity fix — no ADVOCATE_ENROLMENT_PENDING gate anymore),
+      // so resuming it resends the cheque-group prompt, not the generic
+      // "resumed" text.
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("The cheque") }));
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "ADVOCATE_ENROLMENT_PENDING" });
+      expect(conversation).toMatchObject({ state: "FILING_DOC_CHEQUE" });
     });
 
-    it("#9 Part I: resuming a draft at ADVOCATE_ENROLMENT_CONFIRM restores that step and resends the confirmation with the saved candidate", async () => {
+    it("reference-parity fix: resuming a legacy draft still at ADVOCATE_ENROLMENT_CONFIRM self-corrects both current_step and conversation state to FILING_DOC_CHEQUE", async () => {
       const filing = await filingRepo.createDraft(undefined, {
         conversationId,
         language: "en",
         role: "COMPLAINANT_ADVOCATE",
         testNoticeVersion: "v1",
       });
-      await filingRepo.saveEnrolmentCandidate(undefined, filing.id, { original: "KER/1234/2010", normalized: "KER/1234/2010" });
+      // Simulate a filing left over from before the enrolment gate (#9) was
+      // retired.
+      await filingRepo.setCurrentStep(undefined, filing.id, "ADVOCATE_ENROLMENT_CONFIRM");
       await conversationRepo.setActiveFilingAndState(undefined, conversationId, filing.id, "FILING_DRAFT_CHOICE");
 
       const result = await handleDraftChoiceInput(deps, actionInput({ selection: { buttonPayload: "filing:resume-draft" } }));
 
       expect(result.delivered).toBe(true);
-      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith({
-        from: FROM_NUMBER,
-        to: WHATSAPP_NUMBER,
-        contentSid: ENROLMENT_CONFIRM_CONTENT_SID.en,
-        contentVariables: { "1": "KER/1234/2010" },
-      });
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("The cheque") }));
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "ADVOCATE_ENROLMENT_CONFIRM" });
+      expect(conversation).toMatchObject({ state: "FILING_DOC_CHEQUE" });
+      expect(filingRepo.findById(filing.id)).toMatchObject({ currentStep: "FILING_DOC_CHEQUE" });
     });
 
     it("#10 Part A/B: resuming a legacy draft still at COMPLAINANT_DETAILS_START self-corrects both current_step and conversation state to COMPLAINANT_NAME_PENDING", async () => {
@@ -549,25 +539,25 @@ describe("filing-workflow", () => {
       await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_NOTICE", new Date());
     });
 
-    it("filing:accept-test-notice creates exactly one DRAFT filing and reaches ADVOCATE_ENROLMENT_PENDING", async () => {
+    it("filing:accept-test-notice creates exactly one DRAFT filing and reaches FILING_DOC_CHEQUE", async () => {
       const result = await handleFilingNoticeInput(deps, actionInput({ selection: { buttonPayload: "filing:accept-test-notice" } }));
 
       expect(result.delivered).toBe(true);
       expect(messagingClient.sendText).toHaveBeenCalledWith({
         from: FROM_NUMBER,
         to: WHATSAPP_NUMBER,
-        body: "✓ Your filing draft is ready.\n\nNext, we will record your advocate enrolment details.",
+        body: "✓ Your filing draft is ready.\n\nNext, we will collect the case documents.",
       });
 
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "ADVOCATE_ENROLMENT_PENDING" });
+      expect(conversation).toMatchObject({ state: "FILING_DOC_CHEQUE" });
       expect(conversation?.activeFilingId).toBeTruthy();
 
       const draft = await filingRepo.findActiveDraft(undefined, conversationId);
       expect(draft).toMatchObject({
         role: "COMPLAINANT_ADVOCATE",
         status: "DRAFT",
-        currentStep: "ADVOCATE_ENROLMENT_PENDING",
+        currentStep: "FILING_DOC_CHEQUE",
         language: "en",
         testNoticeVersion: "v1",
       });
@@ -577,18 +567,14 @@ describe("filing-workflow", () => {
       expect(outbound).toMatchObject({ status: "sent", messageType: "FILING_DRAFT_CREATED", conversationId });
     });
 
-    it("#9 acceptance criterion: entering ADVOCATE_ENROLMENT_PENDING sends the enrolment prompt, durably tracked in its own outbound record", async () => {
+    it("reference-parity fix: entering FILING_DOC_CHEQUE directly sends the cheque-group prompt, durably tracked in its own outbound record", async () => {
       const result = await handleFilingNoticeInput(deps, actionInput({ selection: { buttonPayload: "filing:accept-test-notice" } }));
 
       expect(result.delivered).toBe(true);
-      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith({
-        from: FROM_NUMBER,
-        to: WHATSAPP_NUMBER,
-        contentSid: ENROLMENT_PROMPT_CONTENT_SID.en,
-      });
+      expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("The cheque") }));
 
-      const outbound = outboundMessageRepo.findByDedupeKey("SM2:enrolment-prompt");
-      expect(outbound).toMatchObject({ status: "sent", messageType: "ADVOCATE_ENROLMENT_PROMPT", conversationId });
+      const outbound = outboundMessageRepo.findByDedupeKey("SM2:filing-doc-cheque-prompt");
+      expect(outbound).toMatchObject({ status: "sent", messageType: "FILING_DOC_CHEQUE_PROMPT", conversationId });
     });
 
     it("commits the draft and enqueues a durable outbound record even when the completion send fails, and a later retry cannot duplicate it", async () => {
@@ -601,7 +587,7 @@ describe("filing-workflow", () => {
       // silently lose the fact that a draft was created.
       expect(result.delivered).toBe(false);
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "ADVOCATE_ENROLMENT_PENDING" });
+      expect(conversation).toMatchObject({ state: "FILING_DOC_CHEQUE" });
       const filingId = conversation?.activeFilingId;
       expect(filingId).toBeTruthy();
 
@@ -639,11 +625,12 @@ describe("filing-workflow", () => {
       expect(messagingClient.sendText).toHaveBeenCalledWith({
         from: FROM_NUMBER,
         to: WHATSAPP_NUMBER,
-        body: "✓ നിങ്ങളുടെ ഫയലിംഗ് ഡ്രാഫ്റ്റ് തയ്യാറായി.\n\nഅടുത്തതായി അഭിഭാഷക എൻറോൾമെന്റ് വിവരങ്ങൾ രേഖപ്പെടുത്താം.",
+        body: "✓ നിങ്ങളുടെ ഫയലിംഗ് ഡ്രാഫ്റ്റ് തയ്യാറായി.\n\nഅടുത്തതായി കേസ് രേഖകൾ ശേഖരിക്കും.",
       });
-      // #9: entering ADVOCATE_ENROLMENT_PENDING also sends the Malayalam prompt template.
-      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
-        expect.objectContaining({ contentSid: ENROLMENT_PROMPT_CONTENT_SID.ml }),
+      // Reference-parity fix: entering FILING_DOC_CHEQUE directly also sends
+      // the Malayalam cheque-group prompt (plain text, no Content Template).
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("ചെക്ക്") }),
       );
     });
 
@@ -674,11 +661,12 @@ describe("filing-workflow", () => {
 
       expect(a.delivered).toBe(true);
       expect(b.delivered).toBe(true);
-      // Only one of the two actually created+sent the completion message.
-      expect(messagingClient.sendText).toHaveBeenCalledTimes(1);
+      // Only one of the two actually created+sent anything — the completion
+      // message and the cheque-group prompt, both plain text.
+      expect(messagingClient.sendText).toHaveBeenCalledTimes(2);
 
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
-      expect(conversation).toMatchObject({ state: "ADVOCATE_ENROLMENT_PENDING" });
+      expect(conversation).toMatchObject({ state: "FILING_DOC_CHEQUE" });
       expect(conversation?.activeFilingId).toBeTruthy();
     });
   });
@@ -692,7 +680,7 @@ describe("filing-workflow", () => {
       const firstFilingId = firstConversation?.activeFilingId;
       expect(firstFilingId).toBeTruthy();
       const firstFilingBefore = filingRepo.findById(firstFilingId!);
-      expect(firstFilingBefore).toMatchObject({ status: "DRAFT", currentStep: "ADVOCATE_ENROLMENT_PENDING" });
+      expect(firstFilingBefore).toMatchObject({ status: "DRAFT", currentStep: "FILING_DOC_CHEQUE" });
 
       // Advocate re-enters the menu, sees the draft choice, starts a new
       // filing (now lands on the case-type gate first), picks cheque bounce,
@@ -705,7 +693,7 @@ describe("filing-workflow", () => {
       const secondConversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       expect(secondConversation?.activeFilingId).toBeTruthy();
       expect(secondConversation?.activeFilingId).not.toBe(firstFilingId);
-      expect(secondConversation).toMatchObject({ state: "ADVOCATE_ENROLMENT_PENDING" });
+      expect(secondConversation).toMatchObject({ state: "FILING_DOC_CHEQUE" });
 
       // The first filing row itself — fetched directly by id, not via
       // findActiveDraft (which would now resolve the new one) — must still
