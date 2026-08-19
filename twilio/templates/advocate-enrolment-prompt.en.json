@@ -1,9 +1,0 @@
-{
-  "friendly_name": "oncourts_advocate_enrolment_prompt_v1_en",
-  "language": "en",
-  "types": {
-    "twilio/text": {
-      "body": "Enter your advocate enrolment number.\n\nExample: KER/1234/2010\n\nFor this demonstration, the number will be recorded but not verified with a Bar Council."
-    }
-  }
-}

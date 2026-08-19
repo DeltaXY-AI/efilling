@@ -21,13 +21,20 @@ export const conversationStateEnum = pgEnum("conversation_state", [
   "FILING_CASE_TYPE_PENDING",
   "FILING_OTHER_CASE_TYPES_PENDING",
   "FILING_NOTICE",
+  // Reference-parity fix: ADVOCATE_ENROLMENT_PENDING/CONFIRM (#9) are
+  // retired — accepting the notice now cascades straight into
+  // FILING_DOC_CHEQUE (see filing-workflow.ts's handleFilingNoticeInput),
+  // matching the reference prototype, which has no enrolment gate before
+  // document upload. Kept in this enum only as fossils (Postgres can't drop
+  // enum values in place) so a pre-existing row from before this change can
+  // still be backfilled/resumed — same pattern as COMPLAINANT_DETAILS_START,
+  // ACCUSED_DETAILS_START, CHEQUE_DETAILS_START, DRAFT_READY_START, and
+  // FILING_FILED_START below. Never persisted going forward.
   "ADVOCATE_ENROLMENT_PENDING",
   "ADVOCATE_ENROLMENT_CONFIRM",
-  // #31 (Prototype parity - Phase 3): confirming enrolment now cascades
-  // into FILING_DOC_CHEQUE, the first of 5 sequential document-upload
-  // states, in the same transaction (see enrolment-workflow.ts's
-  // confirmEnrolment). One state per document group, each accepting 1+
-  // media messages before advancing — see filing-document-workflow.ts.
+  // #31 (Prototype parity - Phase 3): one state per document group, each
+  // accepting 1+ media messages before advancing — see
+  // filing-document-workflow.ts.
   "FILING_DOC_CHEQUE",
   "FILING_DOC_MEMO",
   "FILING_DOC_NOTICE",
@@ -236,9 +243,14 @@ export const outboundMessageTypeEnum = pgEnum("outbound_message_type", [
   "FILING_DRAFT_CREATED",
   "FILING_RESUMED",
   "MAIN_MENU",
+  // Retired alongside the two conversation_state values above — kept only as
+  // fossils for historical outbound_messages rows, never enqueued going
+  // forward.
   "ADVOCATE_ENROLMENT_PROMPT",
   "ADVOCATE_ENROLMENT_CONFIRM",
   "ADVOCATE_ENROLMENT_RECORDED",
+  // Shared "save and exit" acknowledgement, sent by several flows (not
+  // enrolment-specific) — never retired.
   "FILING_SAVED",
   // #31: the 5 document-group prompts, sent when advancing into each state.
   "FILING_DOC_CHEQUE_PROMPT",

@@ -9,7 +9,6 @@ import { isRestartRequest } from "../domain/restart";
 import { handleInboundForMainMenu, type MainMenuWorkflowDeps } from "./main-menu-workflow";
 import { handleDraftChoiceInput, handleFilingNoticeInput, type FilingWorkflowDeps } from "./filing-workflow";
 import { handleCaseTypePendingInput, handleOtherCaseTypesPendingInput, type CaseTypeWorkflowDeps } from "./case-type-workflow";
-import { handleEnrolmentConfirmInput, handleEnrolmentInput, type EnrolmentWorkflowDeps } from "./enrolment-workflow";
 import {
   handleFilingDocChequeInput,
   handleFilingDocIdInput,
@@ -108,7 +107,6 @@ export interface InboundRouterDeps {
   mainMenuSenderDeps: MainMenuWorkflowDeps["mainMenuSenderDeps"];
   filingWorkflowDeps: FilingWorkflowDeps;
   caseTypeWorkflowDeps: CaseTypeWorkflowDeps;
-  enrolmentWorkflowDeps: EnrolmentWorkflowDeps;
   filingDocumentWorkflowDeps: FilingDocumentWorkflowDeps;
   complainantWorkflowDeps: ComplainantWorkflowDeps;
   accusedWorkflowDeps: AccusedWorkflowDeps;
@@ -192,7 +190,14 @@ async function handleRestartRequest(
  * via filing-workflow.ts's resumeDraft (the "resume this draft" action
  * from FILING_DRAFT_CHOICE), not by being dispatched here directly; see
  * schema.ts. NEW is the schema column default, never actually persisted
- * by app code. These intentionally keep the
+ * by app code. ADVOCATE_ENROLMENT_PENDING/CONFIRM (#9) are retired the
+ * same way by the reference-parity fix that dropped the enrolment gate —
+ * unlike the other sentinels above, these two used to be real, multi-turn
+ * resting states, so a pre-existing row is expected to already be
+ * forwarded to FILING_DOC_CHEQUE by
+ * drizzle/0019_backfill_enrolment_gate_removal.sql; listed here too only as
+ * a defense-in-depth safety net (e.g. a not-yet-migrated environment) so
+ * such a row is never routed here. These intentionally keep the
  * conversation "alive" without sending anything, per "do not automatically
  * send the menu... while a future filing subflow is waiting for specific
  * input" — unlike a state outside this set, which this deployment has never
@@ -205,6 +210,8 @@ const KNOWN_UNIMPLEMENTED_STATES: ReadonlySet<string> = new Set([
   "NEW",
   "FILING_START",
   "CASE_STATUS_START",
+  "ADVOCATE_ENROLMENT_PENDING",
+  "ADVOCATE_ENROLMENT_CONFIRM",
   "COMPLAINANT_DETAILS_START",
   "ACCUSED_DETAILS_START",
   "CHEQUE_DETAILS_START",
@@ -257,9 +264,10 @@ async function recoverFromUnsupportedState(
  * Dispatches an inbound message to the workflow that owns the
  * conversation's current state: language-workflow for a brand-new
  * conversation or one still AWAITING_LANGUAGE, main-menu-workflow at
- * MAIN_MENU, filing-workflow at FILING_DRAFT_CHOICE/FILING_NOTICE (#8),
- * enrolment-workflow at ADVOCATE_ENROLMENT_PENDING/ADVOCATE_ENROLMENT_CONFIRM
- * (#9), filing-document-workflow at every FILING_DOC_* step (#31),
+ * MAIN_MENU, filing-workflow at FILING_DRAFT_CHOICE/FILING_NOTICE (#8,
+ * cascading straight into FILING_DOC_CHEQUE — the #9 enrolment gate that
+ * used to sit here is retired, see filing-workflow.ts), filing-document-workflow
+ * at every FILING_DOC_* step (#31),
  * complainant-workflow at every COMPLAINANT_* step (#10), accused-workflow
  * at every ACCUSED_* step (#11), filing-sign-workflow at
  * FILING_DRAFT_READY/FILING_OTP_PENDING (#34), filing-completion-workflow
@@ -399,29 +407,15 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
     });
   }
 
-  if (conversation.state === "ADVOCATE_ENROLMENT_PENDING") {
-    return handleEnrolmentInput(deps.enrolmentWorkflowDeps, {
-      conversationId: conversation.id,
-      whatsappNumber: input.whatsappNumber,
-      messageId: input.messageId,
-      language,
-      text: input.body,
-      mediaCount: input.mediaCount ?? 0,
-    });
-  }
+  // ADVOCATE_ENROLMENT_PENDING/ADVOCATE_ENROLMENT_CONFIRM (#9) are retired —
+  // no live dispatch needed here. A conversation is never freshly created at
+  // either state anymore (see filing-workflow.ts's handleFilingNoticeInput);
+  // any pre-existing one is forwarded to FILING_DOC_CHEQUE by the backfill
+  // migration (drizzle/0019_backfill_enrolment_gate_removal.sql), and — as a
+  // defense-in-depth safety net — falls through to KNOWN_UNIMPLEMENTED_STATES
+  // below (kept alive, not stranded) even if it somehow isn't.
 
-  if (conversation.state === "ADVOCATE_ENROLMENT_CONFIRM") {
-    return handleEnrolmentConfirmInput(deps.enrolmentWorkflowDeps, {
-      conversationId: conversation.id,
-      whatsappNumber: input.whatsappNumber,
-      messageId: input.messageId,
-      language,
-      selection,
-    });
-  }
-
-  // #31: the 5 document-upload groups, between enrolment confirmation and
-  // complainant details.
+  // #31: the 5 document-upload groups, reached straight from "Start filing".
   const documentEvent = {
     conversationId: conversation.id,
     whatsappNumber: input.whatsappNumber,

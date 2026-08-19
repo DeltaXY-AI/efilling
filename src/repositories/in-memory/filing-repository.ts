@@ -6,7 +6,6 @@ import {
   type CreateDraftInput,
   type FilingRecord,
   type FilingRepository,
-  type SaveEnrolmentCandidateInput,
   type UpsertFilingFieldsInput,
 } from "../filing-repository";
 import type { RepositoryTransaction } from "../transaction";
@@ -21,11 +20,9 @@ let nextDiaryNumberSeq = 1;
 // #38 — mirrors ia_number_seq the same way.
 let nextIaNumberSeq = 1;
 
-const ADVOCATE_ENROLMENT_PENDING_STEP = "ADVOCATE_ENROLMENT_PENDING";
-const ADVOCATE_ENROLMENT_CONFIRM_STEP = "ADVOCATE_ENROLMENT_CONFIRM";
-// #31: confirming enrolment cascades straight into the first document-upload
-// group (FILING_DOC_CHEQUE) — see the matching comment in
-// drizzle-filing-repository.ts.
+// Reference-parity fix: mirrors drizzle-filing-repository.ts — a new draft's
+// current_step is fixed straight to FILING_DOC_CHEQUE, no
+// ADVOCATE_ENROLMENT_PENDING gate in between anymore.
 const FILING_DOC_CHEQUE_STEP = "FILING_DOC_CHEQUE";
 
 /**
@@ -62,7 +59,7 @@ export class InMemoryFilingRepository implements FilingRepository {
       conversationId: input.conversationId,
       role: input.role,
       status: "DRAFT",
-      currentStep: ADVOCATE_ENROLMENT_PENDING_STEP,
+      currentStep: FILING_DOC_CHEQUE_STEP,
       language: input.language,
       testNoticeVersion: input.testNoticeVersion,
       testNoticeAcceptedAt: null,
@@ -120,33 +117,6 @@ export class InMemoryFilingRepository implements FilingRepository {
     // Return a fresh read, taken only after the lock was actually granted —
     // a concurrent writer that ran while we were queued must be visible.
     return record;
-  }
-
-  async saveEnrolmentCandidate(_tx: RepositoryTransaction, filingId: string, input: SaveEnrolmentCandidateInput): Promise<void> {
-    this.update(filingId, {
-      advocateEnrolmentOriginal: input.original,
-      advocateEnrolmentNormalized: input.normalized,
-      advocateEnrolmentStatus: "PENDING_CONFIRMATION",
-      currentStep: ADVOCATE_ENROLMENT_CONFIRM_STEP,
-    });
-  }
-
-  async confirmEnrolment(_tx: RepositoryTransaction, filingId: string, confirmedAt: Date): Promise<void> {
-    this.update(filingId, {
-      advocateEnrolmentStatus: "RECORDED_UNVERIFIED",
-      advocateEnrolmentConfirmedAt: confirmedAt,
-      currentStep: FILING_DOC_CHEQUE_STEP,
-    });
-  }
-
-  async clearEnrolmentCandidate(_tx: RepositoryTransaction, filingId: string): Promise<void> {
-    this.update(filingId, {
-      advocateEnrolmentOriginal: null,
-      advocateEnrolmentNormalized: null,
-      advocateEnrolmentStatus: null,
-      advocateEnrolmentConfirmedAt: null,
-      currentStep: ADVOCATE_ENROLMENT_PENDING_STEP,
-    });
   }
 
   async setCurrentStep(_tx: RepositoryTransaction, filingId: string, step: string): Promise<void> {

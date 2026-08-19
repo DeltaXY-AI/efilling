@@ -100,7 +100,7 @@ Redeploy after changing any environment variable.
    null for this conversation).
 5. Repeat and select **Start filing**.
 6. Confirm exactly one filing now exists with `role = COMPLAINANT_ADVOCATE`,
-   `status = DRAFT`, `current_step = ADVOCATE_ENROLMENT_PENDING`, and that
+   `status = DRAFT`, `current_step = FILING_DOC_CHEQUE`, and that
    `conversations.active_filing_id` points to it.
 
 ## 5. Verify the existing-draft flow

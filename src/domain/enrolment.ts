@@ -1,7 +1,14 @@
 /**
- * Advocate enrolment number validation, normalization, and confirmation
- * action parsing (#9 Parts C/G/H/I). This slice never verifies a number
- * with a Bar Council — validation here is purely a format check.
+ * Enrolment-number format validation and normalization (#9 Parts C/G,
+ * reused by #33 Part A's representative-enrolment-number field on the
+ * Complainant screen). Never verifies a number with a Bar Council —
+ * validation here is purely a format check.
+ *
+ * The confirm/edit/save-exit action parsing that used to live alongside
+ * this (#9's own ADVOCATE_ENROLMENT_PENDING/CONFIRM gate) was retired by
+ * the reference-parity fix that dropped that gate — see
+ * filing-workflow.ts's handleFilingNoticeInput. This file keeps only the
+ * generic validator, since complainant-workflow.ts still depends on it.
  */
 
 export type EnrolmentValidationReason = "REQUIRED" | "INVALID_LENGTH" | "INVALID_CHARACTERS" | "DIGIT_REQUIRED";
@@ -70,60 +77,4 @@ export function validateEnrolmentNumber(value: string): EnrolmentValidationResul
   }
 
   return { valid: true, original, normalized: normalizeEnrolmentNumber(original) };
-}
-
-export type EnrolmentConfirmAction = "enrolment:confirm" | "enrolment:edit" | "filing:save-exit";
-
-const CONFIRM_ACTIONS: ReadonlySet<string> = new Set(["enrolment:confirm", "enrolment:edit", "filing:save-exit"]);
-
-// Numbers and exact localized titles, matching the fallback numbered list
-// in #9 Part J ("1. Confirm  2. Edit  3. Save and exit"). Matching is
-// case-insensitive for Latin text; Malayalam script has no case.
-const CONFIRM_TEXT_TO_ACTION: Record<string, EnrolmentConfirmAction> = {
-  "1": "enrolment:confirm",
-  confirm: "enrolment:confirm",
-  "സ്ഥിരീകരിക്കുക": "enrolment:confirm",
-  "2": "enrolment:edit",
-  edit: "enrolment:edit",
-  "എഡിറ്റ് ചെയ്യുക": "enrolment:edit",
-  "3": "filing:save-exit",
-  "save and exit": "filing:save-exit",
-  "സേവ് ചെയ്ത് പുറത്തുപോകുക": "filing:save-exit",
-};
-
-/** Same shape as filing-domain's FilingSelectionInput — kept local so this module has no dependency on #8's file. */
-export interface EnrolmentSelectionInput {
-  buttonPayload?: string;
-  buttonText?: string;
-  body?: string;
-}
-
-function resolveStableId(input: EnrolmentSelectionInput): string {
-  return (input.buttonPayload || "").trim();
-}
-
-function resolveTextCandidates(input: EnrolmentSelectionInput): string[] {
-  return [(input.body || "").trim().toLowerCase(), (input.buttonText || "").trim().toLowerCase()];
-}
-
-/**
- * Resolves a recognized enrolment-confirmation action. A supplied stable
- * ID is authoritative — same rule as #8's parseDraftChoiceAction: if
- * present, it's either the action or `null`, never a fallback into text
- * matching. Text fallbacks (numbered/localized title) only apply when no
- * button interaction was supplied at all — this is what the Part J plain-
- * text fallback ("1. Confirm 2. Edit 3. Save and exit") relies on.
- */
-export function parseEnrolmentConfirmAction(input: EnrolmentSelectionInput): EnrolmentConfirmAction | null {
-  const stableId = resolveStableId(input);
-  if (stableId) {
-    return CONFIRM_ACTIONS.has(stableId) ? (stableId as EnrolmentConfirmAction) : null;
-  }
-
-  for (const candidate of resolveTextCandidates(input)) {
-    if (candidate in CONFIRM_TEXT_TO_ACTION) {
-      return CONFIRM_TEXT_TO_ACTION[candidate];
-    }
-  }
-  return null;
 }

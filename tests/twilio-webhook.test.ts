@@ -22,8 +22,6 @@ const DRAFT_CHOICE_CONTENT_SID = { en: env.TWILIO_FILING_DRAFT_CHOICE_SID_EN, ml
 const NOTICE_CONTENT_SID = { en: env.TWILIO_FILING_NOTICE_SID_EN, ml: env.TWILIO_FILING_NOTICE_SID_ML };
 const CASE_TYPE_PROMPT_CONTENT_SID = { en: env.TWILIO_FILING_CASE_TYPE_SID_EN, ml: env.TWILIO_FILING_CASE_TYPE_SID_ML };
 const OTHER_CASE_TYPES_CONTENT_SID = { en: env.TWILIO_FILING_OTHER_CASE_TYPES_SID_EN, ml: env.TWILIO_FILING_OTHER_CASE_TYPES_SID_ML };
-const ENROLMENT_PROMPT_CONTENT_SID = { en: env.TWILIO_ENROLMENT_PROMPT_SID_EN, ml: env.TWILIO_ENROLMENT_PROMPT_SID_ML };
-const ENROLMENT_CONFIRM_CONTENT_SID = { en: env.TWILIO_ENROLMENT_CONFIRM_SID_EN, ml: env.TWILIO_ENROLMENT_CONFIRM_SID_ML };
 const COMPLAINANT_REVIEW_CONTENT_SID = { en: env.TWILIO_COMPLAINANT_REVIEW_SID_EN, ml: env.TWILIO_COMPLAINANT_REVIEW_SID_ML };
 const COMPLAINANT_EDIT_FIELDS_CONTENT_SID = { en: env.TWILIO_COMPLAINANT_EDIT_FIELDS_SID_EN, ml: env.TWILIO_COMPLAINANT_EDIT_FIELDS_SID_ML };
 const ACCUSED_REVIEW_CONTENT_SID = { en: env.TWILIO_ACCUSED_REVIEW_SID_EN, ml: env.TWILIO_ACCUSED_REVIEW_SID_ML };
@@ -82,12 +80,6 @@ function buildDeps(
   messagingClient: FakeMessagingClient,
 ) {
   const mainMenuSenderDeps = { messagingClient, fromNumber: env.TWILIO_WHATSAPP_FROM, contentSidByLanguage: MAIN_MENU_CONTENT_SID };
-  const enrolmentSenderDeps = {
-    messagingClient,
-    fromNumber: env.TWILIO_WHATSAPP_FROM,
-    promptContentSid: ENROLMENT_PROMPT_CONTENT_SID,
-    confirmContentSid: ENROLMENT_CONFIRM_CONTENT_SID,
-  };
   const complainantSenderDeps = {
     messagingClient,
     fromNumber: env.TWILIO_WHATSAPP_FROM,
@@ -131,7 +123,6 @@ function buildDeps(
     filingSenderDeps,
     caseTypeSenderDeps,
     mainMenuSenderDeps,
-    enrolmentSenderDeps,
     complainantSenderDeps,
     accusedSenderDeps,
     filingDetailsSenderDeps,
@@ -161,15 +152,6 @@ function buildDeps(
     mainMenuSenderDeps,
     filingWorkflowDeps,
     caseTypeWorkflowDeps,
-    enrolmentWorkflowDeps: {
-      conversationRepo,
-      filingRepo,
-      outboundMessageRepo,
-      enrolmentSenderDeps,
-      mainMenuSenderDeps,
-      complainantSenderDeps,
-      withTransaction: createInMemoryWithTransaction(),
-    },
     filingDocumentWorkflowDeps: {
       conversationRepo,
       filingRepo,
@@ -578,7 +560,7 @@ describe("POST /webhooks/twilio/whatsapp", () => {
     });
   });
 
-  it("routes a full conversation from enrolment confirm through accused details confirm, end to end (#10/#11)", async () => {
+  it("routes a full conversation from document collection through accused details confirm, end to end (#10/#11)", async () => {
     const from = "whatsapp:+15005550012";
     const send = (params: Record<string, string>) =>
       request(app).post(ROUTE_PATH).type("form").set("X-Twilio-Signature", sign(params)).send(params);
@@ -608,7 +590,7 @@ describe("POST /webhooks/twilio/whatsapp", () => {
       ButtonPayload: "filing:case-type-cheque",
       NumMedia: "0",
     });
-    await send({
+    const acceptResponse = await send({
       MessageSid: "SMflowb000000000000000000000000004",
       From: from,
       To: "whatsapp:+14155238886",
@@ -616,27 +598,12 @@ describe("POST /webhooks/twilio/whatsapp", () => {
       ButtonPayload: "filing:accept-test-notice",
       NumMedia: "0",
     });
-    await send({
-      MessageSid: "SMflowb000000000000000000000000005",
-      From: from,
-      To: "whatsapp:+14155238886",
-      Body: "KER/1234/2010",
-      NumMedia: "0",
-    });
 
-    const enrolmentConfirmResponse = await send({
-      MessageSid: "SMflowb000000000000000000000000006",
-      From: from,
-      To: "whatsapp:+14155238886",
-      Body: "Confirm",
-      ButtonPayload: "enrolment:confirm",
-      NumMedia: "0",
-    });
-
-    // #31: confirming enrolment now cascades into the document-collection
-    // steps (cheque, memo, notice, id, support) before the complainant name
-    // prompt — not straight into it as it did pre-#31.
-    expect(enrolmentConfirmResponse.status).toBe(200);
+    // Reference-parity fix: accepting the test notice now cascades straight
+    // into the document-collection steps (cheque, memo, notice, id,
+    // support) before the complainant name prompt — no
+    // ADVOCATE_ENROLMENT_PENDING/CONFIRM gate in between anymore.
+    expect(acceptResponse.status).toBe(200);
     expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining("The cheque") }));
 
     // Walk all 5 document groups: one photo + "done" for each required group

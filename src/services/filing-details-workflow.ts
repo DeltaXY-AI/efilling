@@ -14,6 +14,7 @@ import {
   type FilingDetailSelectionInput,
 } from "../domain/filing-details";
 import { formatIsoDateAsDisplay } from "../lib/format-ist-date";
+import { formatIndianAmount } from "./filing-draft-list-sender";
 import type { TwilioMessagingClient } from "../adapters/twilio/messaging-client";
 import type { ConversationRepository, ConversationState } from "../repositories/conversation-repository";
 import type { FilingRepository, FilingReturnReason, UpsertFilingFieldsInput } from "../repositories/filing-repository";
@@ -270,7 +271,7 @@ const CONFIRM_KEYWORDS: ReadonlySet<string> = new Set(["confirm", "keep"]);
 
 function displayValueFor(field: TextFieldKey, storedValue: string): string {
   if (DATE_FIELDS.has(field)) return formatIsoDateAsDisplay(storedValue);
-  if (field === "amount") return `₹${storedValue}`;
+  if (field === "amount") return `₹${formatIndianAmount(storedValue)}`;
   return storedValue;
 }
 

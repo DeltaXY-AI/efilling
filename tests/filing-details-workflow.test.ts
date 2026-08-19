@@ -311,6 +311,19 @@ describe("filing-details-workflow", () => {
       expect(messagingClient.sendText).toHaveBeenCalledWith(expect.objectContaining({ body: expect.stringContaining('Reply "confirm"') }));
     });
 
+    it("shows the amount suggestion Indian-grouped, not the raw stored digits", async () => {
+      await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_CHEQUE_DATE_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "FILING_CHEQUE_DATE_PENDING");
+      await filingRepo.upsertFilingFields(undefined, filingId, { chequeAmount: "45000" });
+
+      const result = await handleFilingChequeDateInput(deps, fieldEvent({ text: "12-03-2026" }));
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendText).toHaveBeenCalledWith(
+        expect.objectContaining({ body: expect.stringContaining("Auto-filled from your documents: ₹45,000") }),
+      );
+    });
+
     it("shows no suggestion line when nothing is pre-filled (unchanged from before this feature)", async () => {
       const result = await handleFilingChequeNumberInput(deps, fieldEvent({ text: "004512" }));
 

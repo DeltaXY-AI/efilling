@@ -511,18 +511,6 @@ export async function handleComplainantRoleInput(deps: ComplainantWorkflowDeps, 
   return { delivered };
 }
 
-/**
- * Sends the name prompt on its own — used by enrolment-workflow.ts's
- * confirmEnrolment to cascade straight from ADVOCATE_ENROLMENT_CONFIRM into
- * COMPLAINANT_NAME_PENDING (#10 Part A), which only needs
- * `ComplainantSenderDeps`, not the rest of `ComplainantWorkflowDeps`. Kept
- * here as the one source of the name-prompt copy, rather than duplicating
- * `PROMPT_TEXT.name` in enrolment-workflow.ts.
- */
-export function sendComplainantNamePrompt(deps: ComplainantSenderDeps, input: SendComplainantMessageInput): Promise<boolean> {
-  return sendFilingPlainText(deps, input, PROMPT_TEXT.name[input.language], "complainant_name_prompt_send_failed");
-}
-
 // ---------------------------------------------------------------------------
 // Edit-pending field input (Part I): validates and saves exactly one
 // replacement value, then always returns to COMPLAINANT_CONFIRM.

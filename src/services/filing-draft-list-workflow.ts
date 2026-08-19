@@ -338,7 +338,6 @@ async function resumeFromDetail(deps: FilingDraftListWorkflowDeps, input: Filing
     deps.filingWorkflowDeps,
     captured.resumed.resumedStep!,
     captured.resumed.resumedFiling,
-    captured.resumed.resumedNormalizedEnrolment,
     sendInput,
   );
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);

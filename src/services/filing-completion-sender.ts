@@ -80,11 +80,13 @@ export function renderFeePaidMessage(language: SupportedLanguage, filing: Filing
 }
 
 // The prototype's filingDone text (PR.md Appendix A.8) ends with "You can
-// check progress any time under My cases" — reworded here since Prototype
-// parity Phase 8 (#36, the real "My cases"/case-status flow) doesn't exist
-// yet and #29's stub explicitly tells the advocate it isn't ready. Pointing
-// to it here would immediately disappoint. Flagged in the implementing PR
-// per the issue's own instruction to note this ordering dependency.
+// check progress any time under My cases" — this was reworded when #35 was
+// first built, since Prototype parity Phase 8 (#36, the real "My cases"/
+// case-status flow) didn't exist yet and #29's stub explicitly told the
+// advocate it wasn't ready; pointing to it then would have immediately
+// disappointed. #36 has since shipped (see filing-draft-list-sender.ts) —
+// restored to the prototype's original wording now that the pointer is
+// real.
 const FILING_DONE_TEXT: Record<SupportedLanguage, string> = {
   en: [
     "🎉 Your filing is complete",
@@ -95,7 +97,7 @@ const FILING_DONE_TEXT: Record<SupportedLanguage, string> = {
     "2️⃣ If anything is missing, I will message you with exactly what to fix",
     "3️⃣ Once numbered, you will get the case number and the first hearing date here",
     "",
-    "You will be notified here as your filing progresses - no need to check anywhere else for now.",
+    "You can check progress any time under My cases.",
   ].join("\n"),
   ml: [
     "🎉 നിങ്ങളുടെ ഫയലിംഗ് പൂർത്തിയായി",
@@ -106,7 +108,7 @@ const FILING_DONE_TEXT: Record<SupportedLanguage, string> = {
     "2️⃣ എന്തെങ്കിലും കുറവുണ്ടെങ്കിൽ, കൃത്യമായി എന്താണ് ശരിയാക്കേണ്ടതെന്ന് ഞാൻ അറിയിക്കും",
     "3️⃣ നമ്പർ അനുവദിച്ചു കഴിഞ്ഞാൽ, കേസ് നമ്പറും ആദ്യ ഹിയറിംഗ് തീയതിയും ഇവിടെ ലഭിക്കും",
     "",
-    "നിങ്ങളുടെ ഫയലിംഗ് പുരോഗമിക്കുന്നതനുസരിച്ച് ഞാൻ ഇവിടെ അറിയിക്കും - മറ്റെവിടെയും പരിശോധിക്കേണ്ട ആവശ്യമില്ല.",
+    "എപ്പോൾ വേണമെങ്കിലും 'എന്റെ കേസുകൾ' എന്നതിൽ പുരോഗതി പരിശോധിക്കാം.",
   ].join("\n"),
 };
 
@@ -115,8 +117,8 @@ export function renderFilingDoneMessage(language: SupportedLanguage): string {
 }
 
 const PLAIN_TEXT_PAY_FEE_ACTIONS: Record<SupportedLanguage, string> = {
-  en: ["1. Pay court fee", "", "Reply with 1."].join("\n"),
-  ml: ["1. കോടതി ഫീസ് അടയ്ക്കുക", "", "1 എന്ന് മറുപടി നൽകുക."].join("\n"),
+  en: ["1. Pay ₹500 court fee", "2. Main menu", "", "Reply with 1 or 2."].join("\n"),
+  ml: ["1. ₹500 കോടതി ഫീസ് അടയ്ക്കുക", "2. പ്രധാന മെനു", "", "1 അല്ലെങ്കിൽ 2 എന്ന് മറുപടി നൽകുക."].join("\n"),
 };
 
 /** Sends the persisted filed-acknowledgement summary as a plain message — no Content Template, never the current webhook body. */

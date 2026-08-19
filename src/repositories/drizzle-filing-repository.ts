@@ -9,7 +9,6 @@ import {
   type CreateDraftInput,
   type FilingRecord,
   type FilingRepository,
-  type SaveEnrolmentCandidateInput,
   type UpsertFilingFieldsInput,
 } from "./filing-repository";
 import type { RepositoryTransaction } from "./transaction";
@@ -27,14 +26,10 @@ function toFilingRecord<T extends { hearingAttendance: string | null }>(row: T):
   return row as T & { hearingAttendance: FilingRecord["hearingAttendance"] };
 }
 
-const ADVOCATE_ENROLMENT_PENDING_STEP = "ADVOCATE_ENROLMENT_PENDING";
-const ADVOCATE_ENROLMENT_CONFIRM_STEP = "ADVOCATE_ENROLMENT_CONFIRM";
-// #31: confirming enrolment cascades straight into the first document-upload
-// group (FILING_DOC_CHEQUE) in the same transaction, rather than resting at
-// an intermediate state waiting for another inbound message. This replaces
-// #10 Part A's original cascade target (COMPLAINANT_NAME_PENDING), which is
-// now reached only after all 5 document groups are done (see
-// filing-document-workflow.ts).
+// Reference-parity fix: a new draft's current_step is fixed straight to
+// FILING_DOC_CHEQUE, the first of 5 document-upload groups — no
+// ADVOCATE_ENROLMENT_PENDING gate in between anymore (see
+// filing-workflow.ts's handleFilingNoticeInput).
 const FILING_DOC_CHEQUE_STEP = "FILING_DOC_CHEQUE";
 
 export class DrizzleFilingRepository implements FilingRepository {
@@ -68,7 +63,7 @@ export class DrizzleFilingRepository implements FilingRepository {
         conversationId: input.conversationId,
         role: input.role,
         status: "DRAFT",
-        currentStep: ADVOCATE_ENROLMENT_PENDING_STEP,
+        currentStep: FILING_DOC_CHEQUE_STEP,
         language: input.language,
         testNoticeVersion: input.testNoticeVersion,
       })
@@ -91,45 +86,6 @@ export class DrizzleFilingRepository implements FilingRepository {
       throw new FilingNotFoundError(filingId);
     }
     return toFilingRecord(row);
-  }
-
-  async saveEnrolmentCandidate(tx: RepositoryTransaction, filingId: string, input: SaveEnrolmentCandidateInput): Promise<void> {
-    await (tx as Transaction)
-      .update(filings)
-      .set({
-        advocateEnrolmentOriginal: input.original,
-        advocateEnrolmentNormalized: input.normalized,
-        advocateEnrolmentStatus: "PENDING_CONFIRMATION",
-        currentStep: ADVOCATE_ENROLMENT_CONFIRM_STEP,
-        updatedAt: new Date(),
-      })
-      .where(eq(filings.id, filingId));
-  }
-
-  async confirmEnrolment(tx: RepositoryTransaction, filingId: string, confirmedAt: Date): Promise<void> {
-    await (tx as Transaction)
-      .update(filings)
-      .set({
-        advocateEnrolmentStatus: "RECORDED_UNVERIFIED",
-        advocateEnrolmentConfirmedAt: confirmedAt,
-        currentStep: FILING_DOC_CHEQUE_STEP,
-        updatedAt: new Date(),
-      })
-      .where(eq(filings.id, filingId));
-  }
-
-  async clearEnrolmentCandidate(tx: RepositoryTransaction, filingId: string): Promise<void> {
-    await (tx as Transaction)
-      .update(filings)
-      .set({
-        advocateEnrolmentOriginal: null,
-        advocateEnrolmentNormalized: null,
-        advocateEnrolmentStatus: null,
-        advocateEnrolmentConfirmedAt: null,
-        currentStep: ADVOCATE_ENROLMENT_PENDING_STEP,
-        updatedAt: new Date(),
-      })
-      .where(eq(filings.id, filingId));
   }
 
   async setCurrentStep(tx: RepositoryTransaction, filingId: string, step: string): Promise<void> {

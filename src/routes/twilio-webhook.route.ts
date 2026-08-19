@@ -50,12 +50,6 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       ? { documentExtractor: { visionClient: createAnthropicVisionClient(env.ANTHROPIC_API_KEY, env.ANTHROPIC_BASE_URL, env.ANTHROPIC_MODEL) } }
       : {}),
   };
-  const enrolmentSenderDeps = {
-    messagingClient,
-    fromNumber: env.TWILIO_WHATSAPP_FROM,
-    promptContentSid: { en: env.TWILIO_ENROLMENT_PROMPT_SID_EN, ml: env.TWILIO_ENROLMENT_PROMPT_SID_ML },
-    confirmContentSid: { en: env.TWILIO_ENROLMENT_CONFIRM_SID_EN, ml: env.TWILIO_ENROLMENT_CONFIRM_SID_ML },
-  };
   const complainantSenderDeps = {
     messagingClient,
     fromNumber: env.TWILIO_WHATSAPP_FROM,
@@ -159,7 +153,6 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       },
       caseTypeSenderDeps,
       mainMenuSenderDeps,
-      enrolmentSenderDeps,
       complainantSenderDeps,
       accusedSenderDeps,
       filingDetailsSenderDeps,
@@ -179,15 +172,6 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
         draftChoiceContentSid: { en: env.TWILIO_FILING_DRAFT_CHOICE_SID_EN, ml: env.TWILIO_FILING_DRAFT_CHOICE_SID_ML },
         noticeContentSid: { en: env.TWILIO_FILING_NOTICE_SID_EN, ml: env.TWILIO_FILING_NOTICE_SID_ML },
       },
-      withTransaction,
-    },
-    enrolmentWorkflowDeps: {
-      conversationRepo,
-      filingRepo,
-      outboundMessageRepo,
-      enrolmentSenderDeps,
-      mainMenuSenderDeps,
-      complainantSenderDeps,
       withTransaction,
     },
     filingDocumentWorkflowDeps: {
@@ -302,7 +286,6 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
         },
         caseTypeSenderDeps,
         mainMenuSenderDeps,
-        enrolmentSenderDeps,
         complainantSenderDeps,
         accusedSenderDeps,
         filingDetailsSenderDeps,

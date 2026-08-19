@@ -1,10 +1,13 @@
 {
-  "friendly_name": "oncourts_filing_filed_actions_v1_en",
+  "friendly_name": "oncourts_filing_filed_actions_v2_en",
   "language": "en",
   "types": {
     "twilio/quick-reply": {
       "body": "Complete your filing by paying the court fee.",
-      "actions": [{ "title": "Pay court fee", "id": "filing:pay-fee" }]
+      "actions": [
+        { "title": "Pay ₹500 court fee", "id": "filing:pay-fee" },
+        { "title": "Main menu", "id": "nav:main-menu" }
+      ]
     }
   }
 }

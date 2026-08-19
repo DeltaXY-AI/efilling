@@ -1,0 +1,92 @@
+{
+  "_comment": [
+    "DRAFT — not yet validated against Meta's live Flow Builder schema checker.",
+    "One generic Flow, reused for all 5 document groups (cheque, memo, notice,",
+    "id, support): the group-specific label/description/min/max are supplied",
+    "at send time via the Twilio whatsapp/flows Content Template's",
+    "flow_action_payload, bound here through this screen's `data` schema.",
+    "",
+    "Uses DocumentPicker (not PhotoPicker) because this app already accepts",
+    "JPEG/PNG/PDF for every group (see src/domain/filing-document.ts's",
+    "isAllowedContentType) — PhotoPicker is camera/gallery images only, no PDF.",
+    "",
+    "OPEN QUESTIONS to resolve by pasting this into Meta's Flow Builder",
+    "(it validates live) and running Phase 0's spike:",
+    "  1. Does binding min-uploaded-documents/max-uploaded-documents to",
+    "     ${data.*} actually work, or must those be literal integers per",
+    "     screen (in which case this would need 5 near-identical screens/Flows",
+    "     instead of 1 generic one)?",
+    "  2. Does the `complete` action below actually deliver the uploaded",
+    "     files (as a fetchable URL, or a Meta media ID) through the normal",
+    "     Twilio-relayed webhook, or does Meta require `data_exchange` (a live",
+    "     encrypted endpoint) for any screen containing a DocumentPicker?",
+    "  3. What is the minimum Flow JSON `version` this account's Flow Builder",
+    "     accepts?"
+  ],
+  "version": "7.1",
+  "data_api_version": "3.0",
+  "routing_model": {},
+  "screens": [
+    {
+      "id": "UPLOAD_DOCS",
+      "title": "Upload documents",
+      "data": {
+        "group_title": {
+          "type": "string",
+          "__example__": "The cheque"
+        },
+        "group_description": {
+          "type": "string",
+          "__example__": "Photograph the cheque that bounced. Front and back, in good light."
+        },
+        "min_files": {
+          "type": "number",
+          "__example__": 1
+        },
+        "max_files": {
+          "type": "number",
+          "__example__": 2
+        },
+        "group_key": {
+          "type": "string",
+          "__example__": "cheque"
+        }
+      },
+      "terminal": true,
+      "layout": {
+        "type": "SingleColumnLayout",
+        "children": [
+          {
+            "type": "TextHeading",
+            "text": "${data.group_title}"
+          },
+          {
+            "type": "TextBody",
+            "text": "${data.group_description}"
+          },
+          {
+            "type": "DocumentPicker",
+            "name": "documents",
+            "label": "Documents",
+            "description": "Photos or PDFs",
+            "min-uploaded-documents": "${data.min_files}",
+            "max-uploaded-documents": "${data.max_files}",
+            "max-file-size-kb": 10240,
+            "allowed-mime-types": ["image/jpeg", "image/png", "application/pdf"]
+          },
+          {
+            "type": "Footer",
+            "label": "Continue",
+            "on-click-action": {
+              "name": "complete",
+              "payload": {
+                "group_key": "${data.group_key}",
+                "documents": "${form.documents}"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

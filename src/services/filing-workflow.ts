@@ -10,7 +10,7 @@ import type { AccusedSenderDeps } from "./accused-sender";
 import { ACCUSED_SUPPORTED_FILING_STEPS, resendAccusedPromptForResume } from "./accused-workflow";
 import type { ComplainantSenderDeps } from "./complainant-sender";
 import { COMPLAINANT_SUPPORTED_FILING_STEPS, resendComplainantPromptForResume } from "./complainant-workflow";
-import { FILING_DOCUMENT_SUPPORTED_STEPS, resendFilingDocumentPromptForResume } from "./filing-document-workflow";
+import { FILING_DOCUMENT_SUPPORTED_STEPS, resendFilingDocumentPromptForResume, sendFilingDocChequePrompt } from "./filing-document-workflow";
 import type { FilingDetailsSenderDeps } from "./filing-details-sender";
 import { FILING_DETAILS_SUPPORTED_FILING_STEPS, resendFilingDetailsPromptForResume } from "./filing-details-workflow";
 import { FILING_REVIEW_SUPPORTED_FILING_STEPS, resendFilingReviewPromptForResume } from "./filing-review-workflow";
@@ -18,7 +18,6 @@ import { FILING_SIGN_SUPPORTED_FILING_STEPS, recordFilingAsFiled, resendFilingSi
 import type { FilingSignSenderDeps } from "./filing-sign-sender";
 import { sendFiledActions, sendFiledSummary, type FilingCompletionSenderDeps } from "./filing-completion-sender";
 import type { FilingDocumentRepository } from "../repositories/filing-document-repository";
-import { sendEnrolmentConfirmation, sendEnrolmentPrompt, type EnrolmentSenderDeps } from "./enrolment-sender";
 import { sendDraftChoice, sendFilingNotice, sendFilingPlainText, type FilingSenderDeps } from "./filing-sender";
 import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from "./main-menu-sender";
 import { commitWithOutbound, finalizeOutbound } from "./transactional-outbound";
@@ -35,8 +34,6 @@ export interface FilingWorkflowDeps {
   caseTypeSenderDeps: CaseTypeSenderDeps;
   /** Reused as-is for "back to main menu" — never a second menu-sending implementation. */
   mainMenuSenderDeps: MainMenuSenderDeps;
-  /** Reused as-is for the enrolment prompt sent right after a draft is created (#9) and when resuming into it — never a second implementation. */
-  enrolmentSenderDeps: EnrolmentSenderDeps;
   /** Reused as-is for resuming into any of #10's complainant-details steps — never a second implementation. */
   complainantSenderDeps: ComplainantSenderDeps;
   /** Reused as-is for resuming into any of #11's accused-details steps — never a second implementation. */
@@ -75,7 +72,17 @@ export interface FilingWorkflowResult {
 
 const TEST_NOTICE_VERSION = "v1";
 
-/** Only ever set by this issue's own createDraft, #9's saveEnrolmentCandidate, #31's document-upload steps, #10's complainant-details steps, #11's accused-details steps, or #33's Parts C/D/F steps — real, deployed, resumable steps. */
+/**
+ * Only ever set by this issue's own createDraft, #31's document-upload
+ * steps, #10's complainant-details steps, #11's accused-details steps, or
+ * #33's Parts C/D/F steps — real, deployed, resumable steps.
+ *
+ * ADVOCATE_ENROLMENT_PENDING/CONFIRM (#9) are listed here too even though
+ * they're retired (see LEGACY_DETAILS_START_TO_NAME_PENDING below) — purely
+ * so a draft created before that change still resumes forward to
+ * FILING_DOC_CHEQUE instead of hitting "unsupported step", the same
+ * treatment every other retired *_START sentinel below gets.
+ */
 const SUPPORTED_FILING_STEPS: ReadonlySet<string> = new Set([
   "ADVOCATE_ENROLMENT_PENDING",
   "ADVOCATE_ENROLMENT_CONFIRM",
@@ -105,9 +112,12 @@ export const UNSUPPORTED_STEP_TEXT: Record<SupportedLanguage, string> = {
   ml: "ഈ ഫയലിംഗ് സ്വയമേവ പുനരാരംഭിക്കാൻ കഴിഞ്ഞില്ല. ഞങ്ങളുടെ സഹായ ടീം തുടർന്ന് ബന്ധപ്പെടും — നിങ്ങളുടെ സേവ് ചെയ്ത ഡ്രാഫ്റ്റിന് മാറ്റമില്ല.",
 };
 
+// Reference-parity fix: no longer mentions recording an advocate enrolment
+// number next — that gate is retired (see handleFilingNoticeInput below),
+// so the very next message is FILING_DOC_CHEQUE_PROMPT.
 const COMPLETION_TEXT: Record<SupportedLanguage, string> = {
-  en: "✓ Your filing draft is ready.\n\nNext, we will record your advocate enrolment details.",
-  ml: "✓ നിങ്ങളുടെ ഫയലിംഗ് ഡ്രാഫ്റ്റ് തയ്യാറായി.\n\nഅടുത്തതായി അഭിഭാഷക എൻറോൾമെന്റ് വിവരങ്ങൾ രേഖപ്പെടുത്താം.",
+  en: "✓ Your filing draft is ready.\n\nNext, we will collect the case documents.",
+  ml: "✓ നിങ്ങളുടെ ഫയലിംഗ് ഡ്രാഫ്റ്റ് തയ്യാറായി.\n\nഅടുത്തതായി കേസ് രേഖകൾ ശേഖരിക്കും.",
 };
 
 function sendInputFor(input: { whatsappNumber: string; language: SupportedLanguage; messageId: string }) {
@@ -119,7 +129,10 @@ type ResumeSendInput = ReturnType<typeof sendInputFor>;
 // #10/#11 Part A: neither COMPLAINANT_DETAILS_START nor ACCUSED_DETAILS_START
 // is ever persisted going forward (see schema.ts) — any pre-existing row
 // still at either value resumes as its effective *_NAME_PENDING equivalent.
-// #34: DRAFT_READY_START likewise resumes as FILING_DRAFT_READY. Both the
+// #34: DRAFT_READY_START likewise resumes as FILING_DRAFT_READY.
+// Reference-parity fix: ADVOCATE_ENROLMENT_PENDING/CONFIRM (#9) are retired
+// the same way — a pre-existing row resumes straight into FILING_DOC_CHEQUE,
+// never re-entering the (now-deleted) enrolment collection. Both the
 // filing's current_step and the conversation's state are corrected together
 // (Part B: "must move together in the same transaction") rather than
 // leaving current_step stale until the next valid answer.
@@ -127,13 +140,14 @@ const LEGACY_DETAILS_START_TO_NAME_PENDING: Partial<Record<string, ConversationS
   COMPLAINANT_DETAILS_START: "COMPLAINANT_NAME_PENDING",
   ACCUSED_DETAILS_START: "ACCUSED_NAME_PENDING",
   DRAFT_READY_START: "FILING_DRAFT_READY",
+  ADVOCATE_ENROLMENT_PENDING: "FILING_DOC_CHEQUE",
+  ADVOCATE_ENROLMENT_CONFIRM: "FILING_DOC_CHEQUE",
 };
 
 export interface ResumeFilingResult {
   kind: "resumed" | "unsupported-step";
   resumedStep?: string;
   resumedFiling?: FilingRecord;
-  resumedNormalizedEnrolment?: string | null;
 }
 
 /**
@@ -178,30 +192,22 @@ export async function applyResumeWrite(
   }
   await deps.conversationRepo.setActiveFilingAndState(tx, conversationId, draft.id, resumeState);
   const resumedFiling = isLegacyDetailsStart ? { ...draft, currentStep: resumeState } : draft;
-  return { kind: "resumed", resumedStep: resumeState, resumedFiling, resumedNormalizedEnrolment: draft.advocateEnrolmentNormalized };
+  return { kind: "resumed", resumedStep: resumeState, resumedFiling };
 }
 
 /**
- * #9 Part I: resuming into ADVOCATE_ENROLMENT_CONFIRM must resend the
- * confirmation template with the saved candidate, not the generic resumed
- * text — the advocate needs to see the number again to act on
- * Confirm/Edit/Save and exit. #31: resuming into any of the 5
- * document-upload groups must likewise resend that group's own prompt.
- * #10/#11: resuming into any of the complainant- or accused-details steps
- * must likewise resend the exact pending field prompt or the review
- * screen, not the generic resumed text. Shared by resumeDraft and #36's
- * per-draft resume — see applyResumeWrite.
+ * #31: resuming into any of the 5 document-upload groups must resend that
+ * group's own prompt. #10/#11: resuming into any of the complainant- or
+ * accused-details steps must likewise resend the exact pending field prompt
+ * or the review screen, not the generic resumed text. Shared by resumeDraft
+ * and #36's per-draft resume — see applyResumeWrite.
  */
 export async function resendPromptForResumedFiling(
   deps: FilingWorkflowDeps,
   resumedStep: string,
   resumedFiling: FilingRecord | undefined,
-  resumedNormalizedEnrolment: string | null | undefined,
   sendInput: ResumeSendInput,
 ): Promise<boolean> {
-  if (resumedStep === "ADVOCATE_ENROLMENT_CONFIRM" && resumedNormalizedEnrolment) {
-    return sendEnrolmentConfirmation(deps.enrolmentSenderDeps, sendInput, resumedNormalizedEnrolment);
-  }
   if (FILING_DOCUMENT_SUPPORTED_STEPS.has(resumedStep)) {
     return resendFilingDocumentPromptForResume(deps.filingSenderDeps, resumedStep, sendInput);
   }
@@ -433,22 +439,20 @@ async function resumeDraft(deps: FilingWorkflowDeps, input: FilingActionInput): 
   }
 
   // kind === "resumed"
-  const delivered = await resendPromptForResumedFiling(
-    deps,
-    resumeResult!.resumedStep!,
-    resumeResult!.resumedFiling,
-    resumeResult!.resumedNormalizedEnrolment,
-    sendInput,
-  );
+  const delivered = await resendPromptForResumedFiling(deps, resumeResult!.resumedStep!, resumeResult!.resumedFiling, sendInput);
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
   return { delivered };
 }
 
 /**
  * Handles input while at FILING_NOTICE (Part H): accepting the notice
- * creates exactly one new draft and moves to ADVOCATE_ENROLMENT_PENDING in
- * a single transaction; returning to the main menu creates nothing.
- * Unrecognized/stale input redisplays the notice without changing state.
+ * creates exactly one new draft and moves straight to FILING_DOC_CHEQUE in a
+ * single transaction — reference-parity fix: no ADVOCATE_ENROLMENT_PENDING
+ * gate in between anymore (the reference prototype has none; #33 Part A
+ * already captures a similar enrolment field later, in the Complainant
+ * section, when filing as an advocate for a client). Returning to the main
+ * menu creates nothing. Unrecognized/stale input redisplays the notice
+ * without changing state.
  */
 export async function handleFilingNoticeInput(deps: FilingWorkflowDeps, input: FilingActionInput): Promise<FilingWorkflowResult> {
   const action = parseFilingNoticeAction(input.selection);
@@ -487,15 +491,17 @@ export async function handleFilingNoticeInput(deps: FilingWorkflowDeps, input: F
       testNoticeVersion: TEST_NOTICE_VERSION,
     });
     await deps.filingRepo.recordNoticeAcceptance(tx, filing.id, new Date());
-    await deps.conversationRepo.setActiveFilingAndState(tx, locked.id, filing.id, "ADVOCATE_ENROLMENT_PENDING");
+    await deps.conversationRepo.setActiveFilingAndState(tx, locked.id, filing.id, "FILING_DOC_CHEQUE");
     return {
       committed: true,
       sends: [
         { messageType: "FILING_DRAFT_CREATED" as const, dedupeSuffix: "draft-created" },
-        // #9 Part D/acceptance criteria: entering ADVOCATE_ENROLMENT_PENDING
-        // must send the enrolment prompt, tracked durably in the same
-        // outbox/transaction as the draft creation it follows.
-        { messageType: "ADVOCATE_ENROLMENT_PROMPT" as const, dedupeSuffix: "enrolment-prompt" },
+        // Reference-parity fix: entering FILING_DOC_CHEQUE directly (no
+        // enrolment gate in between) must send the cheque-group prompt,
+        // tracked durably in the same outbox/transaction as the draft
+        // creation it follows — same rule #9 Part D used to apply to the
+        // (now-retired) enrolment prompt.
+        { messageType: "FILING_DOC_CHEQUE_PROMPT" as const, dedupeSuffix: "filing-doc-cheque-prompt" },
       ],
     };
   });
@@ -512,8 +518,8 @@ export async function handleFilingNoticeInput(deps: FilingWorkflowDeps, input: F
   );
   await finalizeOutbound(deps, commit.outboundIds[0], completionDelivered);
 
-  const promptDelivered = await sendEnrolmentPrompt(deps.enrolmentSenderDeps, sendInput);
-  await finalizeOutbound(deps, commit.outboundIds[1], promptDelivered);
+  const chequePromptDelivered = await sendFilingDocChequePrompt(deps.filingSenderDeps, sendInput);
+  await finalizeOutbound(deps, commit.outboundIds[1], chequePromptDelivered);
 
-  return { delivered: completionDelivered && promptDelivered };
+  return { delivered: completionDelivered && chequePromptDelivered };
 }
