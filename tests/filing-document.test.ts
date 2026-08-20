@@ -83,7 +83,11 @@ describe("parseFilingDocumentAction", () => {
     },
   );
 
-  it("the sample-files shortcut has no stable button — an unrelated ButtonPayload never falls through to it", () => {
+  it("recognizes the sample-files shortcut's stable ButtonPayload ('Add sample files' quick-reply button)", () => {
+    expect(parseFilingDocumentAction({ buttonPayload: "docs:use-sample-files" })).toBe("docs:use-sample-files");
+  });
+
+  it("an unrecognized ButtonPayload never falls through to the sample-files typed text", () => {
     expect(parseFilingDocumentAction({ buttonPayload: "docs:unknown", body: "sample" })).toBeNull();
   });
 });

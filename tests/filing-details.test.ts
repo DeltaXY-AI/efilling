@@ -16,6 +16,7 @@ import {
   validateFilingAmount,
   validateFilingDate,
   validateNarrative,
+  isReturnReasonSkipId,
   isSkipSelection,
   COURT_OPTIONS,
 } from "../src/domain/filing-details";
@@ -155,6 +156,14 @@ describe("parseReturnReasonSelection (optional 4-option select)", () => {
     expect(isSkipSelection({ body: "" })).toBe(true);
     expect(isSkipSelection({ body: "skip" })).toBe(true);
     expect(isSkipSelection({ body: "asdf" })).toBe(false);
+  });
+
+  it("isReturnReasonSkipId recognizes the list-picker's 5th item (the Skip button), distinct from a real reason or an unrecognized stable ID", () => {
+    expect(isReturnReasonSkipId({ buttonPayload: "filing:reason-skip" })).toBe(true);
+    expect(isReturnReasonSkipId({ listId: "filing:reason-skip" })).toBe(true);
+    expect(isReturnReasonSkipId({ buttonPayload: "filing:reason-funds" })).toBe(false);
+    expect(isReturnReasonSkipId({ buttonPayload: "filing:unknown" })).toBe(false);
+    expect(isReturnReasonSkipId({ body: "skip" })).toBe(false);
   });
 });
 

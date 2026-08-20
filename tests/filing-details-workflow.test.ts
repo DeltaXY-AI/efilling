@@ -129,6 +129,29 @@ describe("filing-details-workflow", () => {
       const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
       expect(conversation).toMatchObject({ state: "FILING_RETURN_REASON_PENDING" });
     });
+
+    it("the Skip button (field:skip ButtonPayload, no typed text) on bank/branch does the same as typed Skip", async () => {
+      await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_BANK_BRANCH_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "FILING_BANK_BRANCH_PENDING");
+
+      const result = await handleFilingBankBranchInput(deps, fieldEvent({ text: "", buttonPayload: "field:skip" }));
+
+      expect(result.delivered).toBe(true);
+      expect(filingRepo.findById(filingId)).toMatchObject({ bankBranch: null, currentStep: "FILING_RETURN_REASON_PENDING" });
+    });
+
+    it("once fieldSkipContentSid is configured, the bank/branch prompt goes out as the Skip quick-reply Content Template instead of plain text", async () => {
+      const skipContentSid = { en: "HXfieldSkipEn00000000000000000000000", ml: "HXfieldSkipMl00000000000000000000000" };
+      deps.filingDetailsSenderDeps = { ...deps.filingDetailsSenderDeps, fieldSkipContentSid: skipContentSid };
+      await conversationRepo.setState(WHATSAPP_NUMBER, "FILING_AMOUNT_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "FILING_AMOUNT_PENDING");
+
+      await handleFilingAmountInput(deps, fieldEvent({ text: "450000" }));
+
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: skipContentSid.en, contentVariables: expect.objectContaining({ "1": expect.stringContaining("bank and branch") }) }),
+      );
+    });
   });
 
   describe("return reason (optional select, Part C)", () => {
@@ -147,6 +170,13 @@ describe("filing-details-workflow", () => {
 
     it("Skip leaves the reason unset and still advances (optional field)", async () => {
       const result = await handleFilingReturnReasonInput(deps, actionInput({ selection: { body: "skip" } }));
+
+      expect(result.delivered).toBe(true);
+      expect(filingRepo.findById(filingId)).toMatchObject({ returnReason: null, currentStep: "FILING_MEMO_DATE_PENDING" });
+    });
+
+    it("the list-picker's Skip item (filing:reason-skip ButtonPayload/ListId) does the same as typed Skip", async () => {
+      const result = await handleFilingReturnReasonInput(deps, actionInput({ selection: { listId: "filing:reason-skip" } }));
 
       expect(result.delivered).toBe(true);
       expect(filingRepo.findById(filingId)).toMatchObject({ returnReason: null, currentStep: "FILING_MEMO_DATE_PENDING" });

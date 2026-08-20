@@ -21,6 +21,18 @@ import { withTransaction } from "../db/client";
 const ROUTE_PATH = "/webhooks/twilio/whatsapp";
 const EMPTY_TWIML_RESPONSE = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>';
 
+/**
+ * Builds an `{en, ml}` contentSid pair only once BOTH language SIDs are
+ * configured — otherwise `undefined`, so every optional-button deps field
+ * this feeds (fieldSkipContentSid, continueSampleContentSid,
+ * continueOnlyContentSid) falls back to its original plain-text behavior
+ * exactly as if the field didn't exist, matching how ANTHROPIC_API_KEY gates
+ * #40's document-extraction feature above.
+ */
+function optionalContentSid(en: string | undefined, ml: string | undefined): { en: string; ml: string } | undefined {
+  return en && ml ? { en, ml } : undefined;
+}
+
 export interface TwilioWebhookRouterDeps extends InboundRouterDeps {
   processedWebhookRepo: ProcessedWebhookRepository;
 }
@@ -50,12 +62,20 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       ? { documentExtractor: { visionClient: createAnthropicVisionClient(env.ANTHROPIC_API_KEY, env.ANTHROPIC_BASE_URL, env.ANTHROPIC_MODEL) } }
       : {}),
   };
+  // Quick-reply buttons for typed "done"/"skip"/"sample" shortcuts — see
+  // optionalContentSid's doc comment. Shared across the sender/workflow deps
+  // below wherever the matching field appears.
+  const fieldSkipContentSid = optionalContentSid(env.TWILIO_FIELD_SKIP_SID_EN, env.TWILIO_FIELD_SKIP_SID_ML);
+  const continueSampleContentSid = optionalContentSid(env.TWILIO_DOC_CONTINUE_SID_EN, env.TWILIO_DOC_CONTINUE_SID_ML);
+  const continueOnlyContentSid = optionalContentSid(env.TWILIO_DOC_CONTINUE_ONLY_SID_EN, env.TWILIO_DOC_CONTINUE_ONLY_SID_ML);
+
   const complainantSenderDeps = {
     messagingClient,
     fromNumber: env.TWILIO_WHATSAPP_FROM,
     reviewActionsContentSid: { en: env.TWILIO_COMPLAINANT_REVIEW_SID_EN, ml: env.TWILIO_COMPLAINANT_REVIEW_SID_ML },
     editFieldsContentSid: { en: env.TWILIO_COMPLAINANT_EDIT_FIELDS_SID_EN, ml: env.TWILIO_COMPLAINANT_EDIT_FIELDS_SID_ML },
     rolePromptContentSid: { en: env.TWILIO_COMPLAINANT_ROLE_SID_EN, ml: env.TWILIO_COMPLAINANT_ROLE_SID_ML },
+    fieldSkipContentSid,
   };
   const accusedSenderDeps = {
     messagingClient,
@@ -63,6 +83,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
     reviewActionsContentSid: { en: env.TWILIO_ACCUSED_REVIEW_SID_EN, ml: env.TWILIO_ACCUSED_REVIEW_SID_ML },
     editFieldsContentSid: { en: env.TWILIO_ACCUSED_EDIT_FIELDS_SID_EN, ml: env.TWILIO_ACCUSED_EDIT_FIELDS_SID_ML },
     entityTypeContentSid: { en: env.TWILIO_ACCUSED_ENTITY_TYPE_SID_EN, ml: env.TWILIO_ACCUSED_ENTITY_TYPE_SID_ML },
+    fieldSkipContentSid,
   };
 
   // #33 Parts C-F.
@@ -78,6 +99,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
     editChequeFieldContentSid: { en: env.TWILIO_FILING_EDIT_CHEQUE_FIELD_SID_EN, ml: env.TWILIO_FILING_EDIT_CHEQUE_FIELD_SID_ML },
     editNarrativeFieldContentSid: { en: env.TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_EN, ml: env.TWILIO_FILING_EDIT_NARRATIVE_FIELD_SID_ML },
     declareContentSid: { en: env.TWILIO_FILING_DECLARE_SID_EN, ml: env.TWILIO_FILING_DECLARE_SID_ML },
+    fieldSkipContentSid,
   };
 
   // #34.
@@ -150,6 +172,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
         fromNumber: env.TWILIO_WHATSAPP_FROM,
         draftChoiceContentSid: { en: env.TWILIO_FILING_DRAFT_CHOICE_SID_EN, ml: env.TWILIO_FILING_DRAFT_CHOICE_SID_ML },
         noticeContentSid: { en: env.TWILIO_FILING_NOTICE_SID_EN, ml: env.TWILIO_FILING_NOTICE_SID_ML },
+        continueSampleContentSid,
       },
       caseTypeSenderDeps,
       mainMenuSenderDeps,
@@ -171,6 +194,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
         fromNumber: env.TWILIO_WHATSAPP_FROM,
         draftChoiceContentSid: { en: env.TWILIO_FILING_DRAFT_CHOICE_SID_EN, ml: env.TWILIO_FILING_DRAFT_CHOICE_SID_ML },
         noticeContentSid: { en: env.TWILIO_FILING_NOTICE_SID_EN, ml: env.TWILIO_FILING_NOTICE_SID_ML },
+        continueSampleContentSid,
       },
       withTransaction,
     },
@@ -185,6 +209,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       documentStorageDeps,
       complainantSenderDeps,
       filingDetailsSenderDeps,
+      continueSampleContentSid,
       withTransaction,
     },
     complainantWorkflowDeps: {
@@ -213,6 +238,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       messagingClient,
       fromNumber: env.TWILIO_WHATSAPP_FROM,
       filingDetailsSenderDeps,
+      continueSampleContentSid,
       withTransaction,
     },
     filingReviewWorkflowDeps: {
@@ -283,6 +309,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
           fromNumber: env.TWILIO_WHATSAPP_FROM,
           draftChoiceContentSid: { en: env.TWILIO_FILING_DRAFT_CHOICE_SID_EN, ml: env.TWILIO_FILING_DRAFT_CHOICE_SID_ML },
           noticeContentSid: { en: env.TWILIO_FILING_NOTICE_SID_EN, ml: env.TWILIO_FILING_NOTICE_SID_ML },
+          continueSampleContentSid,
         },
         caseTypeSenderDeps,
         mainMenuSenderDeps,
@@ -308,6 +335,7 @@ export function createDefaultTwilioWebhookRouterDeps(): TwilioWebhookRouterDeps 
       documentStorageDeps,
       filingDefectSenderDeps,
       mainMenuSenderDeps,
+      continueOnlyContentSid,
       withTransaction,
     },
     hearingWorkflowDeps: {
