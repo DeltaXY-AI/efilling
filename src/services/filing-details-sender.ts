@@ -28,6 +28,14 @@ export interface FilingDetailsSenderDeps {
   editChequeFieldContentSid: Record<SupportedLanguage, string>;
   editNarrativeFieldContentSid: Record<SupportedLanguage, string>;
   declareContentSid: Record<SupportedLanguage, string>;
+  /**
+   * The shared "Skip" quick-reply button (filing-sender.ts's
+   * sendFilingPromptWithOptionalButton), used only for the optional
+   * bank/branch and story fields. `undefined` until provisioned — both
+   * fields then fall back to their original plain-text "reply Skip"
+   * prompts, unchanged.
+   */
+  fieldSkipContentSid?: Record<SupportedLanguage, string>;
 }
 
 export interface SendFilingDetailsMessageInput {

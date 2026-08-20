@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_filing_field_skip_v1_ml",
+  "language": "ml",
+  "variables": {
+    "1": "പരാതിക്കാരന്റെ ഇമെയിൽ വിലാസം നൽകുക.\n\nഇമെയിൽ വിലാസം ഇല്ലെങ്കിൽ, ഒഴിവാക്കുക എന്ന് മറുപടി നൽകുക."
+  },
+  "types": {
+    "twilio/quick-reply": {
+      "body": "{{1}}",
+      "actions": [{ "title": "ഒഴിവാക്കുക", "id": "field:skip" }]
+    }
+  }
+}

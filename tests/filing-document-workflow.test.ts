@@ -285,10 +285,10 @@ describe("filing-document-workflow — #33 Part E written-account upload", () =>
 });
 
 /**
- * The "sample"/"demo files" typed-only testing shortcut (docs:use-sample-files)
- * — there is no real WhatsApp equivalent of a native "Add sample files"
- * picker button, so this only ever matches typed text. Never touches
- * Twilio's media API or Blob storage.
+ * The "sample"/"demo files" testing shortcut (docs:use-sample-files) — typed
+ * text, or the "Add sample files" quick-reply button once
+ * continueSampleContentSid is provisioned (see filing-doc-continue.*.json).
+ * Never touches Twilio's media API or Blob storage.
  */
 describe("filing-document-workflow — 'sample' testing shortcut", () => {
   let conversationRepo: InMemoryConversationRepository;
@@ -399,6 +399,40 @@ describe("filing-document-workflow — 'sample' testing shortcut", () => {
     expect(messagingClient.sendText).not.toHaveBeenCalled();
     const count = await filingDocumentRepo.countByGroup(undefined, filingId, "cheque");
     expect(count).toBe(0);
+  });
+
+  it("the 'Add sample files' quick-reply button (docs:use-sample-files ButtonPayload) does the same as typed 'sample'", async () => {
+    const result = await handleFilingDocChequeInput(deps, inputEvent({ text: "", buttonPayload: "docs:use-sample-files" }));
+
+    expect(result.delivered).toBe(true);
+    const count = await filingDocumentRepo.countByGroup(undefined, filingId, "cheque");
+    expect(count).toBe(2);
+  });
+
+  it("the 'Done' quick-reply button (docs:continue ButtonPayload) advances the workflow after sample files, same as typed 'done'", async () => {
+    await handleFilingDocChequeInput(deps, inputEvent());
+    const result = await handleFilingDocChequeInput(deps, inputEvent({ text: "", buttonPayload: "docs:continue" }));
+
+    expect(result.delivered).toBe(true);
+    const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+    expect(conversation).toMatchObject({ state: "FILING_DOC_MEMO" });
+  });
+
+  it("once continueSampleContentSid is configured, the cheque prompt is sent as the Done/Add-sample-files quick-reply Content Template instead of plain text", async () => {
+    const continueSampleContentSid = { en: "HXdocContinueEn00000000000000000000", ml: "HXdocContinueMl00000000000000000000" };
+    deps.continueSampleContentSid = continueSampleContentSid;
+
+    await handleFilingDocChequeInput(deps, inputEvent());
+    messagingClient.sendText.mockClear();
+    messagingClient.sendContentTemplate.mockClear();
+
+    // Re-trigger the same group's prompt via an unrecognized input, which
+    // resends promptText/UNRECOGNIZED_INPUT_TEXT — both should now carry
+    // the buttons.
+    await handleFilingDocChequeInput(deps, inputEvent({ text: "asdf" }));
+
+    expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: continueSampleContentSid.en }));
+    expect(messagingClient.sendText).not.toHaveBeenCalled();
   });
 });
 

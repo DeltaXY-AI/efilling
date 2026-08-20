@@ -2,6 +2,7 @@ import type { TwilioMessagingClient } from "../adapters/twilio/messaging-client"
 import type { FilingRecord } from "../repositories/filing-repository";
 import { formatIstTimestamp } from "../lib/format-ist-date";
 import { logWorkflowError } from "../lib/logger";
+import { sendFilingPromptWithOptionalButton } from "./filing-sender";
 import type { SupportedLanguage } from "./main-menu-sender";
 
 /**
@@ -256,8 +257,12 @@ const DEFECT_2_TEXT: Record<SupportedLanguage, string> = {
   ].join("\n"),
 };
 
-export function sendDefect2Prompt(deps: { messagingClient: TwilioMessagingClient; fromNumber: string }, input: SendFilingDefectMessageInput): Promise<boolean> {
-  return sendPlain(deps, input, DEFECT_2_TEXT[input.language], "filing_defect_2_prompt_send_failed");
+/** Attaches the "Done" quick-reply button whenever it's been provisioned (deps.continueOnlyContentSid) — falls back to the exact same plain-text prompt otherwise. */
+export function sendDefect2Prompt(
+  deps: { messagingClient: TwilioMessagingClient; fromNumber: string; continueOnlyContentSid?: Record<SupportedLanguage, string> },
+  input: SendFilingDefectMessageInput,
+): Promise<boolean> {
+  return sendFilingPromptWithOptionalButton(deps, input, deps.continueOnlyContentSid?.[input.language], DEFECT_2_TEXT[input.language], "filing_defect_2_prompt_send_failed");
 }
 
 // ---------------------------------------------------------------------------

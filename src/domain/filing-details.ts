@@ -328,6 +328,17 @@ export function isSkipSelection(input: FilingDetailSelectionInput): boolean {
   return !body || isSkip(body);
 }
 
+// The return-reason list-picker's 5th item — added alongside "Skip"'s
+// typed fallback (isSkipSelection above) once the template gained a real
+// button for it. A stable ID is checked on its own (not folded into
+// RETURN_REASON_ACTIONS/isSkipSelection) since a tapped list item is never
+// itself empty/typed text.
+const RETURN_REASON_SKIP_ID = "filing:reason-skip";
+
+export function isReturnReasonSkipId(input: FilingDetailSelectionInput): boolean {
+  return resolveStableId(input) === RETURN_REASON_SKIP_ID;
+}
+
 // ---------------------------------------------------------------------------
 // Paid after notice? (Part C) — required 2-option radio.
 // ---------------------------------------------------------------------------

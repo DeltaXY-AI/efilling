@@ -1,0 +1,16 @@
+{
+  "friendly_name": "oncourts_filing_doc_continue_v1_ml",
+  "language": "ml",
+  "variables": {
+    "1": "ചെക്ക്. മടങ്ങിയ ചെക്കിന്റെ ഫോട്ടോ എടുക്കുക.\n\n1-2 ഫോട്ടോ അല്ലെങ്കിൽ PDF അയക്കുക, എന്നിട്ട് \"കഴിഞ്ഞു\" എന്ന് മറുപടി നൽകുക. (പരിശോധനയ്ക്ക്: \"സാമ്പിൾ\" എന്ന് ടൈപ്പ് ചെയ്യുക.)"
+  },
+  "types": {
+    "twilio/quick-reply": {
+      "body": "{{1}}",
+      "actions": [
+        { "title": "കഴിഞ്ഞു", "id": "docs:continue" },
+        { "title": "സാമ്പിൾ ഫയലുകൾ ചേർക്കുക", "id": "docs:use-sample-files" }
+      ]
+    }
+  }
+}

@@ -18,7 +18,7 @@ import type { RepositoryTransaction } from "../repositories/transaction";
 import type { ComplainantSenderDeps } from "./complainant-sender";
 import { sendComplainantRolePrompt } from "./complainant-sender";
 import { sendCourtPrompt, formatReturnReasonLabel, type FilingDetailsSenderDeps } from "./filing-details-sender";
-import { sendFilingPlainText } from "./filing-sender";
+import { sendFilingPlainText, sendFilingPromptWithOptionalButton } from "./filing-sender";
 import { formatIndianAmount } from "./filing-draft-list-sender";
 import { formatIsoDateAsDisplay } from "../lib/format-ist-date";
 import type { SupportedLanguage } from "./main-menu-sender";
@@ -67,6 +67,14 @@ export interface FilingDocumentWorkflowDeps {
   complainantSenderDeps: ComplainantSenderDeps;
   /** Reused as-is for the court prompt sent once Part E's optional written-account group is done (#33 Part F cascade target) — never a second implementation. */
   filingDetailsSenderDeps: FilingDetailsSenderDeps;
+  /**
+   * The "Done"/"Add sample files" quick-reply buttons (filing-sender.ts's
+   * sendFilingPromptWithOptionalButton), attached to every prompt/ack that
+   * mentions "reply done" — see sendContinuePrompt below. `undefined` until
+   * provisioned, in which case these fall back to their original
+   * plain-text prompts, unchanged.
+   */
+  continueSampleContentSid?: Record<SupportedLanguage, string>;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -94,6 +102,11 @@ function sendInputFor(input: { whatsappNumber: string; language: SupportedLangua
 
 function sendPlain(deps: FilingDocumentWorkflowDeps, sendInput: SendInput, body: string, errorCode: string): Promise<boolean> {
   return sendFilingPlainText(deps, sendInput, body, errorCode);
+}
+
+/** Sends `body` with the "Done"/"Add sample files" buttons attached, whenever they've been provisioned — see FilingDocumentWorkflowDeps.continueSampleContentSid. */
+function sendContinuePrompt(deps: FilingDocumentWorkflowDeps, sendInput: SendInput, body: string, errorCode: string): Promise<boolean> {
+  return sendFilingPromptWithOptionalButton(deps, sendInput, deps.continueSampleContentSid?.[sendInput.language], body, errorCode);
 }
 
 // ---------------------------------------------------------------------------
@@ -401,11 +414,17 @@ async function handleMediaMessages(
   // multi-attachment case, one item at a time, stopping (without discarding
   // already-stored items) the moment the group's max would be exceeded.
   let ackText = "";
+  // True only for the two acks that actually mention "reply done" — the
+  // Done/Add-sample-files button then rides along with them; the plain
+  // error acks (unsupported type, too large, download failed) never
+  // mentioned continuing at all and stay plain text.
+  let ackMentionsContinue = false;
   for (const item of input.media) {
     const currentCount = await deps.withTransaction((tx) => deps.filingDocumentRepo.countByGroup(tx, filingId, group));
 
     if (wouldExceedMaximum(group, currentCount)) {
       ackText = maxReachedText(group, input.language);
+      ackMentionsContinue = true;
       break;
     }
 
@@ -426,6 +445,7 @@ async function handleMediaMessages(
           : result.reason === "too_large"
             ? TOO_LARGE_TEXT[input.language]
             : DOWNLOAD_FAILED_TEXT[input.language];
+      ackMentionsContinue = false;
       continue;
     }
 
@@ -450,9 +470,13 @@ async function handleMediaMessages(
     }
 
     ackText = receivedAckText(group, currentCount + 1, input.language);
+    ackMentionsContinue = true;
   }
 
-  return { delivered: await sendPlain(deps, sendInput, ackText, "filing_document_ack_send_failed") };
+  const delivered = ackMentionsContinue
+    ? await sendContinuePrompt(deps, sendInput, ackText, "filing_document_ack_send_failed")
+    : await sendPlain(deps, sendInput, ackText, "filing_document_ack_send_failed");
+  return { delivered };
 }
 
 // ---------------------------------------------------------------------------
@@ -483,7 +507,7 @@ async function handleUseSampleFilesAction(
 
   let currentCount = await deps.withTransaction((tx) => deps.filingDocumentRepo.countByGroup(tx, filingId, group));
   if (wouldExceedMaximum(group, currentCount)) {
-    return { delivered: await sendPlain(deps, sendInput, maxReachedText(group, input.language), "filing_document_sample_ack_send_failed") };
+    return { delivered: await sendContinuePrompt(deps, sendInput, maxReachedText(group, input.language), "filing_document_sample_ack_send_failed") };
   }
 
   for (const sample of SAMPLE_DOCUMENTS[group]) {
@@ -506,7 +530,7 @@ async function handleUseSampleFilesAction(
   }
 
   return {
-    delivered: await sendPlain(deps, sendInput, sampleFilesAddedText(group, currentCount, input.language), "filing_document_sample_ack_send_failed"),
+    delivered: await sendContinuePrompt(deps, sendInput, sampleFilesAddedText(group, currentCount, input.language), "filing_document_sample_ack_send_failed"),
   };
 }
 
@@ -607,7 +631,7 @@ async function handleContinueAction(deps: FilingDocumentWorkflowDeps, group: Fil
     return { delivered };
   }
 
-  const delivered = await sendPlain(deps, sendInput, promptText(next, input.language), `filing_document_${next}_prompt_send_failed`);
+  const delivered = await sendContinuePrompt(deps, sendInput, promptText(next, input.language), `filing_document_${next}_prompt_send_failed`);
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
   return { delivered };
 }
@@ -635,7 +659,7 @@ async function handleFilingDocumentGroupInput(
 
   // Part F: a text-only reply must never silently substitute for a required
   // document — same validation error as an unsupported file type would get.
-  return { delivered: await sendPlain(deps, sendInputFor(input), UNRECOGNIZED_INPUT_TEXT[input.language], "filing_document_unrecognized_input_send_failed") };
+  return { delivered: await sendContinuePrompt(deps, sendInputFor(input), UNRECOGNIZED_INPUT_TEXT[input.language], "filing_document_unrecognized_input_send_failed") };
 }
 
 export function handleFilingDocChequeInput(deps: FilingDocumentWorkflowDeps, input: FilingDocumentInputEvent): Promise<FilingWorkflowResult> {
@@ -670,8 +694,11 @@ export function handleFilingWrittenAccountInput(deps: FilingDocumentWorkflowDeps
  * E), which only needs the minimal messaging shape, not the rest of
  * FilingDocumentWorkflowDeps.
  */
-export function handleFilingWrittenAccountEntry(deps: { messagingClient: TwilioMessagingClient; fromNumber: string }, sendInput: SendInput): Promise<boolean> {
-  return sendFilingPlainText(deps, sendInput, promptText("narrative", sendInput.language), "filing_written_account_prompt_send_failed");
+export function handleFilingWrittenAccountEntry(
+  deps: { messagingClient: TwilioMessagingClient; fromNumber: string; continueSampleContentSid?: Record<SupportedLanguage, string> },
+  sendInput: SendInput,
+): Promise<boolean> {
+  return sendFilingPromptWithOptionalButton(deps, sendInput, deps.continueSampleContentSid?.[sendInput.language], promptText("narrative", sendInput.language), "filing_written_account_prompt_send_failed");
 }
 
 /**
@@ -681,8 +708,11 @@ export function handleFilingWrittenAccountEntry(deps: { messagingClient: TwilioM
  * that used to sit in between), which only needs the minimal messaging
  * shape, not the rest of FilingDocumentWorkflowDeps.
  */
-export function sendFilingDocChequePrompt(deps: { messagingClient: TwilioMessagingClient; fromNumber: string }, sendInput: SendInput): Promise<boolean> {
-  return sendFilingPlainText(deps, sendInput, promptText("cheque", sendInput.language), "filing_document_cheque_prompt_send_failed");
+export function sendFilingDocChequePrompt(
+  deps: { messagingClient: TwilioMessagingClient; fromNumber: string; continueSampleContentSid?: Record<SupportedLanguage, string> },
+  sendInput: SendInput,
+): Promise<boolean> {
+  return sendFilingPromptWithOptionalButton(deps, sendInput, deps.continueSampleContentSid?.[sendInput.language], promptText("cheque", sendInput.language), "filing_document_cheque_prompt_send_failed");
 }
 
 /**
@@ -691,7 +721,7 @@ export function sendFilingDocChequePrompt(deps: { messagingClient: TwilioMessagi
  * prompt. Read-only: never mutates the filing/conversation itself.
  */
 export function resendFilingDocumentPromptForResume(
-  deps: { messagingClient: TwilioMessagingClient; fromNumber: string },
+  deps: { messagingClient: TwilioMessagingClient; fromNumber: string; continueSampleContentSid?: Record<SupportedLanguage, string> },
   currentStep: string,
   sendInput: SendInput,
 ): Promise<boolean> {
@@ -700,5 +730,11 @@ export function resendFilingDocumentPromptForResume(
     // Unreachable given filing-workflow.ts only calls this for steps in FILING_DOCUMENT_SUPPORTED_STEPS.
     return Promise.resolve(false);
   }
-  return sendFilingPlainText(deps, sendInput, promptText(group, sendInput.language), `filing_document_${group}_resume_prompt_send_failed`);
+  return sendFilingPromptWithOptionalButton(
+    deps,
+    sendInput,
+    deps.continueSampleContentSid?.[sendInput.language],
+    promptText(group, sendInput.language),
+    `filing_document_${group}_resume_prompt_send_failed`,
+  );
 }

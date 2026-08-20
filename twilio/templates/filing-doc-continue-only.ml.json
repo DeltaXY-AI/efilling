@@ -1,0 +1,13 @@
+{
+  "friendly_name": "oncourts_filing_doc_continue_only_v1_ml",
+  "language": "ml",
+  "variables": {
+    "1": "ചെക്ക് ഫോട്ടോ അയക്കുക, അല്ലെങ്കിൽ ആവശ്യത്തിന് അയച്ചു കഴിഞ്ഞാൽ \"കഴിഞ്ഞു\" എന്ന് മറുപടി നൽകുക."
+  },
+  "types": {
+    "twilio/quick-reply": {
+      "body": "{{1}}",
+      "actions": [{ "title": "കഴിഞ്ഞു", "id": "docs:continue" }]
+    }
+  }
+}

@@ -227,6 +227,48 @@ describe("filing-defect-workflow", () => {
       expect(conversation).toMatchObject({ state: "FILING_DEFECT_3" });
     });
 
+    it("the 'Done' quick-reply button (docs:continue ButtonPayload) after one upload cascades to FILING_DEFECT_3, same as typed 'done'", async () => {
+      await handleFilingDefect2Input(deps, {
+        conversationId,
+        whatsappNumber: WHATSAPP_NUMBER,
+        messageId: "SM1",
+        language: "en",
+        text: "",
+        media: [{ url: "https://api.twilio.com/media/rescan", contentType: "image/jpeg", index: 0 }],
+      });
+
+      const result = await handleFilingDefect2Input(deps, {
+        conversationId,
+        whatsappNumber: WHATSAPP_NUMBER,
+        messageId: "SM2",
+        language: "en",
+        text: "",
+        buttonPayload: "docs:continue",
+        media: [],
+      });
+
+      expect(result.delivered).toBe(true);
+      expect(filingRepo.findById(filingId)).toMatchObject({ currentStep: "FILING_DEFECT_3" });
+    });
+
+    it("once continueOnlyContentSid is configured, the re-upload prompt/acks go out as the Done-only quick-reply Content Template instead of plain text", async () => {
+      const continueOnlyContentSid = { en: "HXdocContinueOnlyEn0000000000000000", ml: "HXdocContinueOnlyMl0000000000000000" };
+      deps.continueOnlyContentSid = continueOnlyContentSid;
+
+      const result = await handleFilingDefect2Input(deps, {
+        conversationId,
+        whatsappNumber: WHATSAPP_NUMBER,
+        messageId: "SM1",
+        language: "en",
+        text: "asdf",
+        media: [],
+      });
+
+      expect(result.delivered).toBe(true);
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(expect.objectContaining({ contentSid: continueOnlyContentSid.en }));
+      expect(messagingClient.sendText).not.toHaveBeenCalled();
+    });
+
     it("a 3rd upload (max 2 for this re-upload) is rejected with the max-reached message", async () => {
       for (let i = 0; i < 2; i++) {
         await handleFilingDefect2Input(deps, {

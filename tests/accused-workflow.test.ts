@@ -146,6 +146,33 @@ describe("accused-workflow", () => {
       expect(conversation).toMatchObject({ state: "ACCUSED_ADDRESS_PENDING" });
     });
 
+    it("the Skip button (field:skip ButtonPayload, no typed text) stores both accused phone fields as null, same as typed Skip", async () => {
+      await conversationRepo.setState(WHATSAPP_NUMBER, "ACCUSED_PHONE_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "ACCUSED_PHONE_PENDING");
+
+      const result = await handleAccusedPhoneInput(deps, fieldEvent({ text: "", buttonPayload: "field:skip" }));
+
+      expect(result.delivered).toBe(true);
+      const party = await partyRepo.findByFilingAndRole(undefined, filingId, "ACCUSED");
+      expect(party).toMatchObject({ phoneOriginal: null, phoneNormalized: null });
+      const conversation = await conversationRepo.findByWhatsappNumber(WHATSAPP_NUMBER);
+      expect(conversation).toMatchObject({ state: "ACCUSED_ADDRESS_PENDING" });
+    });
+
+    it("once fieldSkipContentSid is configured, the phone prompt/error goes out as the Skip quick-reply Content Template instead of plain text", async () => {
+      const skipContentSid = { en: "HXfieldSkipEn00000000000000000000000", ml: "HXfieldSkipMl00000000000000000000000" };
+      deps.accusedSenderDeps = { ...deps.accusedSenderDeps, fieldSkipContentSid: skipContentSid };
+      await conversationRepo.setState(WHATSAPP_NUMBER, "ACCUSED_PHONE_PENDING", new Date());
+      await filingRepo.setCurrentStep(undefined, filingId, "ACCUSED_PHONE_PENDING");
+
+      await handleAccusedPhoneInput(deps, fieldEvent({ text: "12345" }));
+
+      expect(messagingClient.sendContentTemplate).toHaveBeenCalledWith(
+        expect.objectContaining({ contentSid: skipContentSid.en, contentVariables: expect.objectContaining({ "1": expect.stringContaining("phone number") }) }),
+      );
+      expect(messagingClient.sendText).not.toHaveBeenCalled();
+    });
+
     it("a valid phone normalizes to E.164 and advances to ACCUSED_ADDRESS_PENDING", async () => {
       await conversationRepo.setState(WHATSAPP_NUMBER, "ACCUSED_PHONE_PENDING", new Date());
       await filingRepo.setCurrentStep(undefined, filingId, "ACCUSED_PHONE_PENDING");

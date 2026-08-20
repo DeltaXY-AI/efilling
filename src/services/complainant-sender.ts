@@ -22,6 +22,13 @@ export interface ComplainantSenderDeps {
   editFieldsContentSid: Record<SupportedLanguage, string>;
   /** #33 Part A — the "Filing as" quick-reply (Myself (litigant) / Advocate for client). */
   rolePromptContentSid: Record<SupportedLanguage, string>;
+  /**
+   * The shared "Skip" quick-reply button (filing-sender.ts's
+   * sendFilingPromptWithOptionalButton), used only for the optional email
+   * field. `undefined` until provisioned — email then falls back to its
+   * original plain-text "reply Skip" prompt, unchanged.
+   */
+  fieldSkipContentSid?: Record<SupportedLanguage, string>;
 }
 
 export interface SendComplainantMessageInput {

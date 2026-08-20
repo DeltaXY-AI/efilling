@@ -7,6 +7,14 @@ export interface FilingSenderDeps {
   fromNumber: string;
   draftChoiceContentSid: Record<SupportedLanguage, string>;
   noticeContentSid: Record<SupportedLanguage, string>;
+  /**
+   * The "Done"/"Add sample files" quick-reply buttons, threaded through to
+   * filing-document-workflow.ts's sendFilingDocChequePrompt/
+   * resendFilingDocumentPromptForResume — this file has no template of its
+   * own for it. `undefined` until provisioned, in which case those fall
+   * back to their original plain-text prompts, unchanged.
+   */
+  continueSampleContentSid?: Record<SupportedLanguage, string>;
 }
 
 export interface SendFilingMessageInput {
@@ -128,4 +136,54 @@ export async function sendFilingPlainText(
     logWorkflowError({ code: errorCode, correlationId: input.correlationId });
     return false;
   }
+}
+
+/**
+ * Sends a quick-reply Content Template whose body is the caller's own
+ * dynamic text (via contentVariables `{"1": body}`), for prompts/errors
+ * whose copy lives in the calling workflow file rather than a template —
+ * e.g. an optional field's "Skip" button, or the document-upload flow's
+ * "Done"/"Add sample files" buttons. Falls back to the exact same text with
+ * no buttons if the template send itself fails.
+ */
+async function sendFilingQuickReply(
+  deps: { messagingClient: TwilioMessagingClient; fromNumber: string },
+  input: SendFilingMessageInput,
+  contentSid: string,
+  body: string,
+  errorCode: string,
+): Promise<boolean> {
+  try {
+    await deps.messagingClient.sendContentTemplate({
+      from: deps.fromNumber,
+      to: input.to,
+      contentSid,
+      contentVariables: { "1": body },
+    });
+    return true;
+  } catch {
+    logWorkflowError({ code: `${errorCode}_content_send_failed`, correlationId: input.correlationId });
+    return sendFilingPlainText(deps, input, body, `${errorCode}_fallback_send_failed`);
+  }
+}
+
+/**
+ * The button-vs-plain-text switch every optional-field/continue prompt in
+ * this codebase goes through: `contentSid` is `undefined` until its Content
+ * Template has actually been provisioned in Twilio and its SID configured
+ * (see .env.example) — until then this sends the exact same plain text it
+ * always has, byte for byte, so the button rollout is purely additive and
+ * never a behavior change on its own.
+ */
+export function sendFilingPromptWithOptionalButton(
+  deps: { messagingClient: TwilioMessagingClient; fromNumber: string },
+  input: SendFilingMessageInput,
+  contentSid: string | undefined,
+  body: string,
+  errorCode: string,
+): Promise<boolean> {
+  if (!contentSid) {
+    return sendFilingPlainText(deps, input, body, errorCode);
+  }
+  return sendFilingQuickReply(deps, input, contentSid, body, errorCode);
 }

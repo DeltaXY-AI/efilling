@@ -94,6 +94,17 @@ const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_BASE_URL: z.string().optional(),
   ANTHROPIC_MODEL: z.string().optional(),
+  // Quick-reply buttons for typed "done"/"skip"/"sample" shortcuts — all
+  // optional, exactly like ANTHROPIC_API_KEY above: unset means every field
+  // this touches behaves exactly as it did before these buttons existed
+  // (the same plain-text prompt, same typed fallback). Provision with
+  // `npm run twilio:shared:create` once ready, then set these.
+  TWILIO_FIELD_SKIP_SID_EN: z.string().optional(),
+  TWILIO_FIELD_SKIP_SID_ML: z.string().optional(),
+  TWILIO_DOC_CONTINUE_SID_EN: z.string().optional(),
+  TWILIO_DOC_CONTINUE_SID_ML: z.string().optional(),
+  TWILIO_DOC_CONTINUE_ONLY_SID_EN: z.string().optional(),
+  TWILIO_DOC_CONTINUE_ONLY_SID_ML: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

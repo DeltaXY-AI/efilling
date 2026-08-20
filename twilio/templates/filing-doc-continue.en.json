@@ -1,0 +1,16 @@
+{
+  "friendly_name": "oncourts_filing_doc_continue_v1_en",
+  "language": "en",
+  "variables": {
+    "1": "The cheque. Photograph the cheque that bounced. Front and back, in good light.\n\nSend 1-2 photo(s) or PDF(s), then reply \"done\". (Testing? Type \"sample\" to use demo files.)"
+  },
+  "types": {
+    "twilio/quick-reply": {
+      "body": "{{1}}",
+      "actions": [
+        { "title": "Done", "id": "docs:continue" },
+        { "title": "Add sample files", "id": "docs:use-sample-files" }
+      ]
+    }
+  }
+}

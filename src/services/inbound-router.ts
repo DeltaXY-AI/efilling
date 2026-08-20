@@ -449,6 +449,10 @@ export async function routeInboundMessage(deps: InboundRouterDeps, input: Inboun
     language,
     text: input.body,
     mediaCount: input.mediaCount ?? 0,
+    // Only ever meaningful for the handful of Skip-able free-text fields
+    // (complainant email, accused phone, filing details bank/branch/story)
+    // — see each workflow's SKIP_BUTTON_ID check.
+    buttonPayload: input.buttonPayload,
   };
   const actionInput = { conversationId: conversation.id, whatsappNumber: input.whatsappNumber, messageId: input.messageId, language, selection };
 

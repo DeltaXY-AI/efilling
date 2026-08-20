@@ -30,7 +30,7 @@ import {
   type FilingDefectSenderDeps,
   type SendFilingDefectMessageInput,
 } from "./filing-defect-sender";
-import { sendFilingPlainText } from "./filing-sender";
+import { sendFilingPlainText, sendFilingPromptWithOptionalButton } from "./filing-sender";
 import { storeFilingDocument, type FilingDocumentStorageDeps } from "./filing-document-storage";
 import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from "./main-menu-sender";
 import { commitWithOutbound, finalizeOutbound } from "./transactional-outbound";
@@ -80,6 +80,15 @@ export interface FilingDefectWorkflowDeps {
   filingDefectSenderDeps: FilingDefectSenderDeps;
   /** Reused as-is for FILING_DEFECT_SENT's "Main menu" action — never a second implementation. */
   mainMenuSenderDeps: MainMenuSenderDeps;
+  /**
+   * The single "Done" quick-reply button (filing-sender.ts's
+   * sendFilingPromptWithOptionalButton) attached to Defect 2's cheque
+   * re-upload prompt/acks — no "Add sample files" button here (re-uploading
+   * a corrected real cheque photo is the whole point of this screen).
+   * `undefined` until provisioned, in which case these fall back to their
+   * original plain-text prompts, unchanged.
+   */
+  continueOnlyContentSid?: Record<SupportedLanguage, string>;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -264,10 +273,15 @@ async function handleDefect2Media(deps: FilingDefectWorkflowDeps, input: FilingD
   }
 
   let ackText = "";
+  // True only for the two acks that actually mention "reply done" — the
+  // Done button then rides along with them; the generic "couldn't process
+  // that file" ack never mentioned continuing at all and stays plain text.
+  let ackMentionsContinue = false;
   for (const item of input.media) {
     const currentCount = await deps.withTransaction((tx) => countDefectChequeUploads(deps, tx, filing));
     if (currentCount >= DEFECT_2_MAX) {
       ackText = DEFECT_2_MAX_REACHED_TEXT[input.language];
+      ackMentionsContinue = true;
       break;
     }
 
@@ -282,6 +296,7 @@ async function handleDefect2Media(deps: FilingDefectWorkflowDeps, input: FilingD
       // uploads would be overkill to duplicate for this one demo re-upload
       // screen — a generic "couldn't process" ack is enough here.
       ackText = input.language === "ml" ? "ആ ഫയൽ പ്രോസസ് ചെയ്യാൻ കഴിഞ്ഞില്ല. വീണ്ടും അയക്കാൻ ശ്രമിക്കുക." : "We couldn't process that file. Please try sending it again.";
+      ackMentionsContinue = false;
       continue;
     }
 
@@ -295,9 +310,13 @@ async function handleDefect2Media(deps: FilingDefectWorkflowDeps, input: FilingD
       }),
     );
     ackText = defect2ReceivedText(input.language, currentCount + 1);
+    ackMentionsContinue = true;
   }
 
-  return { delivered: await sendFilingPlainText(deps, sendInput, ackText, "filing_defect_2_ack_send_failed") };
+  const delivered = ackMentionsContinue
+    ? await sendFilingPromptWithOptionalButton(deps, sendInput, deps.continueOnlyContentSid?.[input.language], ackText, "filing_defect_2_ack_send_failed")
+    : await sendFilingPlainText(deps, sendInput, ackText, "filing_defect_2_ack_send_failed");
+  return { delivered };
 }
 
 export async function handleFilingDefect2Input(deps: FilingDefectWorkflowDeps, input: FilingDefectDocumentInputEvent): Promise<FilingWorkflowResult> {
@@ -309,7 +328,15 @@ export async function handleFilingDefect2Input(deps: FilingDefectWorkflowDeps, i
   const action = parseFilingDocumentAction({ buttonPayload: input.buttonPayload, buttonText: input.buttonText, body: input.text });
 
   if (action !== "docs:continue") {
-    return { delivered: await sendFilingPlainText(deps, sendInput, DEFECT_2_UNRECOGNIZED_TEXT[input.language], "filing_defect_2_unrecognized_send_failed") };
+    return {
+      delivered: await sendFilingPromptWithOptionalButton(
+        deps,
+        sendInput,
+        deps.continueOnlyContentSid?.[input.language],
+        DEFECT_2_UNRECOGNIZED_TEXT[input.language],
+        "filing_defect_2_unrecognized_send_failed",
+      ),
+    };
   }
 
   let sawFiling = false;

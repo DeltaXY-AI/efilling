@@ -2,6 +2,7 @@ import {
   computeLimitationWindow,
   daysUntilIso,
   formatLimitationNoticeText,
+  isReturnReasonSkipId,
   isSkipSelection,
   parsePartPaymentSelection,
   parseReturnReasonSelection,
@@ -29,7 +30,8 @@ import {
   type FilingDetailsSenderDeps,
   type SendFilingDetailsMessageInput,
 } from "./filing-details-sender";
-import { sendFilingPlainText } from "./filing-sender";
+import { sendFilingPlainText, sendFilingPromptWithOptionalButton } from "./filing-sender";
+import { SKIP_BUTTON_ID } from "../domain/skip-button";
 import type { SupportedLanguage } from "./main-menu-sender";
 import { handleFilingWrittenAccountEntry } from "./filing-document-workflow";
 import { commitWithOutbound, finalizeOutbound } from "./transactional-outbound";
@@ -62,6 +64,14 @@ export interface FilingDetailsWorkflowDeps {
   messagingClient: TwilioMessagingClient;
   fromNumber: string;
   filingDetailsSenderDeps: FilingDetailsSenderDeps;
+  /**
+   * The "Done"/"Add sample files" quick-reply buttons, threaded through to
+   * filing-document-workflow.ts's handleFilingWrittenAccountEntry — this
+   * file has no template of its own for it. `undefined` until provisioned,
+   * in which case that falls back to its original plain-text prompt,
+   * unchanged.
+   */
+  continueSampleContentSid?: Record<SupportedLanguage, string>;
   withTransaction: <T>(fn: (tx: RepositoryTransaction) => Promise<T>) => Promise<T>;
 }
 
@@ -72,6 +82,8 @@ export interface FilingDetailsFieldInputEvent {
   language: SupportedLanguage;
   text: string;
   mediaCount: number;
+  /** Set when the inbound message was a button tap. Only ever meaningful for the "bankBranch"/"story" fields' Skip button — see handleTextFieldInput. */
+  buttonPayload?: string;
 }
 
 export interface FilingDetailsActionInput {
@@ -347,8 +359,30 @@ export function validateField(field: TextFieldKey, text: string): FieldValidatio
   return result.valid ? { valid: true, patch: result.normalized !== null ? { narrative: result.normalized } : {} } : { valid: false };
 }
 
+const SKIPPABLE_TEXT_FIELDS: ReadonlySet<TextFieldKey> = new Set(["bankBranch", "story"]);
+
+/**
+ * Sends field copy (a prompt or a validation error) plain, except for
+ * "bankBranch"/"story" — the only Skip-able text fields here — which go
+ * through the shared Skip quick-reply button whenever it's been provisioned
+ * (see FilingDetailsSenderDeps.fieldSkipContentSid), falling back to the
+ * exact same plain text otherwise.
+ */
+function sendFilingDetailsFieldMessage(
+  deps: { filingDetailsSenderDeps: FilingDetailsSenderDeps; messagingClient: TwilioMessagingClient; fromNumber: string },
+  sendInput: SendFilingDetailsMessageInput,
+  field: TextFieldKey,
+  text: string,
+  errorCode: string,
+): Promise<boolean> {
+  if (SKIPPABLE_TEXT_FIELDS.has(field)) {
+    return sendFilingPromptWithOptionalButton(deps, sendInput, deps.filingDetailsSenderDeps.fieldSkipContentSid?.[sendInput.language], text, errorCode);
+  }
+  return sendFilingPlainText(deps, sendInput, text, errorCode);
+}
+
 async function sendValidationError(deps: FilingDetailsWorkflowDeps, sendInput: SendFilingDetailsMessageInput, field: TextFieldKey): Promise<boolean> {
-  return sendFilingPlainText(deps, sendInput, ERROR_TEXT[field][sendInput.language], `filing_details_${field}_validation_error_send_failed`);
+  return sendFilingDetailsFieldMessage(deps, sendInput, field, ERROR_TEXT[field][sendInput.language], `filing_details_${field}_validation_error_send_failed`);
 }
 
 function nextStateFor(next: NextTarget): ConversationState {
@@ -366,7 +400,13 @@ function nextStateFor(next: NextTarget): ConversationState {
 async function handleTextFieldInput(deps: FilingDetailsWorkflowDeps, field: TextFieldKey, input: FilingDetailsFieldInputEvent): Promise<FilingWorkflowResult> {
   const sendInput = sendInputFor(input);
 
-  if (input.mediaCount > 0 && !input.text.trim()) {
+  // "bankBranch"/"story"'s Skip button taps in with no typed text at all —
+  // treat it exactly as the typed "skip" command it stands in for, so the
+  // rest of this function (and validateField's existing isSkip check) needs
+  // no other change.
+  const text = SKIPPABLE_TEXT_FIELDS.has(field) && (input.buttonPayload || "").trim() === SKIP_BUTTON_ID ? "skip" : input.text;
+
+  if (input.mediaCount > 0 && !text.trim()) {
     return { delivered: await sendValidationError(deps, sendInput, field) };
   }
 
@@ -376,7 +416,7 @@ async function handleTextFieldInput(deps: FilingDetailsWorkflowDeps, field: Text
   // existed.
   let patch: UpsertFilingFieldsInput | undefined;
   let usedConfirmShortcut = false;
-  if (CONFIRM_KEYWORDS.has(input.text.trim().toLowerCase())) {
+  if (CONFIRM_KEYWORDS.has(text.trim().toLowerCase())) {
     const currentValue = await currentFieldValue(deps, input.conversationId, field);
     if (currentValue) {
       patch = { [FIELD_TO_FILING_KEY[field]]: currentValue } as UpsertFilingFieldsInput;
@@ -384,7 +424,7 @@ async function handleTextFieldInput(deps: FilingDetailsWorkflowDeps, field: Text
     }
   }
   if (!patch) {
-    const validation = validateField(field, input.text);
+    const validation = validateField(field, text);
     if (!validation.valid || !validation.patch) {
       return { delivered: await sendValidationError(deps, sendInput, field) };
     }
@@ -517,9 +557,10 @@ async function handleTextFieldInput(deps: FilingDetailsWorkflowDeps, field: Text
     return { delivered };
   }
 
-  const delivered = await sendFilingPlainText(
+  const delivered = await sendFilingDetailsFieldMessage(
     deps,
     sendInput,
+    next,
     promptTextWithSuggestion(next, input.language, nextFieldSuggestion),
     `filing_details_${next}_prompt_send_failed`,
   );
@@ -582,7 +623,7 @@ export async function handleFilingReturnReasonInput(deps: FilingDetailsWorkflowD
   // rule as every parser in this codebase. Skip only applies to a typed
   // reply with no stable ID at all.
   const hasStableId = Boolean(input.selection.buttonPayload || input.selection.listId);
-  const skipped = !reason && !hasStableId && isSkipSelection(input.selection);
+  const skipped = (!reason && !hasStableId && isSkipSelection(input.selection)) || isReturnReasonSkipId(input.selection);
 
   if (!reason && !skipped) {
     return { delivered: await sendReturnReasonPrompt(deps.filingDetailsSenderDeps, sendInput) };
@@ -646,7 +687,7 @@ export async function handleFilingPartPaymentInput(deps: FilingDetailsWorkflowDe
     return { delivered: true };
   }
 
-  const delivered = await sendFilingPlainText(deps, sendInput, PROMPT_TEXT.story[input.language], "filing_details_story_prompt_send_failed");
+  const delivered = await sendFilingDetailsFieldMessage(deps, sendInput, "story", PROMPT_TEXT.story[input.language], "filing_details_story_prompt_send_failed");
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
   return { delivered };
 }
@@ -719,9 +760,10 @@ export async function resendFilingDetailsPromptForResume(
   const field = RESUMABLE_STEP_TO_FIELD[currentStep];
   if (field) {
     const storedValue = filing ? ((filing as unknown as Record<string, unknown>)[FIELD_TO_FILING_KEY[field]] as string | null) : null;
-    return sendFilingPlainText(
+    return sendFilingDetailsFieldMessage(
       deps,
       sendInput,
+      field,
       promptTextWithSuggestion(field, sendInput.language, storedValue),
       `filing_details_${field}_resume_prompt_send_failed`,
     );

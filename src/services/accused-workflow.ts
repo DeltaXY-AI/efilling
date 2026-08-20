@@ -7,6 +7,7 @@ import {
   type AccusedSelectionInput,
 } from "../domain/accused";
 import { validateAddress, validatePersonName } from "../domain/complainant";
+import { SKIP_BUTTON_ID } from "../domain/skip-button";
 import { sendFilingChequeNumberPrompt } from "./filing-details-workflow";
 import type { ConversationRepository, ConversationState } from "../repositories/conversation-repository";
 import type { FilingRecord, FilingRepository } from "../repositories/filing-repository";
@@ -21,7 +22,7 @@ import {
   type AccusedSenderDeps,
   type SendAccusedMessageInput,
 } from "./accused-sender";
-import { sendFilingPlainText } from "./filing-sender";
+import { sendFilingPlainText, sendFilingPromptWithOptionalButton } from "./filing-sender";
 import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from "./main-menu-sender";
 import { commitWithOutbound, finalizeOutbound } from "./transactional-outbound";
 
@@ -62,6 +63,8 @@ export interface AccusedFieldInputEvent {
   text: string;
   /** Number of media attachments on the inbound message — media-only input is rejected the same as any other invalid input (#11 Part G, mirroring #10 Part G). */
   mediaCount: number;
+  /** Set when the inbound message was a button tap. Only ever meaningful for the "phone" field's Skip button — see handleLinearFieldInput. */
+  buttonPayload?: string;
 }
 
 export interface AccusedActionInput {
@@ -277,8 +280,28 @@ function validateField(field: FieldKey, text: string): FieldValidationResult {
   return result.valid && result.normalized ? { valid: true, patch: { address: result.normalized } } : { valid: false };
 }
 
+/**
+ * Sends field copy (a prompt or a validation error) plain, except for
+ * "phone" — the only Skip-able linear field here — which goes through the
+ * shared Skip quick-reply button whenever it's been provisioned (see
+ * AccusedSenderDeps.fieldSkipContentSid), falling back to the exact same
+ * plain text otherwise.
+ */
+function sendAccusedFieldMessage(
+  deps: AccusedWorkflowDeps,
+  sendInput: SendAccusedMessageInput,
+  field: FieldKey,
+  text: string,
+  errorCode: string,
+): Promise<boolean> {
+  if (field === "phone") {
+    return sendFilingPromptWithOptionalButton(deps.accusedSenderDeps, sendInput, deps.accusedSenderDeps.fieldSkipContentSid?.[sendInput.language], text, errorCode);
+  }
+  return sendFilingPlainText(deps.accusedSenderDeps, sendInput, text, errorCode);
+}
+
 async function sendValidationError(deps: AccusedWorkflowDeps, sendInput: SendAccusedMessageInput, field: FieldKey): Promise<boolean> {
-  return sendFilingPlainText(deps.accusedSenderDeps, sendInput, ERROR_TEXT[field][sendInput.language], `accused_${field}_validation_error_send_failed`);
+  return sendAccusedFieldMessage(deps, sendInput, field, ERROR_TEXT[field][sendInput.language], `accused_${field}_validation_error_send_failed`);
 }
 
 /** Reads the active draft's persisted accused party fresh from the database — never from the current webhook body (#11 Part F/H). */
@@ -311,11 +334,17 @@ async function sendSummaryAndReview(deps: AccusedWorkflowDeps, sendInput: SendAc
 async function handleLinearFieldInput(deps: AccusedWorkflowDeps, field: FieldKey, input: AccusedFieldInputEvent): Promise<AccusedWorkflowResult> {
   const sendInput = sendInputFor(input);
 
-  if (input.mediaCount > 0 && !input.text.trim()) {
+  // The phone field's Skip button taps in with no typed text at all — treat
+  // it exactly as the typed "skip" command it stands in for, so the rest of
+  // this function (and validateField's existing isSkipCommand check) needs
+  // no other change.
+  const text = field === "phone" && (input.buttonPayload || "").trim() === SKIP_BUTTON_ID ? "skip" : input.text;
+
+  if (input.mediaCount > 0 && !text.trim()) {
     return { delivered: await sendValidationError(deps, sendInput, field) };
   }
 
-  const validation = validateField(field, input.text);
+  const validation = validateField(field, text);
   if (!validation.valid || !validation.patch) {
     return { delivered: await sendValidationError(deps, sendInput, field) };
   }
@@ -379,12 +408,7 @@ async function handleLinearFieldInput(deps: AccusedWorkflowDeps, field: FieldKey
     return { delivered };
   }
 
-  const delivered = await sendFilingPlainText(
-    deps.accusedSenderDeps,
-    sendInput,
-    PROMPT_TEXT[next][input.language],
-    `accused_${next}_prompt_send_failed`,
-  );
+  const delivered = await sendAccusedFieldMessage(deps, sendInput, next, PROMPT_TEXT[next][input.language], `accused_${next}_prompt_send_failed`);
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
   return { delivered };
 }
@@ -520,11 +544,17 @@ export async function handleAccusedEditEntityTypeInput(deps: AccusedWorkflowDeps
 async function handleEditFieldInput(deps: AccusedWorkflowDeps, field: FieldKey, input: AccusedFieldInputEvent): Promise<AccusedWorkflowResult> {
   const sendInput = sendInputFor(input);
 
-  if (input.mediaCount > 0 && !input.text.trim()) {
+  // The phone field's Skip button taps in with no typed text at all — treat
+  // it exactly as the typed "skip" command it stands in for, so the rest of
+  // this function (and validateField's existing isSkipCommand check) needs
+  // no other change.
+  const text = field === "phone" && (input.buttonPayload || "").trim() === SKIP_BUTTON_ID ? "skip" : input.text;
+
+  if (input.mediaCount > 0 && !text.trim()) {
     return { delivered: await sendValidationError(deps, sendInput, field) };
   }
 
-  const validation = validateField(field, input.text);
+  const validation = validateField(field, text);
   if (!validation.valid || !validation.patch) {
     return { delivered: await sendValidationError(deps, sendInput, field) };
   }
@@ -627,12 +657,7 @@ export async function handleAccusedEditFieldSelection(deps: AccusedWorkflowDeps,
     return { delivered: true };
   }
 
-  const delivered = await sendFilingPlainText(
-    deps.accusedSenderDeps,
-    sendInput,
-    PROMPT_TEXT[field][input.language],
-    `accused_edit_${field}_prompt_send_failed`,
-  );
+  const delivered = await sendAccusedFieldMessage(deps, sendInput, field, PROMPT_TEXT[field][input.language], `accused_edit_${field}_prompt_send_failed`);
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
   return { delivered };
 }
@@ -853,12 +878,7 @@ export async function resendAccusedPromptForResume(
 
   const field = RESUMABLE_STEP_TO_FIELD[filing.currentStep];
   if (field) {
-    return sendFilingPlainText(
-      deps.accusedSenderDeps,
-      sendInput,
-      PROMPT_TEXT[field][sendInput.language],
-      `accused_${field}_resume_prompt_send_failed`,
-    );
+    return sendAccusedFieldMessage(deps, sendInput, field, PROMPT_TEXT[field][sendInput.language], `accused_${field}_resume_prompt_send_failed`);
   }
 
   // Unreachable given filing-workflow.ts only calls this for steps in

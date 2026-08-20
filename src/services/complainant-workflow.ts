@@ -10,6 +10,7 @@ import {
   type ComplainantSelectionInput,
 } from "../domain/complainant";
 import { validateEnrolmentNumber } from "../domain/enrolment";
+import { SKIP_BUTTON_ID } from "../domain/skip-button";
 import type { ConversationRepository, ConversationState } from "../repositories/conversation-repository";
 import type { FilingRecord, FilingRepository } from "../repositories/filing-repository";
 import type { FilingPartyRecord, FilingPartyRepository, UpsertFilingPartyFieldsInput } from "../repositories/filing-party-repository";
@@ -25,7 +26,7 @@ import {
   type ComplainantSenderDeps,
   type SendComplainantMessageInput,
 } from "./complainant-sender";
-import { sendFilingPlainText } from "./filing-sender";
+import { sendFilingPlainText, sendFilingPromptWithOptionalButton } from "./filing-sender";
 import { sendMainMenu, type MainMenuSenderDeps, type SupportedLanguage } from "./main-menu-sender";
 import { commitWithOutbound, finalizeOutbound } from "./transactional-outbound";
 
@@ -69,6 +70,8 @@ export interface ComplainantFieldInputEvent {
   text: string;
   /** Number of media attachments on the inbound message — media-only input is rejected the same as any other invalid input (#10 Part G, mirroring #9 Part F). */
   mediaCount: number;
+  /** Set when the inbound message was a button tap. Only ever meaningful for the "email" field's Skip button — see handleLinearFieldInput. */
+  buttonPayload?: string;
 }
 
 export interface ComplainantActionInput {
@@ -328,12 +331,38 @@ function validateField(field: FieldKey, text: string): FieldValidationResult {
   return result.valid && result.normalized ? { valid: true, patch: { address: result.normalized } } : { valid: false };
 }
 
+/**
+ * Sends field copy (a prompt or a validation error) plain, except for
+ * "email" — the only Skip-able linear field here — which goes through the
+ * shared Skip quick-reply button whenever it's been provisioned (see
+ * ComplainantSenderDeps.fieldSkipContentSid), falling back to the exact
+ * same plain text otherwise.
+ */
+function sendComplainantFieldMessage(
+  deps: ComplainantWorkflowDeps,
+  sendInput: SendComplainantMessageInput,
+  field: FieldKey,
+  text: string,
+  errorCode: string,
+): Promise<boolean> {
+  if (field === "email") {
+    return sendFilingPromptWithOptionalButton(
+      deps.complainantSenderDeps,
+      sendInput,
+      deps.complainantSenderDeps.fieldSkipContentSid?.[sendInput.language],
+      text,
+      errorCode,
+    );
+  }
+  return sendFilingPlainText(deps.complainantSenderDeps, sendInput, text, errorCode);
+}
+
 async function sendValidationError(
   deps: ComplainantWorkflowDeps,
   sendInput: SendComplainantMessageInput,
   field: FieldKey,
 ): Promise<boolean> {
-  return sendFilingPlainText(deps.complainantSenderDeps, sendInput, ERROR_TEXT[field][sendInput.language], `complainant_${field}_validation_error_send_failed`);
+  return sendComplainantFieldMessage(deps, sendInput, field, ERROR_TEXT[field][sendInput.language], `complainant_${field}_validation_error_send_failed`);
 }
 
 /** Reads the active draft's persisted complainant party fresh from the database — never from the current webhook body (#10 Part F/H). */
@@ -374,11 +403,17 @@ async function handleLinearFieldInput(
 ): Promise<ComplainantWorkflowResult> {
   const sendInput = sendInputFor(input);
 
-  if (input.mediaCount > 0 && !input.text.trim()) {
+  // The email field's Skip button taps in with no typed text at all — treat
+  // it exactly as the typed "skip" command it stands in for, so the rest of
+  // this function (and validateField's existing isSkipCommand check) needs
+  // no other change.
+  const text = field === "email" && (input.buttonPayload || "").trim() === SKIP_BUTTON_ID ? "skip" : input.text;
+
+  if (input.mediaCount > 0 && !text.trim()) {
     return { delivered: await sendValidationError(deps, sendInput, field) };
   }
 
-  const validation = validateField(field, input.text);
+  const validation = validateField(field, text);
   if (!validation.valid || !validation.patch) {
     return { delivered: await sendValidationError(deps, sendInput, field) };
   }
@@ -433,12 +468,7 @@ async function handleLinearFieldInput(
     return { delivered: summaryDelivered && reviewDelivered };
   }
 
-  const delivered = await sendFilingPlainText(
-    deps.complainantSenderDeps,
-    sendInput,
-    PROMPT_TEXT[next][input.language],
-    `complainant_${next}_prompt_send_failed`,
-  );
+  const delivered = await sendComplainantFieldMessage(deps, sendInput, next, PROMPT_TEXT[next][input.language], `complainant_${next}_prompt_send_failed`);
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
   return { delivered };
 }
@@ -506,7 +536,7 @@ export async function handleComplainantRoleInput(deps: ComplainantWorkflowDeps, 
     return { delivered: true };
   }
 
-  const delivered = await sendFilingPlainText(deps.complainantSenderDeps, sendInput, PROMPT_TEXT[next][input.language], `complainant_${next}_prompt_send_failed`);
+  const delivered = await sendComplainantFieldMessage(deps, sendInput, next, PROMPT_TEXT[next][input.language], `complainant_${next}_prompt_send_failed`);
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
   return { delivered };
 }
@@ -523,11 +553,17 @@ async function handleEditFieldInput(
 ): Promise<ComplainantWorkflowResult> {
   const sendInput = sendInputFor(input);
 
-  if (input.mediaCount > 0 && !input.text.trim()) {
+  // The email field's Skip button taps in with no typed text at all — treat
+  // it exactly as the typed "skip" command it stands in for, so the rest of
+  // this function (and validateField's existing isSkipCommand check) needs
+  // no other change.
+  const text = field === "email" && (input.buttonPayload || "").trim() === SKIP_BUTTON_ID ? "skip" : input.text;
+
+  if (input.mediaCount > 0 && !text.trim()) {
     return { delivered: await sendValidationError(deps, sendInput, field) };
   }
 
-  const validation = validateField(field, input.text);
+  const validation = validateField(field, text);
   if (!validation.valid || !validation.patch) {
     return { delivered: await sendValidationError(deps, sendInput, field) };
   }
@@ -710,12 +746,7 @@ export async function handleComplainantEditFieldSelection(
     return { delivered: true };
   }
 
-  const delivered = await sendFilingPlainText(
-    deps.complainantSenderDeps,
-    sendInput,
-    PROMPT_TEXT[field][input.language],
-    `complainant_edit_${field}_prompt_send_failed`,
-  );
+  const delivered = await sendComplainantFieldMessage(deps, sendInput, field, PROMPT_TEXT[field][input.language], `complainant_edit_${field}_prompt_send_failed`);
   await finalizeOutbound(deps, commit.outboundIds[0], delivered);
   return { delivered };
 }
@@ -945,12 +976,7 @@ export async function resendComplainantPromptForResume(
 
   const field = RESUMABLE_STEP_TO_FIELD[filing.currentStep];
   if (field) {
-    return sendFilingPlainText(
-      deps.complainantSenderDeps,
-      sendInput,
-      PROMPT_TEXT[field][sendInput.language],
-      `complainant_${field}_resume_prompt_send_failed`,
-    );
+    return sendComplainantFieldMessage(deps, sendInput, field, PROMPT_TEXT[field][sendInput.language], `complainant_${field}_resume_prompt_send_failed`);
   }
 
   // Unreachable given filing-workflow.ts only calls this for steps in

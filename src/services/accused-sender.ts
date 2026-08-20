@@ -20,6 +20,13 @@ export interface AccusedSenderDeps {
   editFieldsContentSid: Record<SupportedLanguage, string>;
   /** #33 Part B — the entity-type quick-reply (Individual / Proprietor of a firm / Company-partnership). */
   entityTypeContentSid: Record<SupportedLanguage, string>;
+  /**
+   * The shared "Skip" quick-reply button (filing-sender.ts's
+   * sendFilingPromptWithOptionalButton), used only for the optional phone
+   * field. `undefined` until provisioned — phone then falls back to its
+   * original plain-text "reply Skip" prompt, unchanged.
+   */
+  fieldSkipContentSid?: Record<SupportedLanguage, string>;
 }
 
 export interface SendAccusedMessageInput {

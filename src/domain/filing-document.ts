@@ -88,6 +88,14 @@ export type FilingDocumentAction = "docs:continue" | "docs:use-sample-files";
 
 const CONTINUE_STABLE_ID = "docs:continue";
 
+// A stable button ID for the sample-files shortcut, added alongside
+// CONTINUE_STABLE_ID once a real WhatsApp button existed for it (the
+// "filing-doc-continue"/"filing-doc-continue-only" quick-reply templates) —
+// see filing-document-workflow.ts/filing-defect-workflow.ts's optional
+// contentSid-driven prompts. Typed "sample"/"demo files" (below) still work
+// unchanged; this is purely additive.
+const SAMPLE_STABLE_ID = "docs:use-sample-files";
+
 // Text fallbacks: "done"/"continue" for required groups, plus "skip" (reusing
 // this codebase's established Skip synonym from complainant-workflow.ts's
 // optional email field) since the optional `support` group's minimum of 0 is
@@ -102,12 +110,11 @@ const CONTINUE_TEXT_TO_ACTION: Record<string, FilingDocumentAction> = {
   "ഒഴിവാക്കുക": "docs:continue",
 };
 
-// A typed-only shortcut (no button — there is no real WhatsApp equivalent
-// of a native "Add sample files" picker button) that fills the current
-// group with a fixed set of canned demo files instead of a real upload, for
-// testing/demoing this flow without needing real photos. Never a stable
-// button ID, so it only ever matches typed text, checked alongside
-// CONTINUE_TEXT_TO_ACTION above.
+// A testing/demo shortcut that fills the current group with a fixed set of
+// canned demo files instead of a real upload, for testing/demoing this flow
+// without needing real photos. Also reachable via SAMPLE_STABLE_ID (the
+// "Add sample files" quick-reply button, above), checked alongside
+// CONTINUE_TEXT_TO_ACTION here for the typed fallback.
 const SAMPLE_FILES_TEXT_TO_ACTION: Record<string, FilingDocumentAction> = {
   sample: "docs:use-sample-files",
   "sample files": "docs:use-sample-files",
@@ -127,17 +134,19 @@ export interface FilingDocumentSelectionInput {
 /**
  * Resolves "docs:continue" (a stable ButtonPayload, or typed
  * "done"/"continue"/"skip", English or Malayalam) or "docs:use-sample-files"
- * (typed "sample"/"demo files" etc. only — this shortcut has no button). A
- * supplied stable ID is authoritative — same rule as every other action
- * parser in this codebase: if present, it's either "docs:continue" or
- * `null`, never a fallback into text matching. Returns `null` for anything
- * else, including the media messages themselves (those are handled
- * separately, never through this parser).
+ * (a stable ButtonPayload, or typed "sample"/"demo files" etc., English or
+ * Malayalam). A supplied stable ID is authoritative — same rule as every
+ * other action parser in this codebase: if present, it's one of the two
+ * known actions or `null`, never a fallback into text matching. Returns
+ * `null` for anything else, including the media messages themselves (those
+ * are handled separately, never through this parser).
  */
 export function parseFilingDocumentAction(input: FilingDocumentSelectionInput): FilingDocumentAction | null {
   const stableId = (input.buttonPayload || "").trim();
   if (stableId) {
-    return stableId === CONTINUE_STABLE_ID ? CONTINUE_STABLE_ID : null;
+    if (stableId === CONTINUE_STABLE_ID) return CONTINUE_STABLE_ID;
+    if (stableId === SAMPLE_STABLE_ID) return SAMPLE_STABLE_ID;
+    return null;
   }
 
   const bodyText = (input.body || "").trim().toLowerCase();
